@@ -1,11 +1,11 @@
 $backendTag = $args[0];
 
-$purpleA11yDirectory = 'C:\Program Files\Purple A11y Desktop';
-$purpleA11yBackendDirectory = 'C:\Program Files\Purple A11y Desktop\Purple A11y Backend';
-$purpleA11yBackendPHDirectory = 'C:\Program Files\Purple A11y Desktop\Purple A11y Backend\purple-a11y';
+$purpleA11yDirectory = 'C:\Program Files\Oobee Desktop';
+$purpleA11yBackendDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend';
+$purpleA11yBackendPHDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend\oobee';
 $backendReleaseUrl = "https://github.com/GovTechSG/oobee/releases/download/$backendTag/oobee-portable-windows.zip";
-$backendZipPath = 'C:\Program Files\Purple A11y Desktop\oobee-portable-windows.zip';
-$backendUnzipPath = 'C:\Program Files\Purple A11y Desktop\Purple A11y Backend';
+$backendZipPath = 'C:\Program Files\Oobee Desktop\oobee-portable-windows.zip';
+$backendUnzipPath = 'C:\Program Files\Oobee Desktop\Oobee Backend';
 
 $command = 
 @" 

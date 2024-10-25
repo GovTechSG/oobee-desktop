@@ -417,8 +417,8 @@ const mailResults = async (formDetails, scanId) => {
     $mail.subject = "${subject}"
     $mail.body = "Hi there,
     
-Please see the attached accessibility scan results with Purple A11y (report.html).
-You can download Purple A11y at the following link: https://go.gov.sg/get-purplea11y.
+Please see the attached accessibility scan results with Oobee (report.html).
+You can download Oobee at the following link: https://go.gov.sg/get-purplea11y.
 
 Feel free to reach us at accessibility@tech.gov.sg if you have any questions.
 
