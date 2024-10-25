@@ -1,6 +1,6 @@
 # Installation Guide
 
-Oobee Desktop is provided as a portable distribution which minimises installation steps required for Windows and Mac.
+Oobee Desktop (formerly known as Purple A11y) is provided as a portable distribution which minimises installation steps required for Windows and Mac.
 
 ## About Oobee
 
