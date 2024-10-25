@@ -6,6 +6,8 @@ Oobee (formerly known as Purple A11y) is provided as a portable distribution whi
 
 Oobee is a customisable, automated accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services.
 
+To install the **user-friendly desktop application** for Oobee, you may continue following the installation guide on this page. For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee/blob/master/INSTALLATION.md) instead.
+
 ## System Requirements
 
 * Oobee can run on MacOS Big Sur or above, and a [supported](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client) version of Windows 10 (64-bit) or Windows 11.
