@@ -52,7 +52,7 @@ To install the **user-friendly desktop application** for Oobee, you may continue
 * Download [oobee-desktop-macos.zip](https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-macos.zip).
 * If Oobee app does not appear in your Downloads folder, double-click the Oobee file.
 
-> Tip: To extract files in Mac, double-click on `oobee-desktop-macos.zip` file, which is usually saved to your Downloads folder. A new app `Oobee` with the a11y icon will appear.  Drag or move `Oobee` app to your Applications folder for easy access.
+> Tip: To extract files in Mac, double-click on `oobee-desktop-macos.zip` file, which is usually saved to your Downloads folder. A new app `Oobee` with the Oobee icon will appear.  Drag or move `Oobee` app to your Applications folder for easy access.
 
 ### Run Oobee (MacOS)
 
