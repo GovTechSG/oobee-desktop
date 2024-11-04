@@ -94,9 +94,9 @@ With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/site
 
 #### Custom Flow
 
-Custom flow is used to scan Single-Page Applications (SPAs) or websites that require user authentication. 2 pop-up windows will appear after running the scan. The browser pop-up window will be used to record your actions, proceed with your actions as you would normally do on the website and close the browser window when you are done. The second window is used to log the actions in code (**do not close the second window** until the scan is completed).
+Custom flow is used to scan Single-Page Applications (SPAs) or websites. Each page-scan is initiated by the user that is triggered via clicking the _`Scan this page`_ button. Once the specific user flow is completed and scanned, close the browser to automatically generate the Custom Flow Report.
 
-![Custom Flow Browser](https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/c5962e1d-80c4-430d-853f-37009302c19d)
+![Screenshot 2024-11-04 at 11 08 36 AM](https://github.com/user-attachments/assets/9055ad9c-5dee-47a2-a01e-4d4d91be88cc)
 
 ### Viewport Options
 
