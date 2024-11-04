@@ -1,6 +1,8 @@
-# Oobee Desktop
+# Oobee
 
-Oobee Desktop (formerly known as Purple A11y) is a desktop frontend for [Oobee](https://github.com/GovTechSG/oobee) an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/get-purplea11y](https://go.gov.sg/get-purplea11y). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
+Oobee (formerly known as Purple A11y) is an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/oobee](https://go.gov.sg/oobee). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
+
+For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee) instead.
 
 <img alt="Oobee Desktop main screen" src="https://github.com/user-attachments/assets/3992115c-d237-4d66-b247-a541a2a49f9e">
 
@@ -11,14 +13,14 @@ Oobee Desktop (formerly known as Purple A11y) is a desktop frontend for [Oobee](
 
 ## Installations
 
-### Download Oobee Desktop
+### Download Oobee
 
-Oobee Desktop is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
+Oobee is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
 
 ### Development and Testing
 
 #### Set Engine Version
-First open terminal and navigate to the location of clone respository of Oobee Desktop.
+First open terminal and navigate to the location of clone respository of Oobee.
 
 Then export BE_TAG to set version of Oobee (engine).
 
@@ -41,13 +43,13 @@ This will create a folder in your repository in the *out* folder.
 Enter and run the Oobee.app in the newly created folder in ../out.
 
 #### Run and Debug
-Enter the code below to build Oobee Desktop.
+Enter the code below to build Oobee.
 
 ```shell
 npm run build
 ```
 
-Finally to start Oobee Desktop enter the code below.
+Finally to start Oobee enter the code below.
 
 ```shell
 npm run start
@@ -84,11 +86,11 @@ Click on the "Advanced scan options" button to configure the scan options.
 
 #### Website Crawl
 
-The default scan option for Oobee Desktop. Oobee Desktop will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+The default scan option for Oobee. Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Sitemap Crawl
 
-With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and Oobee Desktop will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Custom Flow
 
@@ -247,6 +249,6 @@ For details on which accessibility scan results trigger "Must Fix" / "Good to Fi
 
 ## Additional Information on Data
 
-Oobee Desktop uses third-party open-source tools that may be downloaded over the Internet during the installation process of Oobee. Users should be aware of the libraries used by examining `package.json`.
+Oobee uses third-party open-source tools that may be downloaded over the Internet during the installation process of Oobee. Users should be aware of the libraries used by examining `package.json`.
 
-Oobee Desktop may send information to the website or URL where the user chooses to initiate a Oobee scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.
+Oobee may send information to the website or URL where the user chooses to initiate a Oobee scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.
