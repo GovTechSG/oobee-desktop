@@ -258,7 +258,9 @@ const startScan = async (scanDetails, scanEvent) => {
           .split(" ")[0];
         const scanId = randomUUID();
         scanHistory[scanId] = resultsPath;
-        scan.kill("SIGKILL");
+
+        // Do not add scan kill here as it will kill clean up processes
+        // scan.kill("SIGKILL");
         currentChildProcess = null;
         await cleanUpIntermediateFolders(resultsPath);
         resolve({ success: true, scanId });
