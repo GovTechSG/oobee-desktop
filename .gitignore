@@ -121,6 +121,7 @@ dist
 
 # testing
 /coverage
+/testFolder
 
 # production
 /build
