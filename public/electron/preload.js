@@ -1,3 +1,5 @@
+// DEV Receives info from main.js, and sends messages to renderers ie .jsx files
+
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('services', {

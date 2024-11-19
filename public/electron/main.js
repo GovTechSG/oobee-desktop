@@ -1,3 +1,5 @@
+// DEV Receives info from scanManager.js, and sends messages to preload.js
+
 const {
   app: electronApp,
   BrowserWindow,

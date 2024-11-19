@@ -19,6 +19,8 @@ const ScanningComponent = ({ scanningMessage }) => {
       window.services.scanningUrl((urlItem) => {
         if (urlItem.status === 'scanned') {
           const currDisplayPageNum = urlItem.urlScannedNum
+          // TODO: Testcode, remove when raising PR
+          // const currDisplayPageNum = urlItem.indexOfRandomUrl
           setDisplayPageNum(currDisplayPageNum)
           setPagesScanned(currDisplayPageNum + 1)
         } else {
@@ -35,6 +37,7 @@ const ScanningComponent = ({ scanningMessage }) => {
         setUrlItemComponents(newUrlItemComponents)
       })
 
+      // DEV scanningCompleted here refers to the scanning of a single url page, and not the entire scan
       window.services.scanningCompleted(() => {
         setDisplayPageNum(pagesScanned)
         const completedUrlItems = [
@@ -86,6 +89,9 @@ const ScanningComponent = ({ scanningMessage }) => {
       <li className={urlItemClassName} key={index}>
         {statusIcon()}
         <p className="scanning-url">{urlItem.url}</p>
+        {/* // TODO: Testcode, remove when raising PR
+         */}
+        {/* <p className="scanning-url">{urlItem.randomUrl}</p> */}
       </li>
     )
   }
