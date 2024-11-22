@@ -237,6 +237,10 @@ const startScan = async (scanDetails, scanEvent) => {
 
     scan.stdout.setEncoding('utf8')
     scan.stdout.on('data', async (data) => {
+      // DEV This data is being sent from logs.ts via the Oobee Backend engine
+      // console.log(
+      //   `In scanManager.js, stdout data is: ${JSON.stringify(data, null, 2)}`
+      // )
       if (killChildProcessSignal) {
         scan.kill('SIGKILL')
         currentChildProcess = null
@@ -286,6 +290,42 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log(urlScannedNum, ': ', status, ': ', url)
         scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
       }
+
+      /* --- START: Modified Code --- */
+
+      let globalIndex = 1
+
+      async function emitUrls(numItems) {
+        for (let i = 0; i < numItems; i++) {
+          const currentIndex = globalIndex + i
+
+          await new Promise((resolve) => {
+            setTimeout(() => {
+              const status = 'scanned'
+              const randomUrl = `https://example.com/page/${currentIndex}`
+
+              scanEvent.emit('scanningUrl', {
+                status,
+                randomUrl,
+                indexOfRandomUrl: currentIndex,
+              })
+
+              console.log(`Emitting after delay: ${currentIndex}: ${randomUrl}`)
+              resolve()
+            }, 500) // 0.5s delay
+          })
+        }
+      }
+
+      if (data.includes('crawling::')) {
+        const numItems = 15000 // Value to simulate overload of urls
+
+        await emitUrls(numItems)
+
+        globalIndex += numItems
+      }
+
+      /* --- END: Modified Code --- */
 
       if (data.includes('Starting scan')) {
         console.log(data)

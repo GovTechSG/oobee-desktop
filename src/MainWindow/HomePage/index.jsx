@@ -230,7 +230,9 @@ const HomePage = ({ isProxy, appVersionInfo, setCompletedScanId }) => {
         if (scanDetails.scanType === 'Custom flow') {
           navigate('/custom_flow', { state: { scanDetails } })
         } else {
-          navigate('/result')
+          // TODO: Testcode, remove when raising PR
+          // Line commented out for testing
+          // navigate('/result')
         }
         return
       } else {
