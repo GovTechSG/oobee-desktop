@@ -16,8 +16,8 @@ DisableDirPage=yes
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
 ; LicenseFile=Oobee-win32-x64\LICENSE
-; Uncomment the following line to run in non administrative install mode (install for current user only.)
-;PrivilegesRequired=lowest
+; Required for installing Windows features
+PrivilegesRequired=admin
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -31,14 +31,18 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "Oobee-win32-x64\*"; DestDir: "\\?\{app}\Oobee Frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "D:\a\Oobee Backend\*"; DestDir: "\\?\{app}\Oobee Backend"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "Install-WMIC.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
 Name: "{autoprograms}\Oobee Desktop"; Filename: "C:\Program Files\Oobee Desktop\Oobee Frontend\Oobee.exe"
 Name: "{autodesktop}\Oobee Desktop"; Filename: "C:\Program Files\Oobee Desktop\Oobee Frontend\Oobee.exe"; Tasks: desktopicon
 
-; [Run]
-; Filename: "C:\Program Files\Oobee\Oobee Frontend\Oobee.exe"; Description: "{cm:LaunchProgram,Oobee Desktop}"; Flags: nowait postinstall skipifsilent
+[Run]
+; Install WMIC before running the application
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-WMIC.ps1"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing required Windows components..."
+; Launch the application after installation if selected
+Filename: "C:\Program Files\Oobee Desktop\Oobee Frontend\Oobee.exe"; Description: "{cm:LaunchProgram,Oobee Desktop}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "C:\Program Files\Oobee\Oobee Frontend"
