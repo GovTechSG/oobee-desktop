@@ -31,7 +31,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "Oobee-win32-x64\*"; DestDir: "\\?\{app}\Oobee Frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "D:\a\Oobee Backend\*"; DestDir: "\\?\{app}\Oobee Backend"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "Install-WMIC.ps1""; DestDir: "\\?\{app}"; Flags: ignoreversion
+Source: "Install-WMIC.ps1"; DestDir: "\\?\{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
