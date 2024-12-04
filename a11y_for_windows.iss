@@ -41,7 +41,7 @@ Name: "{autodesktop}\Oobee Desktop"; Filename: "C:\Program Files\Oobee Desktop\O
 ; [Run]
 ; Filename: "C:\Program Files\Oobee\Oobee Frontend\Oobee.exe"; Description: "{cm:LaunchProgram,Oobee Desktop}"; Flags: nowait postinstall skipifsilent
 ; Add WMIC installation before running your application
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-WMIC.ps1"""; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""C:\Program Files\Oobee Desktop\Install-WMIC.ps1"""; Description: "{cm:LaunchProgram,Install required Windows features}"; Flags: postinstall waituntilterminated
 
 [UninstallDelete]
 Type: filesandordirs; Name: "C:\Program Files\Oobee\Oobee Frontend"
