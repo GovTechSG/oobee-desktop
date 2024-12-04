@@ -1,7 +1,7 @@
 # Testing 
 
 ## Functional Testing 
-Functional testing was conducted for the happy flow of the desktop app for Purple A11y. The test cases were written using Microsoft Playwright, which is an end-to-end testing framework that has its own test runner Playwright Test. 
+Functional testing was conducted for the happy flow of the desktop app for Oobee. The test cases were written using Microsoft Playwright, which is an end-to-end testing framework that has its own test runner Playwright Test. 
 
 ### How to run test cases 
 1. Run the following command to build the application before running the tests. 
@@ -16,7 +16,7 @@ Functional testing was conducted for the happy flow of the desktop app for Purpl
    npx playwright test --worker 1 
 ```
 - Parallel \
-Currently, Purple A11y does not support multiple instances of the application running in parallel so running the tests in parallel will result in errors. 
+Currently, Oobee does not support multiple instances of the application running in parallel so running the tests in parallel will result in errors. 
 
 ```
    npx playwright test 

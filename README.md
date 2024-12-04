@@ -1,8 +1,10 @@
-# Purple A11y Desktop
+# Oobee
 
-Purple A11y Desktop is a desktop frontend for [Purple A11y](https://github.com/GovTechSG/purple-a11y) an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/get-purplea11y](https://go.gov.sg/get-purplea11y). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
+Oobee (formerly known as Purple A11y) is an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/oobee](https://go.gov.sg/oobee). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
 
-<img alt="Purple A11y Desktop main screen" src="https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/8eb8268e-80dd-4aff-b004-a4e7b8949ebc">
+For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee) instead.
+
+<img alt="Oobee Desktop main screen" src="https://github.com/user-attachments/assets/3992115c-d237-4d66-b247-a541a2a49f9e">
 
 ## Technology Stack
 
@@ -11,16 +13,16 @@ Purple A11y Desktop is a desktop frontend for [Purple A11y](https://github.com/G
 
 ## Installations
 
-### Download Purple A11y Desktop
+### Download Oobee
 
-Purple A11y Desktop is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
+Oobee is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
 
 ### Development and Testing
 
 #### Set Engine Version
-First open terminal and navigate to the location of clone respository of Purple A11y Desktop.
+First open terminal and navigate to the location of clone respository of Oobee.
 
-Then export BE_TAG to set version of Purple A11y (engine).
+Then export BE_TAG to set version of Oobee (engine).
 
 ```shell
 export BE_TAG=0.9.48<version number>
@@ -38,26 +40,26 @@ npm run make-win
 ```
 
 This will create a folder in your repository in the *out* folder.
-Enter and run the Purple Ally.app in the newly created folder in ../out.
+Enter and run the Oobee.app in the newly created folder in ../out.
 
 #### Run and Debug
-Enter the code below to build Purple A11y Desktop.
+Enter the code below to build Oobee.
 
 ```shell
 npm run build
 ```
 
-Finally to start Purple A11y Desktop enter the code below.
+Finally to start Oobee enter the code below.
 
 ```shell
 npm run start
 ```
 
-An application window should be open with the inserted version. You mahy debug the app through Terminal / PowerShell window.
+An application window should be open with the inserted version. You may debug the app through Terminal / PowerShell window.
 
 #### Facing issues?
 
-Open an [issue ticket](https://github.com/GovTechSG/purple-a11y-desktop/issues) for assistance.
+Open an [issue ticket](https://github.com/GovTechSG/oobee-desktop/issues) for assistance.
 
 ---
 
@@ -66,35 +68,35 @@ Open an [issue ticket](https://github.com/GovTechSG/purple-a11y-desktop/issues) 
 
 Enter a valid URL to scan in the textbox and press the "Scan" button.  The default settings will crawl your website and scan 100 pages for accessibility issues.
 
-![Purple A11y Desktop main page](https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/7d114637-6337-4f68-a8a4-a7673c4601ef)
+![Oobee Desktop main page](https://github.com/user-attachments/assets/94d19cf8-88e4-46c3-b5d6-647b7c615a6e)
 
 ## Limiting pages scanned
 
 If you find a scan takes too long to complete due to large website, or there are too many pages in a sitemap to scan, you may choose to limit number of pages scanned. Click on the drop down and enter the desired number of pages to scan.
 
-![Limit Scan Pages](https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/4bfb1125-138e-4720-9db0-a046a4b1f495)
+![Limit Scan Pages](https://github.com/user-attachments/assets/b0180bd4-bd98-44f8-a8ea-9f73f29b7538)
 
 ## Advanced scan options
 
 Click on the "Advanced scan options" button to configure the scan options.
 
-![Advanced Scan Options](https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/caf2c1a6-1acf-433d-9843-3482666ac377)
+![Advanced Scan Options](https://github.com/user-attachments/assets/58bbbf47-30f6-4751-bbb8-b8d6243f5187)
 
 ### Scan Type Selection
 
 #### Website Crawl
 
-The default scan option for Purple A11y desktop. Purple A11y Desktop will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+The default scan option for Oobee. Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Sitemap Crawl
 
-With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and Purple A11y Desktop will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Custom Flow
 
-Custom flow is used to scan Single-Page Applications (SPAs) or websites that require user authentication. 2 pop-up windows will appear after running the scan. The browser pop-up window will be used to record your actions, proceed with your actions as you would normally do on the website and close the browser window when you are done. The second window is used to log the actions in code (**do not close the second window** until the scan is completed).
+Custom flow is used to scan Single-Page Applications (SPAs) or websites. Each page-scan is initiated by the user that is triggered via clicking the _`Scan this page`_ button. Once the specific user flow is completed and scanned, close the browser to automatically generate the Custom Flow Report.
 
-![Custom Flow Browser](https://github.com/GovTechSG/purple-a11y-desktop/assets/2021525/c5962e1d-80c4-430d-853f-37009302c19d)
+![Screenshot 2024-11-04 at 11 08 36 AM](https://github.com/user-attachments/assets/9055ad9c-5dee-47a2-a01e-4d4d91be88cc)
 
 ### Viewport Options
 
@@ -243,10 +245,10 @@ An Address link to report is provided. Click on the link to access the location 
 You can also click on the view report button to see the Accessibility Scan Results.
 
 ## Accessibility Scan Results
-For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/purple-a11y/blob/master/DETAILS.md).
+For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/oobee/blob/master/DETAILS.md).
 
 ## Additional Information on Data
 
-Purple A11y Desktop uses third-party open-source tools that may be downloaded over the Internet during the installation process of Purple A11y. Users should be aware of the libraries used by examining `package.json`.
+Oobee uses third-party open-source tools that may be downloaded over the Internet during the installation process of Oobee. Users should be aware of the libraries used by examining `package.json`.
 
-Purple A11y Desktop may send information to the website or URL where the user chooses to initiate a Purple A11y scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.
+Oobee may send information to the website or URL where the user chooses to initiate a Oobee scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.

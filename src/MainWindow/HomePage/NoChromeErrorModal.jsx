@@ -13,7 +13,7 @@ const NoChromeErrorModal = ({showModal, setShowModal}) => {
             showModal={showModal}
             showHeader={true}
             modalTitle={'Please install Google Chrome'}
-            modalBody={'To run a scan using Purple A11y, please install Google Chrome.'}
+            modalBody={'To run a scan using Oobee, please install Google Chrome.'}
             modalFooter={
                 <button className='btn-primary modal-button modal-full-button' onClick={(e) => onClickInstallChrome(e)}>Download Google Chrome</button>
             }

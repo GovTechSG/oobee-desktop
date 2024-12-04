@@ -133,7 +133,7 @@ const validateUrlConnectivity = async (scanDetails) => {
   const response = await new Promise(async (resolve) => {
     const check = spawn(
       "node",
-      [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
+      [`--max-old-space-size=6144`,`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
       {
         cwd: resultsPath,
         env: {
@@ -258,7 +258,9 @@ const startScan = async (scanDetails, scanEvent) => {
           .split(" ")[0];
         const scanId = randomUUID();
         scanHistory[scanId] = resultsPath;
-        scan.kill("SIGKILL");
+
+        // Do not add scan kill here as it will kill clean up processes
+        // scan.kill("SIGKILL");
         currentChildProcess = null;
         await cleanUpIntermediateFolders(resultsPath);
         resolve({ success: true, scanId });
@@ -417,8 +419,8 @@ const mailResults = async (formDetails, scanId) => {
     $mail.subject = "${subject}"
     $mail.body = "Hi there,
     
-Please see the attached accessibility scan results with Purple A11y (report.html).
-You can download Purple A11y at the following link: https://go.gov.sg/get-purplea11y.
+Please see the attached accessibility scan results with Oobee (report.html).
+You can download Oobee at the following link: https://go.gov.sg/oobee.
 
 Feel free to reach us at accessibility@tech.gov.sg if you have any questions.
 
