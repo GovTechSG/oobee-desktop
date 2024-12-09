@@ -10,7 +10,7 @@ To install the **user-friendly desktop application** for Oobee, you may continue
 
 ## System Requirements
 
-* Oobee can run on MacOS Big Sur or above, and a [supported](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client) version of Windows 10 (64-bit) or Windows 11.
+* Oobee can run on MacOS version 12 Monterey or above, and a [supported](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client) version of Windows 10 (64-bit) or Windows 11.
 * Google Chrome browser is [installed](https://www.google.com/chrome).
 * One-time Internet access is needed to download and install Oobee.
 * You are recommended to be logged on to an admin user to run Oobee.
