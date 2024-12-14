@@ -31,6 +31,8 @@ const AdvancedScanOptions = ({
   const [isCustomChecksMouseEvent, setIsCustomChecksMouseEvent] =
     useState(false)
   const [showCustomChecksTooltip, setShowCustomChecksTooltip] = useState(false)
+  const [isWcagAaaMouseEvent, setIsWcagAaaMouseEvent] = useState(false)
+  const [showWcagAaaTooltip, setShowWcagAaaTooltip] = useState(false)
 
   const menu = useRef()
 
@@ -81,6 +83,17 @@ const AdvancedScanOptions = ({
   const handleCustomChecksOnMouseEnter = () => {
     setShowCustomChecksTooltip(false)
     setIsCustomChecksMouseEvent(true)
+  }
+
+  const handleWcagAaaOnFocus = () => {
+    if (!isWcagAaaMouseEvent) {
+      setShowWcagAaaTooltip(true)
+    }
+  }
+
+  const handleWcagAaaOnMouseEnter = () => {
+    setShowWcagAaaTooltip(false)
+    setIsWcagAaaMouseEvent(true)
   }
   /*
   by default, new value of the selected option will be set to event.target.value
@@ -331,6 +344,49 @@ const AdvancedScanOptions = ({
                 </div>
               </div>
               {/* END: Custom Checks */}
+              {/* START: WCAG AAA */}
+              <div
+                id="wcag-aaa-toggle-group"
+                class="advanced-options-toggle-group"
+              >
+                <input
+                  type="checkbox"
+                  id="wcag-aaa-toggle"
+                  class="advanced-options-toggle"
+                  onFocus={() => handleWcagAaaOnFocus()}
+                  onBlur={() => setShowWcagAaaTooltip(false)}
+                  onMouseEnter={() => handleWcagAaaOnMouseEnter()}
+                  onMouseLeave={() => setIsWcagAaaMouseEvent(false)}
+                  aria-describedby="wcag-aaa-tooltip"
+                  checked={advancedOptions.wcagAaa}
+                  onChange={handleSetAdvancedOption(
+                    'wcagAaa',
+                    (e) => e.target.checked
+                  )}
+                />
+                <label htmlFor="wcag-aaa-toggle">Enable WCAG AAA checks</label>
+                <div className="custom-tooltip-container">
+                  <ToolTip
+                    description={
+                      'Include checks that meet the highest level of WCAG conformance.'
+                    }
+                    id="wcag-aaa-tooltip"
+                    showToolTip={showWcagAaaTooltip}
+                  />
+                  <img
+                    className="tooltip-img"
+                    src={questionMarkIcon}
+                    checked={advancedOptions.wcagAaa}
+                    aria-describedby="wcag-aaa-tooltip"
+                    onFocus={() => handleWcagAaaOnFocus()}
+                    onBlur={() => setShowWcagAaaTooltip(false)}
+                    onMouseEnter={() => setShowWcagAaaTooltip(true)}
+                    onMouseLeave={() => setShowWcagAaaTooltip(false)}
+                    alt="tooltip icon for safe scan mode"
+                  />
+                </div>
+              </div>
+              {/* END: WCAG AAA */}
               <div
                 id="follow-robots-toggle-group"
                 class="advanced-options-toggle-group"
