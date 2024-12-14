@@ -28,6 +28,9 @@ const AdvancedScanOptions = ({
     useState(false)
   const [showMaxConcurrencyTooltip, setShowMaxConcurrencyTooltip] =
     useState(false)
+  const [isCustomChecksMouseEvent, setIsCustomChecksMouseEvent] =
+    useState(false)
+  const [showCustomChecksTooltip, setShowCustomChecksTooltip] = useState(false)
 
   const menu = useRef()
 
@@ -55,6 +58,7 @@ const AdvancedScanOptions = ({
       menu.current.style.animationName = 'button-fade-out'
       setTimeout(() => setOpenAdvancedOptionsMenu(false), 200)
     }
+    console.log('advancedOptions in handleToggleMenu is', advancedOptions)
   }
 
   const handleMaxConcurrencyOnFocus = () => {
@@ -68,6 +72,16 @@ const AdvancedScanOptions = ({
     setIsMaxConcurrencyMouseEvent(true)
   }
 
+  const handleCustomChecksOnFocus = () => {
+    if (!isCustomChecksMouseEvent) {
+      setShowCustomChecksTooltip(true)
+    }
+  }
+
+  const handleCustomChecksOnMouseEnter = () => {
+    setShowCustomChecksTooltip(false)
+    setIsCustomChecksMouseEvent(true)
+  }
   /*
   by default, new value of the selected option will be set to event.target.value
   if the new value should be something else, provide a function to overrideVal that returns
@@ -83,9 +97,11 @@ const AdvancedScanOptions = ({
         val = event.target.value
       }
 
+      console.log('advancedOptions is', advancedOptions)
       const newOptions = { ...advancedOptions }
       newOptions[option] = val
       setAdvancedOptions(newOptions)
+      console.log('newOptions is', newOptions)
 
       // check if new options are the default
       const defaultAdvancedOptions = getDefaultAdvancedOptions(isProxy)
@@ -269,6 +285,52 @@ const AdvancedScanOptions = ({
                   />
                 </div>
               </div>
+              {/* START: Custom Checks */}
+              <div
+                id="custom-checks-toggle-group"
+                class="advanced-options-toggle-group"
+              >
+                <input
+                  type="checkbox"
+                  id="custom-checks-toggle"
+                  class="advanced-options-toggle"
+                  onFocus={() => handleCustomChecksOnFocus()}
+                  onBlur={() => setShowCustomChecksTooltip(false)}
+                  onMouseEnter={() => handleCustomChecksOnMouseEnter()}
+                  onMouseLeave={() => setIsCustomChecksMouseEvent(false)}
+                  aria-describedby="custom-checks-tooltip"
+                  checked={advancedOptions.customChecks}
+                  onChange={handleSetAdvancedOption(
+                    'customChecks',
+                    (e) => e.target.checked
+                  )}
+                />
+                <label htmlFor="custom-checks-toggle">
+                  Enable custom checks
+                </label>
+                <div className="custom-tooltip-container">
+                  <ToolTip
+                    // TODO Confirm whats supposed to be in custom checks
+                    description={
+                      'Include custom checks that assess for vague alternative text, clickable elements, and text readability.'
+                    }
+                    id="custom-checks-tooltip"
+                    showToolTip={showCustomChecksTooltip}
+                  />
+                  <img
+                    className="tooltip-img"
+                    src={questionMarkIcon}
+                    checked={advancedOptions.customChecks}
+                    aria-describedby="custom-checks-tooltip"
+                    onFocus={() => handleCustomChecksOnFocus()}
+                    onBlur={() => setShowCustomChecksTooltip(false)}
+                    onMouseEnter={() => setShowCustomChecksTooltip(true)}
+                    onMouseLeave={() => setShowCustomChecksTooltip(false)}
+                    alt="tooltip icon for safe scan mode"
+                  />
+                </div>
+              </div>
+              {/* END: Custom Checks */}
               <div
                 id="follow-robots-toggle-group"
                 class="advanced-options-toggle-group"
