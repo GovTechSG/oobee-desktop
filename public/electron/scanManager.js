@@ -57,7 +57,6 @@ const getScanOptions = (details) => {
     includeSubdomains,
     followRobots,
     metadata,
-    safeMode,
   } = details
   const options = [
     '-c',
@@ -118,10 +117,6 @@ const getScanOptions = (details) => {
 
   if (metadata) {
     options.push('-q', metadata)
-  }
-
-  if (safeMode) {
-    options.push('-f', safeMode ? 'yes' : 'no')
   }
 
   return options

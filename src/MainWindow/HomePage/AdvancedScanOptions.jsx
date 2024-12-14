@@ -28,8 +28,6 @@ const AdvancedScanOptions = ({
     useState(false)
   const [showMaxConcurrencyTooltip, setShowMaxConcurrencyTooltip] =
     useState(false)
-  const [isSafeModeMouseEvent, setIsSafeModeMouseEvent] = useState(false)
-  const [showSafeModeTooltip, setShowSafeModeTooltip] = useState(false)
 
   const menu = useRef()
 
@@ -68,17 +66,6 @@ const AdvancedScanOptions = ({
   const handleMaxConcurrencyOnMouseEnter = () => {
     setShowMaxConcurrencyTooltip(false)
     setIsMaxConcurrencyMouseEvent(true)
-  }
-
-  const handleSafeModeOnFocus = () => {
-    if (!isSafeModeMouseEvent) {
-      setShowSafeModeTooltip(true)
-    }
-  }
-
-  const handleSafeModeOnMouseEnter = () => {
-    setShowSafeModeTooltip(false)
-    setIsSafeModeMouseEvent(true)
   }
 
   /*
@@ -279,47 +266,6 @@ const AdvancedScanOptions = ({
                     onMouseEnter={() => setShowMaxConcurrencyTooltip(true)}
                     onMouseLeave={() => setShowMaxConcurrencyTooltip(false)}
                     alt="tooltip icon for slow scan mode"
-                  />
-                </div>
-              </div>
-              <div
-                id="safe-mode-toggle-group"
-                class="advanced-options-toggle-group"
-              >
-                <input
-                  type="checkbox"
-                  id="safe-mode-toggle"
-                  class="advanced-options-toggle"
-                  onFocus={() => handleSafeModeOnFocus()}
-                  onBlur={() => setShowSafeModeTooltip(false)}
-                  onMouseEnter={() => handleSafeModeOnMouseEnter()}
-                  onMouseLeave={() => setIsSafeModeMouseEvent(false)}
-                  aria-describedby="safe-mode-tooltip"
-                  checked={advancedOptions.safeMode}
-                  onChange={handleSetAdvancedOption(
-                    'safeMode',
-                    (e) => e.target.checked
-                  )}
-                />
-                <label htmlFor="safe-mode-toggle">Safe Scan Mode</label>
-                <div className="custom-tooltip-container">
-                  <ToolTip
-                    description={
-                      'Disable dynamically clicking of page buttons and links to find links, which resolve issues on some websites.'
-                    }
-                    id="safe-mode-tooltip"
-                    showToolTip={showSafeModeTooltip}
-                  />
-                  <img
-                    className="tooltip-img"
-                    src={questionMarkIcon}
-                    checked={advancedOptions.safeMode}
-                    aria-describedby="safe-mode-tooltip"
-                    onFocus={() => handleSafeModeOnFocus()}
-                    onBlur={() => setShowSafeModeTooltip(false)}
-                    onMouseEnter={() => setShowSafeModeTooltip(true)}
-                    onMouseLeave={() => setShowSafeModeTooltip(false)}
-                    alt="tooltip icon for safe scan mode"
                   />
                 </div>
               </div>
