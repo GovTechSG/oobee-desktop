@@ -124,6 +124,11 @@ const getScanOptions = (details) => {
   //   options.push()
   // }
 
+  // TODO add flag for enabling wcag AAA checks
+  // if (wcagAaa) {
+  //   options.push()
+  // }
+
   return options
 }
 
