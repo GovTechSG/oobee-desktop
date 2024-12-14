@@ -119,6 +119,11 @@ const getScanOptions = (details) => {
     options.push('-q', metadata)
   }
 
+  // TODO add flag for enabling custom checks
+  // if (customChecks) {
+  //   options.push()
+  // }
+
   return options
 }
 
