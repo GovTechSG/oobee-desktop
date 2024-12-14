@@ -364,7 +364,7 @@ const generateReport = (customFlowLabel, scanId) => {
   // edit custom flow label in the base 64 encoded scanData in report
   const data = fs.readFileSync(reportPath, { encoding: 'utf-8' })
   const scanDataEncoded = data.match(
-    /scanData\s*=\s*base64Decode\('([^']+)'\)/
+    /scanData\s*=\s*base64DecodeChunkedWithDecoder\('([^']+)'\)/
   )[1]
   const scanDataDecodedJson = base64Decode(scanDataEncoded)
   scanDataDecodedJson.customFlowLabel = escapedCustomFlowLabel
@@ -374,7 +374,11 @@ const generateReport = (customFlowLabel, scanId) => {
 }
 
 const base64Decode = (data) => {
-  const compressedBytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+  // Remove invalid base64 characters
+  const dataWithValidBase64Char = data.replace(/[^A-Za-z0-9+/=]/g, '')
+  const compressedBytes = Uint8Array.from(atob(dataWithValidBase64Char), (c) =>
+    c.charCodeAt(0)
+  )
   const jsonString = new TextDecoder().decode(compressedBytes)
   return JSON.parse(jsonString)
 }
