@@ -58,6 +58,7 @@ const getScanOptions = (details) => {
     followRobots,
     metadata,
     customChecks,
+    wcagAaa,
   } = details
   const options = [
     '-c',
@@ -116,15 +117,17 @@ const getScanOptions = (details) => {
     options.push('-q', metadata)
   }
 
-  // TODO add flag for enabling custom checks
-  if (!customChecks) {
+  // Flag for customChecks and wcagAaa
+  if (!customChecks && wcagAaa) {
+    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+  } else if (!customChecks) {
     options.push('-y', 'disable-oobee')
+  } else if (wcagAaa) {
+    options.push('-y', 'enable-wcag-aaa')
+  } else {
+    // Default Case
+    options.push('-y', 'default')
   }
-
-  // TODO add flag for enabling wcag AAA checks
-  // if (wcagAaa) {
-  //   options.push()
-  // }
 
   return options
 }

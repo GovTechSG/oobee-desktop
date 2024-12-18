@@ -70,6 +70,7 @@ const startScan = async (scanDetails) => {
     followRobots,
     scanMetadata,
     customChecks,
+    wcagAaa,
   } = scanDetails
 
   currentScanUrl = scanUrl
@@ -81,6 +82,7 @@ const startScan = async (scanDetails) => {
     browser: browser,
     maxConcurrency: maxConcurrency,
     customChecks: customChecks,
+    wcagAaa: wcagAaa,
     fileTypes: fileTypes[selectedFileTypes],
     includeScreenshots,
     includeSubdomains,
