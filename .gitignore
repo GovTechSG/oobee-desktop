@@ -118,6 +118,7 @@ dist
 
 # misc
 .DS_Store
+*.excalidraw
 
 # testing
 /coverage
