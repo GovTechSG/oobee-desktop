@@ -22,7 +22,6 @@ const AdvancedScanOptions = ({
   scanButtonIsClicked,
   isFileOptionChecked,
 }) => {
-  console.log(`scanTypeOptions is ${JSON.stringify(scanTypeOptions, null, 2)}`)
   const [openAdvancedOptionsMenu, setOpenAdvancedOptionsMenu] = useState(false)
   const [advancedOptionsDirty, setAdvancedOptionsDirty] = useState(false)
   const [isMaxConcurrencyMouseEvent, setIsMaxConcurrencyMouseEvent] =
@@ -61,7 +60,6 @@ const AdvancedScanOptions = ({
       menu.current.style.animationName = 'button-fade-out'
       setTimeout(() => setOpenAdvancedOptionsMenu(false), 200)
     }
-    console.log('advancedOptions in handleToggleMenu is', advancedOptions)
   }
 
   const handleMaxConcurrencyOnFocus = () => {
@@ -104,7 +102,6 @@ const AdvancedScanOptions = ({
   const handleSetAdvancedOption =
     (option, overrideVal = null) =>
     (event) => {
-      console.log('Event target value:', event.target.value)
       let val
       if (overrideVal) {
         val = overrideVal(event)
@@ -112,11 +109,9 @@ const AdvancedScanOptions = ({
         val = event.target.value
       }
 
-      console.log('advancedOptions is', advancedOptions)
       const newOptions = { ...advancedOptions }
       newOptions[option] = val
       setAdvancedOptions(newOptions)
-      console.log('newOptions is', newOptions)
 
       // check if new options are the default
       const defaultAdvancedOptions = getDefaultAdvancedOptions(isProxy)

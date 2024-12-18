@@ -183,9 +183,6 @@ const InitScanForm = ({
     setScanButtonIsClicked(true)
     sessionStorage.setItem('pageLimit', JSON.stringify(pageLimit))
     sessionStorage.setItem('advancedOptions', JSON.stringify(advancedOptions))
-    console.log(
-      `in InitScanForm.js, handleScanButtonClicked, advancedOptions is: ${advancedOptions}`
-    )
     sessionStorage.setItem('scanUrl', JSON.stringify(scanUrl))
 
     if (isFileOptionChecked) {
