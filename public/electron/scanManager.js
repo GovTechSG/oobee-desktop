@@ -107,10 +107,6 @@ const getScanOptions = (details) => {
     options.push('-t', 1)
   }
 
-  if (maxConcurrency) {
-    options.push('-t', 1)
-  }
-
   if (followRobots) {
     options.push('-r', 'yes')
   }
