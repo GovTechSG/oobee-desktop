@@ -117,8 +117,8 @@ const getScanOptions = (details) => {
   }
 
   // TODO add flag for enabling custom checks
-  if (customChecks) {
-    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+  if (!customChecks) {
+    options.push('-y', 'disable-oobee')
   }
 
   // TODO add flag for enabling wcag AAA checks
