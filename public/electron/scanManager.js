@@ -206,6 +206,16 @@ const startScan = async (scanDetails, scanEvent) => {
 
   const response = await new Promise(async (resolve) => {
     let intermediateFolderName
+
+    // TODO: Testcodes, Remove when raising PR
+    const cliCommand = [
+      'node',
+      `${enginePath}/dist/cli.js`,
+      ...getScanOptions(scanDetails),
+    ]
+
+    console.log('in scanManager.js, Final CLI Command:', cliCommand.join(' '))
+
     const scan = spawn(
       'node',
       [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],

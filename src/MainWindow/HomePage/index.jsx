@@ -171,6 +171,9 @@ const HomePage = ({ isProxy, appVersionInfo, setCompletedScanId }) => {
   }
 
   const startScan = async (scanDetails) => {
+    console.log(
+      `in index.jsx, const startScan, scanDetails is ${JSON.stringify(scanDetails, null, 2)}`
+    )
     scanDetails.browser = isProxy ? 'edge' : browser
     const timeOfScan = new Date()
 
