@@ -69,6 +69,7 @@ const startScan = async (scanDetails) => {
     includeSubdomains,
     followRobots,
     scanMetadata,
+    customChecks,
   } = scanDetails
 
   currentScanUrl = scanUrl
@@ -79,6 +80,7 @@ const startScan = async (scanDetails) => {
     headlessMode: scanTypes[selectedScanType] !== 'custom',
     browser: browser,
     maxConcurrency: maxConcurrency,
+    customChecks: customChecks,
     fileTypes: fileTypes[selectedFileTypes],
     includeScreenshots,
     includeSubdomains,

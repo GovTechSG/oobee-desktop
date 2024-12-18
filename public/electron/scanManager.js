@@ -57,6 +57,7 @@ const getScanOptions = (details) => {
     includeSubdomains,
     followRobots,
     metadata,
+    customChecks,
   } = details
   const options = [
     '-c',
@@ -116,9 +117,9 @@ const getScanOptions = (details) => {
   }
 
   // TODO add flag for enabling custom checks
-  // if (customChecks) {
-  //   options.push()
-  // }
+  if (customChecks) {
+    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+  }
 
   // TODO add flag for enabling wcag AAA checks
   // if (wcagAaa) {
