@@ -57,7 +57,8 @@ const getScanOptions = (details) => {
     includeSubdomains,
     followRobots,
     metadata,
-    safeMode,
+    customChecks,
+    wcagAaa,
   } = details
   const options = [
     '-c',
@@ -108,10 +109,6 @@ const getScanOptions = (details) => {
     options.push('-t', 1)
   }
 
-  if (maxConcurrency) {
-    options.push('-t', 1)
-  }
-
   if (followRobots) {
     options.push('-r', 'yes')
   }
@@ -120,8 +117,16 @@ const getScanOptions = (details) => {
     options.push('-q', metadata)
   }
 
-  if (safeMode) {
-    options.push('-f', safeMode ? 'yes' : 'no')
+  // Flag for customChecks and wcagAaa
+  if (!customChecks && wcagAaa) {
+    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+  } else if (!customChecks) {
+    options.push('-y', 'disable-oobee')
+  } else if (wcagAaa) {
+    options.push('-y', 'enable-wcag-aaa')
+  } else {
+    // Default Case
+    options.push('-y', 'default')
   }
 
   return options
@@ -204,6 +209,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
   const response = await new Promise(async (resolve) => {
     let intermediateFolderName
+
     const scan = spawn(
       'node',
       [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],

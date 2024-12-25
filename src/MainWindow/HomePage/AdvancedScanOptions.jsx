@@ -28,8 +28,11 @@ const AdvancedScanOptions = ({
     useState(false)
   const [showMaxConcurrencyTooltip, setShowMaxConcurrencyTooltip] =
     useState(false)
-  const [isSafeModeMouseEvent, setIsSafeModeMouseEvent] = useState(false)
-  const [showSafeModeTooltip, setShowSafeModeTooltip] = useState(false)
+  const [isCustomChecksMouseEvent, setIsCustomChecksMouseEvent] =
+    useState(false)
+  const [showCustomChecksTooltip, setShowCustomChecksTooltip] = useState(false)
+  const [isWcagAaaMouseEvent, setIsWcagAaaMouseEvent] = useState(false)
+  const [showWcagAaaTooltip, setShowWcagAaaTooltip] = useState(false)
 
   const menu = useRef()
 
@@ -70,17 +73,27 @@ const AdvancedScanOptions = ({
     setIsMaxConcurrencyMouseEvent(true)
   }
 
-  const handleSafeModeOnFocus = () => {
-    if (!isSafeModeMouseEvent) {
-      setShowSafeModeTooltip(true)
+  const handleCustomChecksOnFocus = () => {
+    if (!isCustomChecksMouseEvent) {
+      setShowCustomChecksTooltip(true)
     }
   }
 
-  const handleSafeModeOnMouseEnter = () => {
-    setShowSafeModeTooltip(false)
-    setIsSafeModeMouseEvent(true)
+  const handleCustomChecksOnMouseEnter = () => {
+    setShowCustomChecksTooltip(false)
+    setIsCustomChecksMouseEvent(true)
   }
 
+  const handleWcagAaaOnFocus = () => {
+    if (!isWcagAaaMouseEvent) {
+      setShowWcagAaaTooltip(true)
+    }
+  }
+
+  const handleWcagAaaOnMouseEnter = () => {
+    setShowWcagAaaTooltip(false)
+    setIsWcagAaaMouseEvent(true)
+  }
   /*
   by default, new value of the selected option will be set to event.target.value
   if the new value should be something else, provide a function to overrideVal that returns
@@ -191,6 +204,8 @@ const AdvancedScanOptions = ({
               />
             </div>
           )}
+
+          {/* Scan Type chosen is either Website Crawl or Sitemap Crawl */}
           {advancedOptions.scanType !== scanTypeOptions[2] && (
             <SelectField
               id="file-type-dropdown"
@@ -200,6 +215,7 @@ const AdvancedScanOptions = ({
               onChange={handleSetAdvancedOption('fileTypes')}
             />
           )}
+
           <div
             id="screenshots-toggle-group"
             class="advanced-options-toggle-group"
@@ -217,6 +233,7 @@ const AdvancedScanOptions = ({
             />
             <label htmlFor="screenshots-toggle">Include screenshots</label>
           </div>
+
           {!isFileOptionChecked &&
             advancedOptions.scanType === scanTypeOptions[0] && (
               <div
@@ -238,6 +255,91 @@ const AdvancedScanOptions = ({
                 </label>
               </div>
             )}
+
+          {/* START: Custom Checks */}
+          <div
+            id="custom-checks-toggle-group"
+            class="advanced-options-toggle-group"
+          >
+            <input
+              type="checkbox"
+              id="custom-checks-toggle"
+              class="advanced-options-toggle"
+              onFocus={() => handleCustomChecksOnFocus()}
+              onBlur={() => setShowCustomChecksTooltip(false)}
+              onMouseEnter={() => handleCustomChecksOnMouseEnter()}
+              onMouseLeave={() => setIsCustomChecksMouseEvent(false)}
+              aria-describedby="custom-checks-tooltip"
+              checked={advancedOptions.customChecks}
+              onChange={handleSetAdvancedOption(
+                'customChecks',
+                (e) => e.target.checked
+              )}
+            />
+            <label htmlFor="custom-checks-toggle">Enable custom checks</label>
+            <div className="custom-tooltip-container">
+              <ToolTip
+                // TODO Confirm whats supposed to be in custom checks
+                description={
+                  'Include custom checks that assess for vague alternative text, clickable elements, and text readability.'
+                }
+                id="custom-checks-tooltip"
+                showToolTip={showCustomChecksTooltip}
+              />
+              <img
+                className="tooltip-img"
+                src={questionMarkIcon}
+                checked={advancedOptions.customChecks}
+                aria-describedby="custom-checks-tooltip"
+                onFocus={() => handleCustomChecksOnFocus()}
+                onBlur={() => setShowCustomChecksTooltip(false)}
+                onMouseEnter={() => setShowCustomChecksTooltip(true)}
+                onMouseLeave={() => setShowCustomChecksTooltip(false)}
+                alt="tooltip icon for safe scan mode"
+              />
+            </div>
+          </div>
+          {/* END: Custom Checks */}
+          {/* START: WCAG AAA */}
+          <div id="wcag-aaa-toggle-group" class="advanced-options-toggle-group">
+            <input
+              type="checkbox"
+              id="wcag-aaa-toggle"
+              class="advanced-options-toggle"
+              onFocus={() => handleWcagAaaOnFocus()}
+              onBlur={() => setShowWcagAaaTooltip(false)}
+              onMouseEnter={() => handleWcagAaaOnMouseEnter()}
+              onMouseLeave={() => setIsWcagAaaMouseEvent(false)}
+              aria-describedby="wcag-aaa-tooltip"
+              checked={advancedOptions.wcagAaa}
+              onChange={handleSetAdvancedOption(
+                'wcagAaa',
+                (e) => e.target.checked
+              )}
+            />
+            <label htmlFor="wcag-aaa-toggle">Enable WCAG AAA checks</label>
+            <div className="custom-tooltip-container">
+              <ToolTip
+                description={
+                  'Include checks that meet the highest level of WCAG conformance.'
+                }
+                id="wcag-aaa-tooltip"
+                showToolTip={showWcagAaaTooltip}
+              />
+              <img
+                className="tooltip-img"
+                src={questionMarkIcon}
+                checked={advancedOptions.wcagAaa}
+                aria-describedby="wcag-aaa-tooltip"
+                onFocus={() => handleWcagAaaOnFocus()}
+                onBlur={() => setShowWcagAaaTooltip(false)}
+                onMouseEnter={() => setShowWcagAaaTooltip(true)}
+                onMouseLeave={() => setShowWcagAaaTooltip(false)}
+                alt="tooltip icon for safe scan mode"
+              />
+            </div>
+          </div>
+          {/* END: WCAG AAA */}
 
           {advancedOptions.scanType !== scanTypeOptions[2] && (
             <>
@@ -282,47 +384,7 @@ const AdvancedScanOptions = ({
                   />
                 </div>
               </div>
-              <div
-                id="safe-mode-toggle-group"
-                class="advanced-options-toggle-group"
-              >
-                <input
-                  type="checkbox"
-                  id="safe-mode-toggle"
-                  class="advanced-options-toggle"
-                  onFocus={() => handleSafeModeOnFocus()}
-                  onBlur={() => setShowSafeModeTooltip(false)}
-                  onMouseEnter={() => handleSafeModeOnMouseEnter()}
-                  onMouseLeave={() => setIsSafeModeMouseEvent(false)}
-                  aria-describedby="safe-mode-tooltip"
-                  checked={advancedOptions.safeMode}
-                  onChange={handleSetAdvancedOption(
-                    'safeMode',
-                    (e) => e.target.checked
-                  )}
-                />
-                <label htmlFor="safe-mode-toggle">Safe Scan Mode</label>
-                <div className="custom-tooltip-container">
-                  <ToolTip
-                    description={
-                      'Disable dynamically clicking of page buttons and links to find links, which resolve issues on some websites.'
-                    }
-                    id="safe-mode-tooltip"
-                    showToolTip={showSafeModeTooltip}
-                  />
-                  <img
-                    className="tooltip-img"
-                    src={questionMarkIcon}
-                    checked={advancedOptions.safeMode}
-                    aria-describedby="safe-mode-tooltip"
-                    onFocus={() => handleSafeModeOnFocus()}
-                    onBlur={() => setShowSafeModeTooltip(false)}
-                    onMouseEnter={() => setShowSafeModeTooltip(true)}
-                    onMouseLeave={() => setShowSafeModeTooltip(false)}
-                    alt="tooltip icon for safe scan mode"
-                  />
-                </div>
-              </div>
+
               <div
                 id="follow-robots-toggle-group"
                 class="advanced-options-toggle-group"

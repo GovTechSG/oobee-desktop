@@ -231,7 +231,8 @@
   #screenshots-toggle-group,
   #subdomain-toggle-group,
   #max-concurrency-toggle-group,
-  #safe-mode-toggle-group {
+  #custom-checks-toggle-group,
+  #wcag-aaa-toggle-group {
     margin-bottom: 1rem;
   }
 
@@ -281,7 +282,9 @@
     font-weight: 400;
     line-height: 2;
     padding: 0.25rem 0.5rem;
-    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    transition:
+      border-color 0.15s ease-in-out,
+      box-shadow 0.15s ease-in-out;
   }
 
   .select-input {
