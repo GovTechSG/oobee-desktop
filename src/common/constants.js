@@ -112,25 +112,6 @@ export const errorStates = {
   noPagesScannedError: 'noPagesScannedError',
 }
 
-export const userDataFormDetails = {
-  // production form
-  // formUrl: "https://form.gov.sg/6453387735eb0c00128becdc",
-  // dev form
-  // formUrl: "https://form.gov.sg/642c10f5d88e080012b6eb49",
-  formUrl: 'https://form.gov.sg/64623424683ff400119719a7',
-  urlScannedField: '641d6f416e65530012b57e29',
-  scanTypeField: '641d6fc6448fc900122f8684',
-}
-
-export const userDataFormInputFields = {
-  formUrl:
-    'https://docs.google.com/forms/d/1tg8WYKWOgAo-DRsKNczZQF7OFeT00kjpmL1DPlL_VoI/formResponse',
-  websiteUrlField: 'entry.1562345227',
-  scanTypeField: 'entry.1148680657',
-  emailField: 'entry.52161304',
-  nameField: 'entry.1787318910',
-}
-
 export const feedbackFormInputFields = {
   formUrl: 'https://form.gov.sg/64d1fcde4d0bb70012010995',
   urlScannedField: '64d49b567c3c460011feb8b5',
