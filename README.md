@@ -20,6 +20,7 @@ Oobee is available as a download for Windows and MacOS. Refer to [Installation G
 ### Development and Testing
 
 #### Set Engine Version
+
 First open terminal and navigate to the location of clone respository of Oobee.
 
 Then export BE_TAG to set version of Oobee (engine).
@@ -27,22 +28,26 @@ Then export BE_TAG to set version of Oobee (engine).
 ```shell
 export BE_TAG=0.9.48<version number>
 ```
+
 #### Build Standalone App
+
 For Mac
 
 ```shell
 npm run make-mac
 ```
+
 For Windows
 
 ```shell
 npm run make-win
 ```
 
-This will create a folder in your repository in the *out* folder.
+This will create a folder in your repository in the _out_ folder.
 Enter and run the Oobee.app in the newly created folder in ../out.
 
 #### Run and Debug
+
 Enter the code below to build Oobee.
 
 ```shell
@@ -63,10 +68,9 @@ Open an [issue ticket](https://github.com/GovTechSG/oobee-desktop/issues) for as
 
 ---
 
-
 ## Basic Usage
 
-Enter a valid URL to scan in the textbox and press the "Scan" button.  The default settings will crawl your website and scan 100 pages for accessibility issues.
+Enter a valid URL to scan in the textbox and press the "Scan" button. The default settings will crawl your website and scan 100 pages for accessibility issues.
 
 ![Oobee Desktop main page](https://github.com/user-attachments/assets/94d19cf8-88e4-46c3-b5d6-647b7c615a6e)
 
@@ -236,16 +240,24 @@ Defaults to screen size of iPhone 11.
 Enter a custom width in pixels. Minimum width is 320px and Maximum width is 1080px.
 
 ## Report
-Once a scan of the site is completed. 
+
+Once a scan of the site is completed.
 
 A report will be downloaded into the ../Documents folder.
 
-An Address link to report is provided. Click on the link to access the location of the report. 
+An Address link to report is provided. Click on the link to access the location of the report.
 
 You can also click on the view report button to see the Accessibility Scan Results.
 
 ## Accessibility Scan Results
+
 For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/oobee/blob/master/DETAILS.md).
+
+## System Context Diagram
+
+<img alt="System Context Diagram for Oobee" src="https://github.com/user-attachments/assets/9e9cd59c-46e4-46e0-b4d7-efa65d2757b8">
+
+For Oobee's backed repository and to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee).
 
 ## Additional Information on Data
 
