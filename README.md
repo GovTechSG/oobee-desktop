@@ -255,7 +255,7 @@ For details on which accessibility scan results trigger "Must Fix" / "Good to Fi
 
 ## System Context Diagram
 
-<img alt="System Context Diagram for Oobee" src="https://github.com/user-attachments/assets/9e9cd59c-46e4-46e0-b4d7-efa65d2757b8">
+<img alt="System Context Diagram for Oobee" src="https://github.com/user-attachments/assets/31c7ac61-f242-4c5f-baf3-e2ed120fe1cb">
 
 For Oobee's backed repository and to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee).
 
