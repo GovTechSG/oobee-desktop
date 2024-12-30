@@ -11,8 +11,6 @@ For software engineers who wish to run Oobee as a command line, please refer to 
 1. [Electron](https://www.electronjs.org/)
 2. [React](https://react.dev/)
 
-## System Context Diagram
-
 ## Installations
 
 ### Download Oobee
@@ -254,6 +252,12 @@ You can also click on the view report button to see the Accessibility Scan Resul
 ## Accessibility Scan Results
 
 For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/oobee/blob/master/DETAILS.md).
+
+## System Context Diagram
+
+<img alt="System Context Diagram for Oobee" src="https://github.com/user-attachments/assets/9e9cd59c-46e4-46e0-b4d7-efa65d2757b8">
+
+For Oobee's backed repository and to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee).
 
 ## Additional Information on Data
 
