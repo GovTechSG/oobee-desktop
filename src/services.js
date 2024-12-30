@@ -10,11 +10,11 @@ import {
   forbiddenCharactersInDirPath,
   reserveFileNameKeywords,
   feedbackFormInputFields,
-} from "./common/constants";
+} from './common/constants'
 
 // for use in openUserDataForm
-let currentScanUrl;
-let currentScanType;
+let currentScanUrl
+let currentScanType
 
 const validateUrlConnectivity = async (scanDetails) => {
   const {
@@ -25,33 +25,33 @@ const validateUrlConnectivity = async (scanDetails) => {
     viewportWidth,
     browser,
     fileTypes: selectedFileTypes,
-  } = scanDetails;
+  } = scanDetails
 
-  currentScanUrl = scanUrl;
-  currentScanType = selectedScanType;
+  currentScanUrl = scanUrl
+  currentScanType = selectedScanType
 
   const scanArgs = {
     scanType: scanTypes[selectedScanType],
     url: scanUrl,
     browser: browser,
     fileTypes: fileTypes[selectedFileTypes],
-  };
+  }
 
   if (viewport === viewportTypes.mobile) {
-    scanArgs.customDevice = "Mobile";
+    scanArgs.customDevice = 'Mobile'
   }
 
   if (viewport === viewportTypes.specific) {
-    scanArgs.customDevice = devices[device];
+    scanArgs.customDevice = devices[device]
   }
 
   if (viewport === viewportTypes.custom) {
-    scanArgs.viewportWidth = viewportWidth;
+    scanArgs.viewportWidth = viewportWidth
   }
 
-  const response = await window.services.validateUrlConnectivity(scanArgs);
-  return response;
-};
+  const response = await window.services.validateUrlConnectivity(scanArgs)
+  return response
+}
 
 const startScan = async (scanDetails) => {
   const {
@@ -68,78 +68,77 @@ const startScan = async (scanDetails) => {
     includeScreenshots,
     includeSubdomains,
     followRobots,
-    safeMode,
     scanMetadata,
-  } = scanDetails;
+    customChecks,
+    wcagAaa,
+  } = scanDetails
 
-  currentScanUrl = scanUrl;
-  currentScanType = selectedScanType;
+  currentScanUrl = scanUrl
+  currentScanType = selectedScanType
   const scanArgs = {
     scanType: scanTypes[selectedScanType],
     url: scanUrl,
-    headlessMode:
-      scanTypes[selectedScanType] !== "custom",
+    headlessMode: scanTypes[selectedScanType] !== 'custom',
     browser: browser,
     maxConcurrency: maxConcurrency,
+    customChecks: customChecks,
+    wcagAaa: wcagAaa,
     fileTypes: fileTypes[selectedFileTypes],
     includeScreenshots,
     includeSubdomains,
     followRobots,
-    safeMode,
     metadata: JSON.stringify(scanMetadata),
-  };
+  }
 
-  if (
-    scanTypes[selectedScanType] !== "custom"
-  ) {
-    scanArgs.maxPages = pageLimit;
+  if (scanTypes[selectedScanType] !== 'custom') {
+    scanArgs.maxPages = pageLimit
   }
 
   if (viewport === viewportTypes.mobile) {
-    scanArgs.customDevice = "Mobile";
+    scanArgs.customDevice = 'Mobile'
   }
 
   if (viewport === viewportTypes.specific) {
-    scanArgs.customDevice = devices[device];
+    scanArgs.customDevice = devices[device]
   }
 
   if (viewport === viewportTypes.custom) {
-    scanArgs.viewportWidth = viewportWidth;
+    scanArgs.viewportWidth = viewportWidth
   }
 
-  const response = await window.services.startScan(scanArgs);
-  return response;
-};
+  const response = await window.services.startScan(scanArgs)
+  return response
+}
 
 const openReport = (scanId) => {
-  window.services.openReport(scanId);
-};
+  window.services.openReport(scanId)
+}
 
 const getResultsFolderPath = async (scanId) => {
-  const reportPath = await window.services.getResultsFolderPath(scanId);
-  return reportPath;
-};
+  const reportPath = await window.services.getResultsFolderPath(scanId)
+  return reportPath
+}
 const getUploadFolderPath = async () => {
-  return await window.services.getUploadFolderPath();
-};
+  return await window.services.getUploadFolderPath()
+}
 
 const getUserData = async () => {
-  const userData = await window.services.getUserData();
-  return userData;
-};
+  const userData = await window.services.getUserData()
+  return userData
+}
 
 const getErrorLog = async (timeOfScan, timeOfError) => {
-  const errorLog = await window.services.getErrorLog(timeOfScan, timeOfError);
-  return errorLog;
-};
+  const errorLog = await window.services.getErrorLog(timeOfScan, timeOfError)
+  return errorLog
+}
 
 const getDataForForm = async () => {
-  const userData = await getUserData();
-  const email = userData["email"];
-  const name = userData["name"];
-  const event = userData["event"];
-  const browser = userData["browser"];
-  const exportDir = userData["exportDir"];
+  const userData = await getUserData()
+  const email = userData['email']
+  const name = userData['name']
+  const event = userData['event']
+  const browser = userData['browser']
+  const exportDir = userData['exportDir']
   return {
     websiteUrl: currentScanUrl,
     scanType: currentScanType,
@@ -148,92 +147,89 @@ const getDataForForm = async () => {
     event: event,
     browser: browser,
     exportDir: exportDir,
-  };
-};
+  }
+}
 
 const getFeedbackFormUrl = async () => {
   const { formUrl, urlScannedField, versionNumberField } =
-    feedbackFormInputFields;
-  const phEngineVersion = await window.services.getEngineVersion();
-  const encodedUrlScanned = encodeURIComponent(currentScanUrl);
-  const encodedVersionNumber = encodeURIComponent(phEngineVersion);
-  const feedbackFormUrl = `${formUrl}/?${urlScannedField}=${encodedUrlScanned}&${versionNumberField}=${encodedVersionNumber}`;
-  return feedbackFormUrl;
-};
+    feedbackFormInputFields
+  const phEngineVersion = await window.services.getEngineVersion()
+  const encodedUrlScanned = encodeURIComponent(currentScanUrl)
+  const encodedVersionNumber = encodeURIComponent(phEngineVersion)
+  const feedbackFormUrl = `${formUrl}/?${urlScannedField}=${encodedUrlScanned}&${versionNumberField}=${encodedVersionNumber}`
+  return feedbackFormUrl
+}
 
 const isValidEmail = (email) => {
-  const emailRegex = new RegExp(
-    /^.+@.+\..+$/,
-    "gm"
-  );
+  const emailRegex = new RegExp(/^.+@.+\..+$/, 'gm')
 
-  return emailRegex.test(email);
-};
+  return emailRegex.test(email)
+}
 
 const isValidCustomFlowLabel = (customFlowLabel) => {
   const containsReserveWithDot = reserveFileNameKeywords.some((char) =>
-    customFlowLabel.toLowerCase().includes(char.toLowerCase() + ".")
-  );
+    customFlowLabel.toLowerCase().includes(char.toLowerCase() + '.')
+  )
   const containsForbiddenCharacters = forbiddenCharactersInDirPath.some(
     (character) => customFlowLabel.includes(character)
-  );
-  const isEmpty = customFlowLabel.length <= 0;
-  const exceedsMaxLength = customFlowLabel.length > 80;
+  )
+  const isEmpty = customFlowLabel.length <= 0
+  const exceedsMaxLength = customFlowLabel.length > 80
 
-  if (isEmpty) return { isValid: false, errorMessage: "Cannot be empty." };
+  if (isEmpty) return { isValid: false, errorMessage: 'Cannot be empty.' }
   if (exceedsMaxLength)
-    return { isValid: false, errorMessage: "Cannot exceed 80 characters." };
+    return { isValid: false, errorMessage: 'Cannot exceed 80 characters.' }
   if (containsForbiddenCharacters)
     return {
       isValid: false,
       errorMessage:
         `Cannot contain ${forbiddenCharactersInDirPath.toString()}`.replaceAll(
-          ",",
-          " , "
+          ',',
+          ' , '
         ),
-    };
+    }
   if (containsReserveWithDot)
     return {
       isValid: false,
       errorMessage: `Cannot have '.' appended to ${reserveFileNameKeywords
         .toString()
-        .replaceAll(",", " , ")} as they are reserved keywords.`,
-    };
+        .replaceAll(',', ' , ')} as they are reserved keywords.`,
+    }
 
-  return { isValid: true };
-};
+  return { isValid: true }
+}
 
 const mailReport = async (formDetails, scanId) => {
-  const response = await window.services.mailReport(formDetails, scanId);
-  return response;
-};
+  const response = await window.services.mailReport(formDetails, scanId)
+  return response
+}
 
-const getIsWindows = async () => window.services.getIsWindows();
+const getIsWindows = async () => window.services.getIsWindows()
 
 const isValidName = (name) => {
   // Allow only printable characters from any language
-  const regex = /^[\p{L}\p{N}\s'".,()\[\]{}!?:؛،؟…]+$/u;
+  const regex = /^[\p{L}\p{N}\s'".,()\[\]{}!?:؛،؟…]+$/u
 
   // Check if the length is between 2 and 32000 characters
   if (name.length < 2 || name.length > 32000) {
     // Handle invalid name length
-    return false;
+    return false
   }
 
   if (!regex.test(name)) {
     // Handle invalid name format
-    return false;
+    return false
   }
 
   // Include a check for specific characters to sanitize injection patterns
-  const preventInjectionRegex = /[<>'"\\/;|&!$*{}()\[\]\r\n\t]/;
+  const preventInjectionRegex = /[<>'"\\/;|&!$*{}()\[\]\r\n\t]/
   if (preventInjectionRegex.test(name)) {
     // Handle potential injection attempts
-    return false;
+    return false
   }
 
-  return true;
-};
+  return true
+}
 
 const services = {
   startScan,
@@ -250,6 +246,6 @@ const services = {
   isValidCustomFlowLabel,
   validateUrlConnectivity,
   getErrorLog,
-};
+}
 
-export default services;
+export default services
