@@ -1,67 +1,47 @@
-$ErrorActionPreference = "Stop"
+# Define the path to check for WMIC
+$wmicPath = "C:\Windows\System32\wbem\WMIC.exe"
 
-function Repair-WMIC {
-    try {
-        $wmicPath = Join-Path $env:SystemRoot "System32\wbem\wmic.exe"
-        
-        if (Test-Path $wmicPath) {
-            Write-Host "WMIC is already installed."
-            return $true
-        }
-
-        Write-Host "WMIC.exe is missing. Attempting system repair..."
-
-        # Try DISM repair first
-        Write-Host "Running DISM repair..."
-        $dismResult = Start-Process -FilePath "DISM.exe" -ArgumentList "/Online", "/Cleanup-Image", "/RestoreHealth" -Wait -NoNewWindow -PassThru
-
-        if ($dismResult.ExitCode -ne 0) {
-            Write-Host "DISM repair failed with exit code: $($dismResult.ExitCode)"
-            return $false
-        }
-
-        # Then run SFC
-        Write-Host "Running System File Checker..."
-        $sfcResult = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" -Wait -NoNewWindow -PassThru
-
-        if ($sfcResult.ExitCode -ne 0) {
-            Write-Host "SFC repair failed with exit code: $($sfcResult.ExitCode)"
-            return $false
-        }
-
-        # Check if wmic.exe exists after repairs
-        if (Test-Path $wmicPath) {
-            Write-Host "WMIC has been restored successfully."
-            return $true
-        } else {
-            Write-Host "WMIC could not be restored."
-            
-            # Additional WMI repository reset as last resort
-            Write-Host "Attempting WMI repository reset..."
-            Stop-Service Winmgmt -Force
-            Remove-Item -Path "$env:SystemRoot\System32\wbem\repository" -Recurse -Force -ErrorAction SilentlyContinue
-            Start-Service Winmgmt
-            
-            # Final check
-            if (Test-Path $wmicPath) {
-                Write-Host "WMIC has been restored after WMI repository reset."
-                return $true
-            }
-            return $false
-        }
-    }
-    catch {
-        $errorMessage = $_.Exception.Message
-        Write-Host ("Error during WMIC repair: {0}" -f $errorMessage)
+# Function to check if WMIC is installed
+function Check-WMIC {
+    if (Test-Path $wmicPath) {
+        Write-Host "WMIC is already installed at $wmicPath. No action needed." -ForegroundColor Green
+        return $true
+    } else {
+        Write-Host "WMIC is not installed. Proceeding to install it." -ForegroundColor Yellow
         return $false
     }
 }
 
-$result = Repair-WMIC
-if (-not $result) {
-    Write-Host "WMIC repair failed. Consider using PowerShell alternatives like Get-CimInstance."
-    Write-Host "Example: Instead of 'wmic computersystem get model'"
-    Write-Host "Use: Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object Model"
-    exit 1
+# Function to install WMIC using DISM
+function Install-WMIC {
+    try {
+        Write-Host "Installing WMIC using DISM..." -ForegroundColor Cyan
+        $dismCommand = "DISM /Online /Add-Capability /CapabilityName:WMIC~~~~"
+        $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $dismCommand -NoNewWindow -Wait -PassThru
+
+        if ($process.ExitCode -eq 0) {
+            Write-Host "WMIC has been successfully installed." -ForegroundColor Green
+        } else {
+            Write-Host "WMIC installation failed with exit code $($process.ExitCode). Check DISM logs for details." -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "An error occurred during WMIC installation: $_" -ForegroundColor Red
+    }
 }
-exit 0
+
+# Function to verify WMIC installation
+function Verify-WMIC {
+    $capabilityStatus = Get-WindowsCapability -Online | Where-Object { $_.Name -like "WMIC~~~~" }
+
+    if ($capabilityStatus -and $capabilityStatus.State -eq "Installed") {
+        Write-Host "WMIC installation verified. State: Installed." -ForegroundColor Green
+    } else {
+        Write-Host "WMIC installation verification failed. State: Not Installed." -ForegroundColor Red
+    }
+}
+
+# Main script execution
+if (-not (Check-WMIC)) {
+    Install-WMIC
+    Verify-WMIC
+}
