@@ -17,8 +17,8 @@ jobs:
 
     - name: Get release data
       run: |
-        LATEST_RELEASE=$(curl -s "https://api.github.com/repos/GovTechSG/purple-a11y-desktop/releases/latest")
-        ALL_RELEASES=$(curl -s "https://api.github.com/repos/GovTechSG/purple-a11y-desktop/releases")
+        LATEST_RELEASE=$(curl -s "https://api.github.com/repos/GovTechSG/oobee-desktop/releases/latest")
+        ALL_RELEASES=$(curl -s "https://api.github.com/repos/GovTechSG/oobee-desktop/releases")
         
         # Extract the latest release and pre-release tags
         LATEST_RELEASE_TAG=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')

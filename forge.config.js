@@ -2,7 +2,7 @@ const os = require("os");
 
 module.exports = {
   packagerConfig: {
-    icon: 'public/purple-a11y-logo',
+    icon: 'public/oobee-logo',
     osxUniversal: { // config options for `@electron/universal`
       x64ArchFiles: "*" // replace with any relevant glob pattern
     },
@@ -22,7 +22,7 @@ module.exports = {
       'nodejs-mac-arm64',
       'nodejs-mac-x64',
       'build/electron',
-      'build/purple-a11y-logo',
+      'build/oobee-logo',
       'errors.txt',
       'tests',
       'Test.md',
@@ -31,7 +31,7 @@ module.exports = {
       'a11y_for_windows.iss',
       '.github'
     ],
-    ...(os.platform() === 'darwin' && { extraResource: ["/tmp/purple-a11y-portable-mac.zip"]})
+    ...(os.platform() === 'darwin' && { extraResource: ["/tmp/oobee-portable-mac.zip"]})
   },
   rebuildConfig: {},
   makers: [

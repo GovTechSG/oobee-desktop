@@ -112,7 +112,7 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
  */
 const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
   const downloadUrl = tag
-    ? `https://github.com/GovTechSG/purple-a11y-desktop/releases/download/${tag}/purple-a11y-desktop-windows.zip`
+    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-windows.zip`
     : frontendReleaseUrl;
 
   const shellScript = `
@@ -121,7 +121,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
     If (!(Test-Path -Path "${resultsPath}")) {
       New-Item -ItemType Directory -Path "${resultsPath}"
     }
-    $webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\purple-a11y-desktop-windows.zip")
+    $webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\oobee-desktop-windows.zip")
   } catch {
     Write-Host "Error: Unable to download frontend"
     throw "Unable to download frontend"
@@ -129,7 +129,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
   }
 
   try {
-    Expand-Archive -Path "${resultsPath}\\purple-a11y-desktop-windows.zip" -DestinationPath "${resultsPath}\\purple-a11y-desktop-windows" -Force
+    Expand-Archive -Path "${resultsPath}\\oobee-desktop-windows.zip" -DestinationPath "${resultsPath}\\oobee-desktop-windows" -Force
   } catch {
     Write-Host "Error: Unable to unzip frontend"
     throw "Unable to unzip frontend"
@@ -167,26 +167,26 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
  */
 const downloadAndUnzipFrontendMac = async (tag = undefined) => {
   const downloadUrl = tag
-    ? `https://github.com/GovTechSG/purple-a11y-desktop/releases/download/${tag}/purple-a11y-desktop-macos.zip`
+    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-macos.zip`
     : frontendReleaseUrl;
 
   const command = `
   mkdir -p '${resultsPath}' &&
-  curl -L '${downloadUrl}' -o '${resultsPath}/purple-a11y-desktop-mac.zip' &&
+  curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip' &&
   mv '${macOSExecutablePath}' '${path.join(
     macOSExecutablePath,
     ".."
-  )}/Purple A11y Old.app' &&
-  ditto -xk '${resultsPath}/purple-a11y-desktop-mac.zip' '${path.join(
+  )}/Oobee Old.app' &&
+  ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${path.join(
     macOSExecutablePath,
     ".."
   )}' &&
-  rm '${resultsPath}/purple-a11y-desktop-mac.zip' &&
-  rm -rf '${path.join(macOSExecutablePath, "..")}/Purple A11y Old.app' &&
+  rm '${resultsPath}/oobee-desktop-mac.zip' &&
+  rm -rf '${path.join(macOSExecutablePath, "..")}/Oobee Old.app' &&
   xattr -rd com.apple.quarantine '${path.join(
     macOSExecutablePath,
     ".."
-  )}/Purple A11y.app' `;
+  )}/Oobee.app' `;
 
   await execCommand(command);
 
@@ -272,7 +272,7 @@ const downloadAndUnzipBackendWindows = async (tag = undefined) => {
 };
 
 const downloadBackend = async (tag, zipPath) => {
-  const downloadUrl = `https://github.com/GovTechSG/purple-a11y/releases/download/${tag}/purple-a11y-portable-mac.zip`;
+  const downloadUrl = `https://github.com/GovTechSG/oobee/releases/download/${tag}/oobee-portable-mac.zip`;
   const command = `curl '${downloadUrl}' -o '${zipPath}' -L && rm -rf '${backendPath}' && mkdir '${backendPath}'`;
 
   return execCommand(command);
@@ -393,7 +393,12 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
 
     if (restartRequired) {
       consoleLogger.info("restarting app...");
-      updaterEventEmitter.emit("restartTriggered");
+      updaterEventEmitter.emit("restartA11yToOobee");
+      setTimeout(() => {
+        // Wait for restart to be triggered
+      }, 10000);
+      // Once Oobee released, use the regular restartTriggered event
+      // updaterEventEmitter.emit("restartTriggered");
     }
 
     const isPrepackageValid = await validateZipFile(macOSPrepackageBackend);

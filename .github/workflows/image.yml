@@ -32,7 +32,7 @@ jobs:
 
       - name: Install Node Modules and Build for Windows
         run: |
-          $env:Path = "${{github.workspace}}\nodejs-win;${{github.workspace}}\purple-a11y-desktop\node_modules\.bin;$env:Path;";
+          $env:Path = "${{github.workspace}}\nodejs-win;${{github.workspace}}\oobee-desktop\node_modules\.bin;$env:Path;";
           npm install
           npm run make-win
         env:
@@ -42,14 +42,14 @@ jobs:
       - name: Move build to root
         shell: pwsh
         run: |
-          Move-Item  "${{github.workspace}}\out\Purple A11y-win32-x64" -Destination "${{github.workspace}}\Purple A11y-win32-x64" -Force
+          Move-Item  "${{github.workspace}}\out\Oobee-win32-x64" -Destination "${{github.workspace}}\Oobee-win32-x64" -Force
       
-      - name: Download Purple A11y Backend
+      - name: Download Oobee Backend
         shell: pwsh
         run: |
-          $PHbackendUrl = "https://github.com/GovTechSG/purple-a11y/releases/download/${{ vars.BE_TAG }}/purple-a11y-portable-windows.zip"
+          $PHbackendUrl = "https://github.com/GovTechSG/oobee/releases/download/${{ vars.BE_TAG }}/oobee-portable-windows.zip"
           $BEdestinationPath = "${{github.workspace}}\PHLatest.zip"
-          $BEextractPath = "D:\a\Purple A11y Backend"
+          $BEextractPath = "D:\a\Oobee Backend"
           Invoke-WebRequest -Uri $PHbackendUrl -OutFile $BEdestinationPath
           Expand-Archive -Path $BEdestinationPath -DestinationPath $BEextractPath -Force
           Remove-Item -Path $BEdestinationPath
@@ -61,26 +61,26 @@ jobs:
       - name: Move compiled installer to Workspace
         run: |
           New-Item -Path setup -ItemType Directory
-          Move-Item -Path mysetup.exe -Destination setup\Purple-A11y-Setup.exe
+          Move-Item -Path mysetup.exe -Destination setup\Oobee-setup.exe
         working-directory: ${{github.workspace}}
 
       - name: Zip Setup file (Windows)
         shell: pwsh
-        run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath purple-a11y-desktop-windows.zip
+        run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath oobee-desktop-windows.zip
         working-directory: ${{github.workspace}}
         
-      - name: Upload Purple A11y Windows setup artifact
+      - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v3
         with:
-          name: purple-a11y-desktop-windows
-          path: purple-a11y-desktop-windows.zip
+          name: oobee-desktop-windows
+          path: oobee-desktop-windows.zip
 
       - name: Release Windows artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            purple-a11y-desktop-windows.zip
+            oobee-desktop-windows.zip
             
   mac-install-purple:
     runs-on: self-hosted
@@ -117,7 +117,7 @@ jobs:
             export PATH_TO_NODE="${{github.workspace}}/nodejs-mac-x64/bin"
           fi
           export PATH="$PATH_TO_NODE:$PATH"
-          export PATH="$PWD/purple-a11y-desktop/node_modules/.bin:$PATH"
+          export PATH="$PWD/oobee-desktop/node_modules/.bin:$PATH"
         env:
           CI: ""
         working-directory: ${{github.workspace}}
@@ -136,18 +136,18 @@ jobs:
 
       - name: Move and rename universal binary zip (Mac)
         run: |
-          mv *.zip "${{github.workspace}}/purple-a11y-desktop-macos.zip"
+          mv *.zip "${{github.workspace}}/oobee-desktop-macos.zip"
         working-directory: ${{github.workspace}}/out/make/zip/darwin/universal
         
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v3
         with:
-          name: purple-a11y-desktop-macos
-          path: purple-a11y-desktop-macos.zip
+          name: oobee-desktop-macos
+          path: oobee-desktop-macos.zip
 
       - name: Release Mac artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            purple-a11y-desktop-macos.zip
+            oobee-desktop-macos.zip

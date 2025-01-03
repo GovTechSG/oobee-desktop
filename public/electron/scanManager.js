@@ -1,14 +1,14 @@
-const { BrowserWindow, ipcMain, shell } = require("electron");
-const path = require("path");
-const { fork, spawn } = require("child_process");
-const fs = require("fs-extra");
-const os = require("os");
-const { 
+const { BrowserWindow, ipcMain, shell } = require('electron')
+const path = require('path')
+const { fork, spawn } = require('child_process')
+const fs = require('fs-extra')
+const os = require('os')
+const {
   randomBytes,
   randomUUID,
-  createCipheriv, 
-  createDecipheriv,  
-} = require("crypto");
+  createCipheriv,
+  createDecipheriv,
+} = require('crypto')
 const {
   enginePath,
   appPath,
@@ -16,28 +16,28 @@ const {
   playwrightBrowsersPath,
   resultsPath,
   scanResultsPath,
-} = require("./constants");
+} = require('./constants')
 const {
   browserTypes,
   getDefaultChromeDataDir,
   getDefaultEdgeDataDir,
   uploadFolderName,
-} = require("./constants");
-const { readUserDataFromFile, createExportDir } = require("./userDataManager");
-const scanHistory = {};
+} = require('./constants')
+const { readUserDataFromFile, createExportDir } = require('./userDataManager')
+const scanHistory = {}
 
-let currentChildProcess;
-let killChildProcessSignal = false;
+let currentChildProcess
+let killChildProcessSignal = false
 
 let setKillChildProcessSignal = () => {
-  killChildProcessSignal = true;
+  killChildProcessSignal = true
 }
 
 const killChildProcess = () => {
   if (currentChildProcess) {
-    currentChildProcess.kill("SIGKILL");
+    currentChildProcess.kill('SIGKILL')
   }
-};
+}
 
 const getScanOptions = (details) => {
   const {
@@ -57,143 +57,161 @@ const getScanOptions = (details) => {
     includeSubdomains,
     followRobots,
     metadata,
-    safeMode,
-  } = details;
-  const options = ["-c", scanType, "-u", url, "-k", `${name}:${email}`, "-i", fileTypes];
+    customChecks,
+    wcagAaa,
+  } = details
+  const options = [
+    '-c',
+    scanType,
+    '-u',
+    url,
+    '-k',
+    `${name}:${email}`,
+    '-i',
+    fileTypes,
+  ]
 
   if (!includeScreenshots) {
-    options.push('-a');
-    options.push('none');
+    options.push('-a')
+    options.push('none')
   }
 
   if (!includeSubdomains && scanType === 'website') {
-    options.push('-s');
-    options.push('same-hostname');
+    options.push('-s')
+    options.push('same-hostname')
   }
 
   if (customDevice) {
-    options.push("-d", customDevice);
+    options.push('-d', customDevice)
   }
 
   if (viewportWidth) {
-    options.push("-w", viewportWidth);
+    options.push('-w', viewportWidth)
   }
 
   if (maxPages) {
-    options.push("-p", maxPages);
+    options.push('-p', maxPages)
   }
 
   if (!headlessMode) {
-    options.push("-h", "no");
+    options.push('-h', 'no')
   }
 
   if (browser) {
-    options.push("-b", browser);
+    options.push('-b', browser)
   }
 
   if (exportDir) {
-    options.push("-e", exportDir);
+    options.push('-e', exportDir)
   }
 
   if (maxConcurrency) {
-    options.push("-t", 1);
-  }
-
-  if (maxConcurrency) {
-    options.push("-t", 1);
+    options.push('-t', 1)
   }
 
   if (followRobots) {
-    options.push("-r", "yes");
+    options.push('-r', 'yes')
   }
 
   if (metadata) {
-    options.push("-q", metadata);
+    options.push('-q', metadata)
   }
 
-  if (safeMode) {
-    options.push("-f", safeMode? "yes" : "no");
+  // Flag for customChecks and wcagAaa
+  if (!customChecks && wcagAaa) {
+    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+  } else if (!customChecks) {
+    options.push('-y', 'disable-oobee')
+  } else if (wcagAaa) {
+    options.push('-y', 'enable-wcag-aaa')
+  } else {
+    // Default Case
+    options.push('-y', 'default')
   }
-  
-  return options;
-};
+
+  return options
+}
 
 const validateUrlConnectivity = async (scanDetails) => {
-  console.log('Validating URL...');
+  console.log('Validating URL...')
 
-  const userData = readUserDataFromFile(); 
+  const userData = readUserDataFromFile()
   if (userData) {
-    scanDetails.email = userData.email;
-    scanDetails.name = userData.name;
-    scanDetails.exportDir = userData.exportDir;
-    const success = createExportDir(userData.exportDir);
-    if (!success) return  { failedToCreateExportDir: true }
+    scanDetails.email = userData.email
+    scanDetails.name = userData.name
+    scanDetails.exportDir = userData.exportDir
+    const success = createExportDir(userData.exportDir)
+    if (!success) return { failedToCreateExportDir: true }
   }
 
   const response = await new Promise(async (resolve) => {
     const check = spawn(
-      "node",
-      [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
+      'node',
+      [
+        `--max-old-space-size=6144`,
+        `${enginePath}/dist/cli.js`,
+        ...getScanOptions(scanDetails),
+      ],
       {
         cwd: resultsPath,
         env: {
           ...process.env,
-          VALIDATE_URL_PH_GUI: true, 
+          VALIDATE_URL_PH_GUI: true,
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
         },
       }
-    );
+    )
 
-    currentChildProcess = check;
+    currentChildProcess = check
 
-    check.stderr.setEncoding("utf8");
-    check.stderr.on("data", function (data) {
-      console.log("stderr: " + data);
-    });
+    check.stderr.setEncoding('utf8')
+    check.stderr.on('data', function (data) {
+      console.log('stderr: ' + data)
+    })
 
-    check.stdout.setEncoding("utf8");
-    check.stdout.on("data", async (data) => {
-      if (data.includes("Url is valid")) {
-        resolve({ success: true });
+    check.stdout.setEncoding('utf8')
+    check.stdout.on('data', async (data) => {
+      if (data.includes('Url is valid')) {
+        resolve({ success: true })
       }
-    });
+    })
 
-    check.on("close", (code) => {
+    check.on('close', (code) => {
       if (code !== 0) {
-        resolve({ success: false, statusCode: code });
+        resolve({ success: false, statusCode: code })
       }
-      currentChildProcess = null;
-    });
+      currentChildProcess = null
+    })
   })
 
-  return response; 
+  return response
 }
 
 const startScan = async (scanDetails, scanEvent) => {
-
-  const userData = readUserDataFromFile();
+  const userData = readUserDataFromFile()
 
   if (userData) {
-    scanDetails.email = userData.email;
-    scanDetails.name = userData.name;
-    scanDetails.exportDir = userData.exportDir;
-    const success = createExportDir(userData.exportDir);
-    if (!success) return  { failedToCreateExportDir: true }
+    scanDetails.email = userData.email
+    scanDetails.name = userData.name
+    scanDetails.exportDir = userData.exportDir
+    const success = createExportDir(userData.exportDir)
+    if (!success) return { failedToCreateExportDir: true }
   }
 
-  let useChromium = false;
+  let useChromium = false
   if (
     scanDetails.browser === browserTypes.chromium ||
     (!getDefaultChromeDataDir() && !getDefaultEdgeDataDir())
   ) {
-    useChromium = true;
+    useChromium = true
   }
 
   const response = await new Promise(async (resolve) => {
-    let intermediateFolderName;
+    let intermediateFolderName
+
     const scan = spawn(
-      "node",
+      'node',
       [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
       {
         cwd: resultsPath,
@@ -205,36 +223,36 @@ const startScan = async (scanDetails, scanEvent) => {
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
-    );
+    )
 
     scan.on('message', (message) => {
       let parsedMessage = JSON.parse(message)
-      let messageFromBackend = parsedMessage.payload;
+      let messageFromBackend = parsedMessage.payload
 
       if (parsedMessage.type === 'randomToken') {
-        intermediateFolderName = messageFromBackend;
+        intermediateFolderName = messageFromBackend
       }
     })
 
-    currentChildProcess = scan;
+    currentChildProcess = scan
 
-    scan.stderr.setEncoding("utf8");
-    scan.stderr.on("data", function (data) {
-      console.log("stderr: " + data);
-    });
+    scan.stderr.setEncoding('utf8')
+    scan.stderr.on('data', function (data) {
+      console.log('stderr: ' + data)
+    })
 
-    scan.stdout.setEncoding("utf8");
-    scan.stdout.on("data", async (data) => {
+    scan.stdout.setEncoding('utf8')
+    scan.stdout.on('data', async (data) => {
       if (killChildProcessSignal) {
-        scan.kill("SIGKILL");
-        currentChildProcess = null;
-        killChildProcessSignal = false;
-        if (intermediateFolderName){
+        scan.kill('SIGKILL')
+        currentChildProcess = null
+        killChildProcessSignal = false
+        if (intermediateFolderName) {
           await cleanUpIntermediateFolders(intermediateFolderName)
         }
-        resolve({ cancelled: true });
-        scanEvent.emit("killScan")
-        return;
+        resolve({ cancelled: true })
+        scanEvent.emit('killScan')
+        return
       }
       /** Code 0 handled indirectly here (i.e. successful process run),
       as unable to get stdout on close event after changing to spawn from fork */
@@ -242,158 +260,160 @@ const startScan = async (scanDetails, scanEvent) => {
       // Output from combine.js which prints the string "No pages were scanned" if crawled URL <= 0
       // consider this as successful that the process ran,
       // but failure in the sense that no pages were scanned so that we can display a message to the user
-      if (data.includes("No pages were scanned")) {
-        scan.kill("SIGKILL");
-        currentChildProcess = null;
-        resolve({ success: false });
+      if (data.includes('No pages were scanned')) {
+        scan.kill('SIGKILL')
+        currentChildProcess = null
+        resolve({ success: false })
       }
 
       // The true success where the process ran and pages were scanned
-      if (data.includes("Results directory is at")) {
-        console.log(data);
+      if (data.includes('Results directory is at')) {
+        console.log(data)
         const resultsPath = data
-          .split("Results directory is at ")[1]
-          .split("/")
+          .split('Results directory is at ')[1]
+          .split('/')
           .pop()
-          .split(" ")[0];
-        const scanId = randomUUID();
-        scanHistory[scanId] = resultsPath;
-        scan.kill("SIGKILL");
-        currentChildProcess = null;
-        await cleanUpIntermediateFolders(resultsPath);
-        resolve({ success: true, scanId });
+          .split(' ')[0]
+        const scanId = randomUUID()
+        scanHistory[scanId] = resultsPath
+
+        // Do not add scan kill here as it will kill clean up processes
+        // scan.kill("SIGKILL");
+        currentChildProcess = null
+        await cleanUpIntermediateFolders(resultsPath)
+        resolve({ success: true, scanId })
       }
 
       // Handle live crawling output
-      if (data.includes("crawling::")) {
-        const urlScannedNum = parseInt(data.split("::")[1].trim());
-        const status = data.split("::")[2].trim();
-        const url = data.split("::")[3].trim();
-        console.log(urlScannedNum, ": ", status, ": ", url);
-        scanEvent.emit("scanningUrl", { status, url, urlScannedNum });
+      if (data.includes('crawling::')) {
+        const urlScannedNum = parseInt(data.split('::')[1].trim())
+        const status = data.split('::')[2].trim()
+        const url = data.split('::')[3].trim()
+        console.log(urlScannedNum, ': ', status, ': ', url)
+        scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
       }
 
-      if (data.includes("Starting scan")) {
-        console.log(data);
+      if (data.includes('Starting scan')) {
+        console.log(data)
       }
 
-      if (data.includes("Scan completed")) {
-        console.log(data);
-        scanEvent.emit("scanningCompleted");
+      if (data.includes('Scan completed')) {
+        console.log(data)
+        scanEvent.emit('scanningCompleted')
       }
-    });
+    })
 
     // Only handles error code closes (i.e. code > 0)
     // as successful resolves are handled above
-    scan.on("close", (code) => {
+    scan.on('close', (code) => {
       if (code !== 0) {
-        resolve({ success: false, statusCode: code });
+        resolve({ success: false, statusCode: code })
       }
-      currentChildProcess = null;
-    });
-  });
+      currentChildProcess = null
+    })
+  })
 
-  return response;
-};
+  return response
+}
 
 const encryptGeneratedScript = (generatedScript) => {
-  // Generate random password and IV 
-  const password = randomBytes(32); 
-  const iv = randomBytes(16);
+  // Generate random password and IV
+  const password = randomBytes(32)
+  const iv = randomBytes(16)
 
-  const data = fs.readFileSync(generatedScript).toString();
-  const cipher = createCipheriv('aes-256-cfb', password, iv);
-  let encrypted = cipher.update(data, 'utf-8', 'hex');
-  encrypted += cipher.final('hex');
-  fs.writeFileSync(generatedScript, encrypted);
-  
+  const data = fs.readFileSync(generatedScript).toString()
+  const cipher = createCipheriv('aes-256-cfb', password, iv)
+  let encrypted = cipher.update(data, 'utf-8', 'hex')
+  encrypted += cipher.final('hex')
+  fs.writeFileSync(generatedScript, encrypted)
+
   const encryptionParams = {
     password: password.toString('base64'),
-    iv: iv.toString('base64')
-  }; 
+    iv: iv.toString('base64'),
+  }
 
-  return encryptionParams;  
+  return encryptionParams
 }
 
 const decryptGeneratedScript = (generatedScript, encryptionParams) => {
-  const passwordBuffer = Buffer.from(encryptionParams.password, 'base64'); 
-  const ivBuffer = Buffer.from(encryptionParams.iv, 'base64');
+  const passwordBuffer = Buffer.from(encryptionParams.password, 'base64')
+  const ivBuffer = Buffer.from(encryptionParams.iv, 'base64')
 
-  const data = fs.readFileSync(generatedScript).toString();
-  const decipher = createDecipheriv("aes-256-cfb", passwordBuffer, ivBuffer);
-  let decrypted = decipher.update(data, 'hex', 'utf-8');
-  decrypted += decipher.final('utf8');
-  fs.writeFileSync(generatedScript, decrypted);
+  const data = fs.readFileSync(generatedScript).toString()
+  const decipher = createDecipheriv('aes-256-cfb', passwordBuffer, ivBuffer)
+  let decrypted = decipher.update(data, 'hex', 'utf-8')
+  decrypted += decipher.final('utf8')
+  fs.writeFileSync(generatedScript, decrypted)
 }
 
 const injectLabelIntoFolderName = (customFlowLabel, scanId) => {
-  const currentFolderNameList = scanHistory[scanId].split('_');
-  const currentResultsFolderPath = getResultsFolderPath(scanId);
+  const currentFolderNameList = scanHistory[scanId].split('_')
+  const currentResultsFolderPath = getResultsFolderPath(scanId)
   const newFolderNameList = [
     ...currentFolderNameList.slice(0, 2),
     customFlowLabel,
-    ...currentFolderNameList.slice(2)
+    ...currentFolderNameList.slice(2),
   ]
-  const newFolderName = newFolderNameList.toString().replaceAll(',', '_');
-  scanHistory[scanId] = newFolderName;
-  const newResultsFolderPath = getResultsFolderPath(scanId);
+  const newFolderName = newFolderNameList.toString().replaceAll(',', '_')
+  scanHistory[scanId] = newFolderName
+  const newResultsFolderPath = getResultsFolderPath(scanId)
   fs.renameSync(currentResultsFolderPath, newResultsFolderPath)
 }
 const escapeHTMLEntitiesInLabel = (customFlowLabel) => {
-  return customFlowLabel.replaceAll(/&/g, '&amp;'); 
+  return customFlowLabel.replaceAll(/&/g, '&amp;')
 }
 const generateReport = (customFlowLabel, scanId) => {
-  injectLabelIntoFolderName(customFlowLabel, scanId);
-  const reportPath = getReportPath(scanId);
-  const escapedCustomFlowLabel = escapeHTMLEntitiesInLabel(customFlowLabel);
+  injectLabelIntoFolderName(customFlowLabel, scanId)
+  const reportPath = getReportPath(scanId)
+  const escapedCustomFlowLabel = escapeHTMLEntitiesInLabel(customFlowLabel)
 
   // edit custom flow label in the base 64 encoded scanData in report
-  const data = fs.readFileSync(reportPath, { encoding: "utf-8" });
-  const scanDataEncoded = data.match(/scanData\s*=\s*base64Decode\('([^']+)'\)/)[1];
-  const scanDataDecodedJson = base64Decode(scanDataEncoded);
-  scanDataDecodedJson.customFlowLabel = escapedCustomFlowLabel;
-  const scanDataEncodedWithNewLabel = base64Encode(scanDataDecodedJson);
-  const result = data.replaceAll(scanDataEncoded, scanDataEncodedWithNewLabel); // find the encoded part, decode it and change the label then put back
-  fs.writeFileSync(reportPath, result, {encoding: 'utf-8'});
-};
+  const data = fs.readFileSync(reportPath, { encoding: 'utf-8' })
+  const scanDataEncoded = data.match(
+    /scanData\s*=\s*base64DecodeChunkedWithDecoder\('([^']+)'\)/
+  )[1]
+  const scanDataDecodedJson = base64Decode(scanDataEncoded)
+  scanDataDecodedJson.customFlowLabel = escapedCustomFlowLabel
+  const scanDataEncodedWithNewLabel = base64Encode(scanDataDecodedJson)
+  const result = data.replaceAll(scanDataEncoded, scanDataEncodedWithNewLabel) // find the encoded part, decode it and change the label then put back
+  fs.writeFileSync(reportPath, result, { encoding: 'utf-8' })
+}
 
 const base64Decode = (data) => {
-  const compressedBytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-  const jsonString = new TextDecoder().decode(compressedBytes);
-  return JSON.parse(jsonString);
-};
+  // Remove invalid base64 characters
+  const dataWithValidBase64Char = data.replace(/[^A-Za-z0-9+/=]/g, '')
+  const compressedBytes = Uint8Array.from(atob(dataWithValidBase64Char), (c) =>
+    c.charCodeAt(0)
+  )
+  const jsonString = new TextDecoder().decode(compressedBytes)
+  return JSON.parse(jsonString)
+}
 
-const base64Encode = data => {
+const base64Encode = (data) => {
   try {
-    return Buffer.from(JSON.stringify(data)).toString('base64');
+    return Buffer.from(JSON.stringify(data)).toString('base64')
   } catch (error) {
-    console.error('Error encoding data to base64:', error);
-    throw error;
+    console.error('Error encoding data to base64:', error)
+    throw error
   }
-};
+}
 
 const getReportPath = (scanId) => {
-  const resultsFolderPath = getResultsFolderPath(scanId);
+  const resultsFolderPath = getResultsFolderPath(scanId)
   if (scanHistory[scanId]) {
-    return path.join(
-      resultsFolderPath,
-      "report.html"
-    );
+    return path.join(resultsFolderPath, 'report.html')
   }
-  return null;
-};
+  return null
+}
 
 const getResultsFolderPath = (scanId) => {
-  const exportDir = readUserDataFromFile().exportDir; 
-  return path.join(
-    exportDir,
-    scanHistory[scanId]
-  )
+  const exportDir = readUserDataFromFile().exportDir
+  return path.join(exportDir, scanHistory[scanId])
 }
 
 const mailResults = async (formDetails, scanId) => {
-  const reportPath = getReportPath(scanId);
-  const { subject, emailAddresses } = formDetails;
+  const reportPath = getReportPath(scanId)
+  const { subject, emailAddresses } = formDetails
 
   const shellCommand = `
     if ((Split-Path -Path $pwd -Leaf) -eq "scripts") {
@@ -417,8 +437,8 @@ const mailResults = async (formDetails, scanId) => {
     $mail.subject = "${subject}"
     $mail.body = "Hi there,
     
-Please see the attached accessibility scan results with Purple A11y (report.html).
-You can download Purple A11y at the following link: https://go.gov.sg/get-purplea11y.
+Please see the attached accessibility scan results with Oobee (report.html).
+You can download Oobee at the following link: https://go.gov.sg/oobee.
 
 Feel free to reach us at accessibility@tech.gov.sg if you have any questions.
 
@@ -450,152 +470,168 @@ Accessibility Enabling Team"
     }
     #end the script
     exit
-  `;
+  `
 
   const response = await new Promise((resolve) => {
-    const mailProcess = spawn("powershell.exe", [
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
+    const mailProcess = spawn('powershell.exe', [
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
       shellCommand,
-    ]);
+    ])
 
-    mailProcess.stderr.on("data", (data) => {
-      console.error(`stderr: ${data}`);
+    mailProcess.stderr.on('data', (data) => {
+      console.error(`stderr: ${data}`)
       resolve({
         success: false,
         message: `An error has occurred when sending the email: ${data}`,
-      });
-    });
+      })
+    })
 
-    mailProcess.on("close", (code) => {
+    mailProcess.on('close', (code) => {
       if (code === 0) {
-        resolve({ success: true });
+        resolve({ success: true })
       } else {
-        mailProcess.stderr.on("data", (data) => {
-          console.error(`stderr: ${data}`);
+        mailProcess.stderr.on('data', (data) => {
+          console.error(`stderr: ${data}`)
           resolve({
             success: false,
             message: `An error has occurred when sending the email: ${data}`,
-          });
-        });
+          })
+        })
       }
-    });
-  });
+    })
+  })
 
-  return response;
-};
+  return response
+}
 
-const cleanUpIntermediateFolders = async (folderName, setDefaultFolders = false) => {
-  const pathToDelete = path.join(resultsPath, folderName);
-  await fs.pathExists(pathToDelete).then(exists => {
+const cleanUpIntermediateFolders = async (
+  folderName,
+  setDefaultFolders = false
+) => {
+  const pathToDelete = path.join(resultsPath, folderName)
+  await fs.pathExists(pathToDelete).then((exists) => {
     if (exists) {
-      fs.removeSync(pathToDelete);
+      fs.removeSync(pathToDelete)
     }
-  });
-};
+  })
+}
 
-const moveCustomFlowResultsToExportDir = (scanId, resultsFolderName, isReplay) => {
-  const currentResultsPath = path.join(scanResultsPath, resultsFolderName);
-  let newResultsPath;
+const moveCustomFlowResultsToExportDir = (
+  scanId,
+  resultsFolderName,
+  isReplay
+) => {
+  const currentResultsPath = path.join(scanResultsPath, resultsFolderName)
+  let newResultsPath
   if (isReplay) {
-    const [date, time] = new Date().toLocaleString('sv').replaceAll(/-|:/g, '').split(' ');
-    const domain = currentResultsPath.split("_").pop();
-    const newResultsFolderName = `${date}_${time}_${domain}`;
-    scanHistory[scanId] = newResultsFolderName;;
-    newResultsPath = getResultsFolderPath(scanId);
+    const [date, time] = new Date()
+      .toLocaleString('sv')
+      .replaceAll(/-|:/g, '')
+      .split(' ')
+    const domain = currentResultsPath.split('_').pop()
+    const newResultsFolderName = `${date}_${time}_${domain}`
+    scanHistory[scanId] = newResultsFolderName
+    newResultsPath = getResultsFolderPath(scanId)
   } else {
-    newResultsPath = getResultsFolderPath(scanId);
+    newResultsPath = getResultsFolderPath(scanId)
   }
   fs.move(currentResultsPath, newResultsPath, (err) => {
-    if (err) return console.log(err);
+    if (err) return console.log(err)
   })
 }
 
 const init = (scanEvent) => {
-  ipcMain.handle("validateUrlConnectivity", async (_event, scanDetails) => {
-    return await validateUrlConnectivity(scanDetails); 
+  ipcMain.handle('validateUrlConnectivity', async (_event, scanDetails) => {
+    return await validateUrlConnectivity(scanDetails)
   })
 
-  ipcMain.handle("startScan", async (_event, scanDetails) => {
-    return await startScan(scanDetails, scanEvent);
-  });
-
-  ipcMain.handle("abortScan", async (_event) => {
-    setKillChildProcessSignal();
-  });
-
-  ipcMain.on("generateReport", (_event, customFlowLabel, scanId) => {
-    return generateReport(customFlowLabel, scanId);
-  });
-
-  ipcMain.on("openReport", async (_event, scanId) => {
-    const reportPath = getReportPath(scanId);
-    if (!reportPath) return;
-    shell.openExternal(`file://${reportPath}`);
-  });
-
-  ipcMain.handle("getResultsFolderPath", async (_event, scanId) => {
-    const resultsPath = getResultsFolderPath(scanId);
-    return resultsPath;
+  ipcMain.handle('startScan', async (_event, scanDetails) => {
+    return await startScan(scanDetails, scanEvent)
   })
 
-  ipcMain.handle("getUploadFolderPath", async () => {
-    const { exportDir } = readUserDataFromFile();
-    const uploadFolderPath = path.join(exportDir, uploadFolderName);
+  ipcMain.handle('abortScan', async (_event) => {
+    setKillChildProcessSignal()
+  })
+
+  ipcMain.on('generateReport', (_event, customFlowLabel, scanId) => {
+    return generateReport(customFlowLabel, scanId)
+  })
+
+  ipcMain.on('openReport', async (_event, scanId) => {
+    const reportPath = getReportPath(scanId)
+    if (!reportPath) return
+    shell.openExternal(`file://${reportPath}`)
+  })
+
+  ipcMain.handle('getResultsFolderPath', async (_event, scanId) => {
+    const resultsPath = getResultsFolderPath(scanId)
+    return resultsPath
+  })
+
+  ipcMain.handle('getUploadFolderPath', async () => {
+    const { exportDir } = readUserDataFromFile()
+    const uploadFolderPath = path.join(exportDir, uploadFolderName)
     if (!fs.existsSync(uploadFolderPath)) {
-      fs.mkdirSync(uploadFolderPath);
+      fs.mkdirSync(uploadFolderPath)
     }
-    return uploadFolderPath;
+    return uploadFolderPath
   })
 
-  ipcMain.handle("getErrorLog", async (event, timeOfScanString, timeOfError) => {
-      const errorLogPath = path.join(appPath, 'errors.txt');
-      const errorLog = fs.readFileSync(errorLogPath, 'utf-8');  
-      const regex = /{.*?}/gs; 
-      const entries = errorLog.match(regex);
-      let allErrors = "";
+  ipcMain.handle(
+    'getErrorLog',
+    async (event, timeOfScanString, timeOfError) => {
+      const errorLogPath = path.join(appPath, 'errors.txt')
+      const errorLog = fs.readFileSync(errorLogPath, 'utf-8')
+      const regex = /{.*?}/gs
+      const entries = errorLog.match(regex)
+      let allErrors = ''
 
-      const exists =fs.existsSync(errorLogPath);
+      const exists = fs.existsSync(errorLogPath)
       if (!exists) {
-        allErrors="Log file (errors.txt) does not exist"
+        allErrors = 'Log file (errors.txt) does not exist'
         console.log(!exists)
-        return allErrors;
+        return allErrors
       }
 
-      try{
-      fs.accessSync(errorLogPath, fs.constants.R_OK);
-    } catch (err) { 
-      console.error('No Read access', errorLogPath); 
-      allErrors="Log file (errors.txt) cannot be read"
-      return allErrors;
-    } 
+      try {
+        fs.accessSync(errorLogPath, fs.constants.R_OK)
+      } catch (err) {
+        console.error('No Read access', errorLogPath)
+        allErrors = 'Log file (errors.txt) cannot be read'
+        return allErrors
+      }
 
-    if (entries==null){
-      allErrors = "Log file (errors.txt) is empty"
-    } else {
-      for (const entry of entries){
-        const jsonEntry = JSON.parse(entry);
-        const timeOfEntry = new Date(jsonEntry['timestamp']).getTime(); 
-        const timeOfScan = new Date(timeOfScanString);
-        if (timeOfEntry >= timeOfScan.getTime() && timeOfEntry <= timeOfError.getTime()){
-          allErrors = allErrors.concat(entry,"\n")
+      if (entries == null) {
+        allErrors = 'Log file (errors.txt) is empty'
+      } else {
+        for (const entry of entries) {
+          const jsonEntry = JSON.parse(entry)
+          const timeOfEntry = new Date(jsonEntry['timestamp']).getTime()
+          const timeOfScan = new Date(timeOfScanString)
+          if (
+            timeOfEntry >= timeOfScan.getTime() &&
+            timeOfEntry <= timeOfError.getTime()
+          ) {
+            allErrors = allErrors.concat(entry, '\n')
+          }
+        }
+        if (allErrors === '') {
+          allErrors = 'Log file (errors.txt) has no new entries after scan'
         }
       }
-      if (allErrors===""){
-        allErrors ="Log file (errors.txt) has no new entries after scan"
-      }
+
+      return allErrors
     }
+  )
 
-    return allErrors;
+  ipcMain.handle('mailReport', (_event, formDetails, scanId) => {
+    return mailResults(formDetails, scanId)
   })
-
-  ipcMain.handle("mailReport", (_event, formDetails, scanId) => {
-    return mailResults(formDetails, scanId);
-  });
-};
+}
 
 module.exports = {
   init,
   killChildProcess,
-};
+}

@@ -60,7 +60,7 @@ const WhatsNewModal = ({
       <a
         href="#"
         role="link"
-        onClick={(e) => handleClickLink(e, "https://github.com/GovTechSG/purple-a11y-desktop/releases/")}
+        onClick={(e) => handleClickLink(e, "https://github.com/GovTechSG/oobee-desktop/releases/")}
       >
         See previous versions{" "}
         <img className="external-link" src={boxRightArrow}></img>

@@ -5,7 +5,7 @@ import slashCircleIcon from "../../assets/slash-circle.svg";
 import crossCircleIcon from "../../assets/cross-circle.svg";
 import LoadingScanningStatus from "./LoadingScanningStatus";
 
-const ScanningComponent = ({scanningMessage}) => {
+const ScanningComponent = ({ scanningMessage }) => {
   const [scannedItems, setScannedItems] = useState([]);
   const [urlItems, setUrlItems] = useState([]);
   const [urlItemComponents, setUrlItemComponents] = useState([]);
@@ -45,49 +45,57 @@ const ScanningComponent = ({scanningMessage}) => {
   })
 
   useEffect(() => {
-    setDisplayPageWord(displayPageNum === 1 ? 'page' : 'pages')
+    setDisplayPageWord(displayPageNum === 1 ? "page" : "pages");
   }, [displayPageNum]);
 
-  const UrlItemComponent = ({index, urlItem, scanCompleted}) => {
-    const isMostRecent = index === 0; 
-    const urlItemClassName = !isMostRecent ? "scanning-url-list-item fade-in-top" : "scanning-url-list-item"; 
+  const UrlItemComponent = ({ index, urlItem, scanCompleted }) => {
+    const isMostRecent = index === 0;
+    const urlItemClassName = !isMostRecent
+      ? "scanning-url-list-item fade-in-top"
+      : "scanning-url-list-item";
     const statusIcon = () => {
       if (isMostRecent && !scanCompleted) {
-        return <LoadingSpinner></LoadingSpinner>
+        return <LoadingSpinner></LoadingSpinner>;
       } else {
         switch (urlItem.status) {
-          case 'scanned': {
-            return <img className="scanning-check-icon" src={checkIcon}></img>; 
+          case "scanned": {
+            return <img className="scanning-check-icon" src={checkIcon}></img>;
           }
-          case 'skipped': {
-            return <img className="scanning-check-icon" src={slashCircleIcon}></img>
+          case "skipped": {
+            return (
+              <img className="scanning-check-icon" src={slashCircleIcon}></img>
+            );
           }
-          case 'error': {
-            return <img className="scanning-check-icon" src={crossCircleIcon}></img>
+          case "error": {
+            return (
+              <img className="scanning-check-icon" src={crossCircleIcon}></img>
+            );
           }
         }
       }
-    }
+    };
     return (
-      <li className={urlItemClassName} key={index}> 
+      <li className={urlItemClassName} key={index}>
         {statusIcon()}
         <p className="scanning-url">{urlItem.url}</p>
       </li>
-    )
-  }
+    );
+  };
   return (
     <div className="scanning-component">
-      { urlItems.length > 0 
-        ?
+      {urlItems.length > 0 ? (
         <>
-          <h1 className="scanning-url-title">Scanned: {displayPageNum} {displayPageWord}</h1>
+          <h1 className="scanning-url-title">
+            Scanned: {displayPageNum} {displayPageWord}
+          </h1>
           <div className="scanning-url-list-container">
-            <ul className="scanning-url-list">{urlItemComponents}</ul> 
+            <ul className="scanning-url-list">{urlItemComponents}</ul>
             <div className="blurred-overlay"></div>
           </div>
         </>
-        : <LoadingScanningStatus scanningMessage={scanningMessage} />
-      }
+      ) : (
+        <LoadingScanningStatus scanningMessage={scanningMessage} />
+      )}
     </div>
   );
 };
