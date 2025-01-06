@@ -15,34 +15,46 @@ const ScanningComponent = ({ scanningMessage }) => {
   const [displayPageWord, setDisplayPageWord] = useState("page");
 
   useEffect(() => {
-      if (!scanCompleted) {
-        window.services.scanningUrl((urlItem) => {
-          if (urlItem.status === 'scanned') {
-            const currDisplayPageNum = urlItem.urlScannedNum;
-            setDisplayPageNum(currDisplayPageNum);
-            setPagesScanned(currDisplayPageNum);  
-          } else {
-            setDisplayPageNum(pagesScanned);
-          }
-          
-          const newUrlItems = [urlItem, ...urlItems];
-          setUrlItems(newUrlItems);
-          const newUrlItemComponents = [
-             ...newUrlItems.map((urlItem, index) => <UrlItemComponent index={index} urlItem={urlItem}/> )
-          ] 
-          setUrlItemComponents(newUrlItemComponents);
-        });
-    
-        window.services.scanningCompleted(() => {
-            setDisplayPageNum(pagesScanned);
-            const completedUrlItems = [
-              ...urlItems.map((urlItem, index) => <UrlItemComponent index={index} urlItem={urlItem} scanCompleted={true}/>)
-            ]
-            setUrlItemComponents(completedUrlItems);
-            setScanCompleted(true);
-        })
-      }
-  })
+    if (!scanCompleted) {
+      window.services.scanningUrl((urlItem) => {
+        if (urlItem.status === "scanned") {
+          const currDisplayPageNum = urlItem.urlScannedNum;
+          setDisplayPageNum(currDisplayPageNum);
+          setPagesScanned(currDisplayPageNum);
+        } else {
+          setDisplayPageNum(pagesScanned);
+        }
+
+        const newUrlItems = [urlItem, ...urlItems].slice(0, 50);
+        setUrlItems(newUrlItems);
+
+        const newUrlItemComponents = [
+          ...newUrlItems.map((urlItem, index) => (
+            <UrlItemComponent key={index} index={index} urlItem={urlItem} />
+          )),
+        ];
+        setUrlItemComponents(newUrlItemComponents);
+      });
+
+      window.services.scanningCompleted(() => {
+        setDisplayPageNum(pagesScanned);
+        const completedUrlItems = [
+          ...urlItems
+            .map((urlItem, index) => (
+              <UrlItemComponent
+                key={index}
+                index={index}
+                urlItem={urlItem}
+                scanCompleted={true}
+              />
+            ))
+            .slice(0, 50),
+        ];
+        setUrlItemComponents(completedUrlItems);
+        setScanCompleted(true);
+      });
+    }
+  });
 
   useEffect(() => {
     setDisplayPageWord(displayPageNum === 1 ? "page" : "pages");
