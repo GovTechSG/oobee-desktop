@@ -3,6 +3,7 @@
   "productName": "Oobee",
   "version": "0.10.21",
   "private": true,
+  "author": "Government Technology Agency <info@tech.gov.sg>",
   "dependencies": {
     "axios": "^1.7.4",
     "fs-extra": "^11.1.1",
