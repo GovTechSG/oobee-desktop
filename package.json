@@ -1,7 +1,7 @@
 {
   "name": "purplea11ydesktop",
   "productName": "Oobee",
-  "version": "0.10.21",
+  "version": "0.10.22",
   "private": true,
   "author": "Government Technology Agency <info@tech.gov.sg>",
   "dependencies": {
@@ -70,6 +70,5 @@
     "nth-check": "^2.1.1",
     "postcss": "^8.4.31"
   },
-  "author": "Accessibility Enabling Team, GovTech",
   "description": "Oobee Desktop"
 }
