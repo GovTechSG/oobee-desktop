@@ -148,42 +148,6 @@ app.on('ready', async () => {
       app.exit()
     })
 
-    // Check and launch Oobee
-    updateEvent.on('restartA11yToOobee', () => {
-      const oobeePath =
-        process.platform === 'win32'
-          ? 'C:\\Program Files\\Oobee Desktop\\Oobee Frontend\\Oobee.exe'
-          : path.join(
-              path.dirname(app.getPath('exe')),
-              '..',
-              '..',
-              '..',
-              'Oobee.app'
-            )
-
-      const currentAppPath = app.getPath('exe')
-
-      if (fs.existsSync(oobeePath) && !currentAppPath.includes('Oobee')) {
-        const { exec } = require('child_process');
-        const openCommand = process.platform === 'win32' ? `start "" "${oobeePath}"` : `open "${oobeePath}"`;
-
-        exec(openCommand, (error) => {
-          if (error) {
-            console.error(
-              `Failed to open ${path.basename(oobeePath)}: ${error}`
-            )
-          }
-          // Works for Mac
-          app.exit()
-        })
-
-        // Works for Windows
-        app.exit()
-      } else {
-        // do nothing
-      }
-    })
-
     updateEvent.on('restartTriggered', () => {
       app.relaunch()
       app.exit()

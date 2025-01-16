@@ -304,9 +304,6 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
     `[updateManager] run - latestRelease: ${latestRelease}; latestPreRelease: ${latestPreRelease}`
   );
 
-  // Start Oobee instead if exist
-  updaterEventEmitter.emit("restartA11yToOobee");
-  
   updaterEventEmitter.emit("checking");
 
   const getBackendExists = () => fs.existsSync(backendPath);
@@ -392,13 +389,7 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
     }
 
     if (restartRequired) {
-      consoleLogger.info("restarting app...");
-      updaterEventEmitter.emit("restartA11yToOobee");
-      setTimeout(() => {
-        // Wait for restart to be triggered
-      }, 10000);
-      // Once Oobee released, use the regular restartTriggered event
-      // updaterEventEmitter.emit("restartTriggered");
+      updaterEventEmitter.emit("restartTriggered");
     }
 
     const isPrepackageValid = await validateZipFile(macOSPrepackageBackend);
