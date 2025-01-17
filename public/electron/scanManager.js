@@ -9,6 +9,7 @@ const {
   createCipheriv,
   createDecipheriv,
 } = require('crypto')
+const pako = require('pako')
 const {
   enginePath,
   appPath,
@@ -93,7 +94,7 @@ const getScanOptions = (details) => {
     options.push('-p', maxPages)
   }
 
-  if (!headlessMode) {
+  if (headlessMode !== undefined && headlessMode === false) {
     options.push('-h', 'no')
   }
 
@@ -363,39 +364,52 @@ const escapeHTMLEntitiesInLabel = (customFlowLabel) => {
   return customFlowLabel.replaceAll(/&/g, '&amp;')
 }
 const generateReport = (customFlowLabel, scanId) => {
-  injectLabelIntoFolderName(customFlowLabel, scanId)
-  const reportPath = getReportPath(scanId)
-  const escapedCustomFlowLabel = escapeHTMLEntitiesInLabel(customFlowLabel)
+  injectLabelIntoFolderName(customFlowLabel, scanId);
+  const reportPath = getReportPath(scanId);
+  const escapedCustomFlowLabel = escapeHTMLEntitiesInLabel(customFlowLabel);
 
   // edit custom flow label in the base 64 encoded scanData in report
-  const data = fs.readFileSync(reportPath, { encoding: 'utf-8' })
-  const scanDataEncoded = data.match(
-    /scanData\s*=\s*base64DecodeChunkedWithDecoder\('([^']+)'\)/
-  )[1]
-  const scanDataDecodedJson = base64Decode(scanDataEncoded)
-  scanDataDecodedJson.customFlowLabel = escapedCustomFlowLabel
-  const scanDataEncodedWithNewLabel = base64Encode(scanDataDecodedJson)
-  const result = data.replaceAll(scanDataEncoded, scanDataEncodedWithNewLabel) // find the encoded part, decode it and change the label then put back
-  fs.writeFileSync(reportPath, result, { encoding: 'utf-8' })
+  const data = fs.readFileSync(reportPath, { encoding: 'utf-8' });
+  const scanDataEncoded = data.match(/scanDataPromise\s*=\s*\(async\s*\(\)\s*=>\s*{[^]*?decodeUnzipParse\('([^']+)'\)/)[1];
+  const scanDataDecodedJson = base64Decode(scanDataEncoded);
+  
+  scanDataDecodedJson.customFlowLabel = escapedCustomFlowLabel;
+  const scanDataEncodedWithNewLabel = base64EncodeGzip(scanDataDecodedJson);
+  const result = data.replaceAll(scanDataEncoded, scanDataEncodedWithNewLabel); // find the encoded part, decode it and change the label then put back
+  fs.writeFileSync(reportPath, result, { encoding: 'utf-8' });
+
 }
 
 const base64Decode = (data) => {
-  // Remove invalid base64 characters
-  const dataWithValidBase64Char = data.replace(/[^A-Za-z0-9+/=]/g, '')
+  // Remove invalid Base64 characters
+  const dataWithValidBase64Char = data.replace(/[^A-Za-z0-9+/=]/g, '');
+
+  // Decode Base64 to a Uint8Array (binary data)
   const compressedBytes = Uint8Array.from(atob(dataWithValidBase64Char), (c) =>
     c.charCodeAt(0)
-  )
-  const jsonString = new TextDecoder().decode(compressedBytes)
-  return JSON.parse(jsonString)
-}
+  );
 
-const base64Encode = (data) => {
-  try {
-    return Buffer.from(JSON.stringify(data)).toString('base64')
-  } catch (error) {
-    console.error('Error encoding data to base64:', error)
-    throw error
-  }
+  // Decompress the binary data using pako.inflate
+  const decompressedBytes = pako.inflate(compressedBytes);
+
+  // Decode the decompressed bytes into a UTF-8 string
+  const jsonString = new TextDecoder().decode(decompressedBytes);
+
+  // Parse and return the JSON object
+  return JSON.parse(jsonString);
+};
+
+
+function base64EncodeGzip(data) {
+  // 1) Stringify JSON
+  const jsonString = JSON.stringify(data);
+  // 2) GZIP compress
+  const compressedBytes = pako.gzip(jsonString);
+  // 3) Convert to base64
+  const base64String = btoa(
+    String.fromCharCode(...compressedBytes)
+  );
+  return base64String;
 }
 
 const getReportPath = (scanId) => {
