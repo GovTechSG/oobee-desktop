@@ -70,7 +70,7 @@ jobs:
         working-directory: ${{github.workspace}}
         
       - name: Upload Oobee Windows setup artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-windows
           path: oobee-desktop-windows.zip
@@ -140,7 +140,7 @@ jobs:
         working-directory: ${{github.workspace}}/out/make/zip/darwin/universal
         
       - name: Upload Mac artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-macos
           path: oobee-desktop-macos.zip
