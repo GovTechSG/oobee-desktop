@@ -20,7 +20,7 @@ const ScanningComponent = ({ scanningMessage }) => {
         if (urlItem.status === "scanned") {
           const currDisplayPageNum = urlItem.urlScannedNum;
           setDisplayPageNum(currDisplayPageNum);
-          setPagesScanned(currDisplayPageNum + 1);
+          setPagesScanned(currDisplayPageNum);
         } else {
           setDisplayPageNum(pagesScanned);
         }
