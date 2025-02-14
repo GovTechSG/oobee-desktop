@@ -72,6 +72,11 @@ const getScanOptions = (details) => {
     fileTypes,
   ]
 
+  // Add default exclusions.txt containing blacklisted URL patterns
+  if (fs.existsSync(`${enginePath}/exclusions.txt`)) {
+    options.push('-x', `${enginePath}/exclusions.txt`);
+  }
+
   if (!includeScreenshots) {
     options.push('-a')
     options.push('none')
