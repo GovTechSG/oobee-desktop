@@ -112,12 +112,6 @@ export const errorStates = {
   noPagesScannedError: 'noPagesScannedError',
 }
 
-export const feedbackFormInputFields = {
-  formUrl: 'https://form.gov.sg/64d1fcde4d0bb70012010995',
-  urlScannedField: '64d49b567c3c460011feb8b5',
-  versionNumberField: '64db1f79141a46001243b77a',
-}
-
 export const policyUrlElem = (
   <a
     role="link"

@@ -9,7 +9,6 @@ import {
   fileTypes,
   forbiddenCharactersInDirPath,
   reserveFileNameKeywords,
-  feedbackFormInputFields,
 } from './common/constants'
 
 // for use in openUserDataForm
@@ -151,13 +150,14 @@ const getDataForForm = async () => {
 }
 
 const getFeedbackFormUrl = async () => {
-  const { formUrl, urlScannedField, versionNumberField } =
-    feedbackFormInputFields
-  const phEngineVersion = await window.services.getEngineVersion()
-  const encodedUrlScanned = encodeURIComponent(currentScanUrl)
-  const encodedVersionNumber = encodeURIComponent(phEngineVersion)
-  const feedbackFormUrl = `${formUrl}/?${urlScannedField}=${encodedUrlScanned}&${versionNumberField}=${encodedVersionNumber}`
-  return feedbackFormUrl
+  const phEngineVersion = await window.services.getEngineVersion();
+
+  const mailtoAddress = `oobee@wogaa.gov.sg`;
+  const mailtoSubject = encodeURIComponent(`Support Request - Oobee Version ${phEngineVersion}`);
+  const mailtoBody = encodeURIComponent(`URL Scanned: ${currentScanUrl}\nVersion: ${phEngineVersion}`);
+  const feedbackEmail = `mailto:${mailtoAddress}?subject=${mailtoSubject}&body=${mailtoBody}`;
+
+  return feedbackEmail;
 }
 
 const isValidEmail = (email) => {
