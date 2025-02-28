@@ -90,7 +90,7 @@ export const getDefaultAdvancedOptions = (isProxy) => {
     includeSubdomains: true,
     followRobots: false,
     customChecks: true,
-    wcagAaa: false,
+    wcagAaa: true,
   }
 }
 
