@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import a11yLogo from '../../assets/logo-oobee-full-colour-FPA-110x40.svg'
+import a11yLogo from '../../assets/logo-oobee-full-colour-PBGT-170x100.svg'
 // import appIllustration from '../../assets/app-illustration.svg'
 import appIllustration from '../../assets/home-page-illustration.svg'
 import editIcon from '../../assets/edit-pencil-purple.svg'
