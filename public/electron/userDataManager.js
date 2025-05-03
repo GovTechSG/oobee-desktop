@@ -5,15 +5,25 @@ const {
     proxy
 } = require("./constants"); 
 const { ipcMain, dialog, shell } = require("electron");
+const path = require('path');
+const Sentry = require('@sentry/electron/main');
+const { v4: uuidv4 } = require('uuid');
 
 const readUserDataFromFile = () => {
     return JSON.parse(fs.readFileSync(userDataFilePath));
 }
 
-const writeUserDetailsToFile = (userDetails) => {
-    const data = readUserDataFromFile();
-    const newData = { ...data, ...userDetails };
-    fs.writeFileSync(userDataFilePath, JSON.stringify(newData));
+const writeUserDetailsToFile = (data) => {
+    const userData = readUserDataFromFile();
+    const updatedData = { ...userData, ...data };
+    fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
+
+    // Update Sentry user context with both ID and email
+    Sentry.setUser({
+        id: userData.userId, // Keep the existing userId
+        email: data.email || userData.email || undefined,
+        hasEmail: !!(data.email || userData.email)
+    });
 }
 
 const createExportDir = (path) => {
@@ -38,7 +48,8 @@ const init = async () => {
             event: false, 
             browser: proxy ? "edge" : "chrome",
             autoUpdate: true,
-            exportDir: defaultExportDir
+            exportDir: defaultExportDir,
+            userId: uuidv4() // Generate a unique ID for new users
         }; 
         fs.writeFileSync(userDataFilePath, JSON.stringify(defaultSettings));
     } else {
@@ -55,6 +66,9 @@ const init = async () => {
         }
         if (!userData.browser) {
             userData.browser = proxy ? "edge" : "chrome";
+        }
+        if (!userData.userId) {
+            userData.userId = uuidv4(); // Generate ID for existing users who don't have one
         }
         fs.writeFileSync(userDataFilePath, JSON.stringify(userData));
     }
