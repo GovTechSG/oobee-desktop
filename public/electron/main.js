@@ -22,7 +22,7 @@ const path = require('path')
 
 // Initialize Sentry
 Sentry.init({
-  dsn: "https://75e63c8f795da0af0729c494802ca389@o4509047624761344.ingest.us.sentry.io/4509251864428544",
+  dsn: "https://a70a82e8152c23392841b1118c4ede73@o4509047624761344.ingest.us.sentry.io/4509286545948673",
   // Setting this option to true will send default PII data to Sentry.
   sendDefaultPii: true,
   // Enable performance monitoring
@@ -211,8 +211,17 @@ app.on('ready', async () => {
     mainWindow.webContents.send('scanningUrl', url)
   })
   scanEvent.on('scanningCompleted', () => {
+    Sentry.captureMessage('Accessibility Scan Completed', {
+      level: 'info',
+      tags: {
+        os: os.platform(),
+        version: constants.appVersion,
+      }
+    });
+  
     mainWindow.webContents.send('scanningCompleted')
   })
+  
   scanEvent.on('killScan', () => {
     mainWindow.webContents.send('killScan')
   })
