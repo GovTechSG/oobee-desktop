@@ -6,6 +6,7 @@ const {
   session,
   dialog,
 } = require('electron')
+const Sentry = require('@sentry/electron/main')
 const { getDefaultChromeDataDir } = require('./constants')
 const os = require('os')
 const axios = require('axios')
@@ -18,6 +19,19 @@ const userDataManager = require('./userDataManager.js')
 const showdown = require('showdown')
 const fs = require('fs')
 const path = require('path')
+
+// Initialize Sentry
+Sentry.init({
+  dsn: "https://a70a82e8152c23392841b1118c4ede73@o4509047624761344.ingest.us.sentry.io/4509286545948673",
+  // Setting this option to true will send default PII data to Sentry.
+  sendDefaultPii: true,
+  // Enable performance monitoring
+  tracesSampleRate: 1.0,
+  // Enable session tracking
+  autoSessionTracking: true,
+  // Set environment
+  environment: process.env.NODE_ENV || 'production'
+});
 
 const app = electronApp
 
@@ -53,6 +67,27 @@ function createMainWindow() {
 
 // TODO set ipcMain messages
 app.on('ready', async () => {
+  // Get user data to check if email exists
+  const userData = await userDataManager.readUserDataFromFile();
+  
+  // Set user context in Sentry with userId
+  Sentry.setUser({
+    id: userData.userId,
+    email: userData.email || undefined,
+    hasEmail: !!userData.email
+  });
+
+  // Track app launch event
+  Sentry.captureMessage('App Launched', {
+    level: 'info',
+    tags: {
+      hasEmail: !!userData.email,
+      os: os.platform(),
+      version: constants.appVersion,
+      userId: userData.userId
+    }
+  });
+
   const axiosInstance = axios.create({
     timeout: 5000,
     httpsAgent: new https.Agent({
@@ -176,8 +211,17 @@ app.on('ready', async () => {
     mainWindow.webContents.send('scanningUrl', url)
   })
   scanEvent.on('scanningCompleted', () => {
+    Sentry.captureMessage('Accessibility Scan Completed', {
+      level: 'info',
+      tags: {
+        os: os.platform(),
+        version: constants.appVersion,
+      }
+    });
+  
     mainWindow.webContents.send('scanningCompleted')
   })
+  
   scanEvent.on('killScan', () => {
     mainWindow.webContents.send('killScan')
   })
@@ -288,6 +332,20 @@ app.on('quit', () => {
   //     }
   //   })
   // }
+  // Get user data to check if email exists
+  const userData = userDataManager.readUserDataFromFile();
+  
+  // Track app quit event
+  Sentry.captureMessage('App Quit', {
+    level: 'info',
+    tags: {
+      hasEmail: !!userData.email,
+      os: os.platform(),
+      version: constants.appVersion,
+      userId: userData.userId
+    }
+  });
+
   updateManager.killChildProcess()
   scanManager.killChildProcess()
 })
