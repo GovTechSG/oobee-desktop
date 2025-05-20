@@ -20,6 +20,8 @@ const showdown = require('showdown')
 const fs = require('fs')
 const path = require('path')
 
+const app = electronApp
+
 // Allow Sentry to send data on proxied environments
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 app.commandLine.appendSwitch('ignore-certificate-errors');
@@ -36,8 +38,6 @@ Sentry.init({
   // Set environment
   environment: process.env.NODE_ENV || 'production'
 });
-
-const app = electronApp
 
 let launchWindow
 let mainWindow
