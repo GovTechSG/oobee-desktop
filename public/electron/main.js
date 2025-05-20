@@ -22,6 +22,8 @@ const path = require('path')
 
 // Allow Sentry to send data on proxied environments
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+app.commandLine.appendSwitch('ignore-certificate-errors');
+
 // Initialize Sentry
 Sentry.init({
   dsn: "https://a70a82e8152c23392841b1118c4ede73@o4509047624761344.ingest.us.sentry.io/4509286545948673",
