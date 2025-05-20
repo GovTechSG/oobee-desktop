@@ -198,7 +198,9 @@ app.on('ready', async () => {
 
     await updateManager.run(updateEvent, latestRelease, latestPreRelease)
 
-    launchWindow.close()
+    if (launchWindow && !launchWindow.isDestroyed()) {
+      launchWindow.close();
+    }
   }
 
   const mainReady = new Promise((resolve) => {
