@@ -1,3 +1,27 @@
+/**
+ * Suppresses the "Setting the NODE_TLS_REJECT_UNAUTHORIZED 
+ * environment variable to '0' is insecure" warning,
+ * then disables TLS validation globally.
+ */
+function suppressTlsRejectWarning() {
+  // Monkey-patch process.emitWarning
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = (warning, ...args) => {
+    const msg = typeof warning === 'string' ? warning : warning.message;
+    if (msg.includes('NODE_TLS_REJECT_UNAUTHORIZED')) {
+      // swallow only that one warning
+      return;
+    }
+    // forward everything else
+    originalEmitWarning.call(process, warning, ...args);
+  };
+
+  // Now turn off cert validation
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+// Allow Sentry to send data on proxied environments
+suppressTlsRejectWarning();
+
 const {
   app: electronApp,
   BrowserWindow,
@@ -22,15 +46,11 @@ const path = require('path')
 
 const app = electronApp
 
-// Allow Sentry to send data on proxied environments
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
 // Initialize Sentry
 Sentry.init({
   dsn: "https://a70a82e8152c23392841b1118c4ede73@o4509047624761344.ingest.us.sentry.io/4509286545948673",
-  // Setting this option to true will send default PII data to Sentry.
-  sendDefaultPii: true,
   // Enable performance monitoring
   tracesSampleRate: 1.0,
   // Enable session tracking
