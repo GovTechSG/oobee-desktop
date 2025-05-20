@@ -83,7 +83,7 @@ jobs:
             oobee-desktop-windows.zip
             
   mac-install-purple:
-    runs-on: self-hosted
+    runs-on: macos-latest
     env:
       # Developer ID Application
       CER_B64:        ${{ secrets.ORG_DEVELOPER_ID_APPLICATION_CERT_CER }}
