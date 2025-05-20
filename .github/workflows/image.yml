@@ -100,6 +100,11 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      - name: Install Rosetta 2 (if needed)
+        run: |
+          # This command is no-op on Intel, and installs on Apple Silicon
+          sudo softwareupdate --install-rosetta --agree-to-license
+
       - name: Clean Workspace Folder
         run: |
          rm -rf ./* || true
