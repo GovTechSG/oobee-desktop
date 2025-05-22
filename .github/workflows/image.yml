@@ -69,18 +69,28 @@ jobs:
         run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath oobee-desktop-windows.zip
         working-directory: ${{github.workspace}}
         
+      - name: Compute SHA256 hash for Windows
+        shell: pwsh
+        run: |
+          Get-FileHash -Path oobee-desktop-windows.zip -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash) *oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows.zip.sha256
+          }
+          
       - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-windows
-          path: oobee-desktop-windows.zip
-
+          path: |
+            oobee-desktop-windows.zip
+            oobee-desktop-windows.zip.sha256
+        
       - name: Release Windows artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             oobee-desktop-windows.zip
+            oobee-desktop-windows.zip.sha256
             
   mac-install-purple:
     runs-on: macos-latest
@@ -207,15 +217,22 @@ jobs:
           mv *.zip "${{github.workspace}}/oobee-desktop-macos.zip"
         working-directory: ${{github.workspace}}/out/make/zip/darwin/universal
         
+      - name: Compute SHA256 hash for Mac
+        run: |
+          shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 " *oobee-desktop-macos.zip" }' > oobee-desktop-macos.zip.sha256
+
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-macos
-          path: oobee-desktop-macos.zip
-
+          path: |
+            oobee-desktop-macos.zip
+            oobee-desktop-macos.zip.sha256
+          
       - name: Release Mac artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             oobee-desktop-macos.zip
+            oobee-desktop-macos.zip.sha256
