@@ -73,6 +73,7 @@ jobs:
         shell: pwsh
         run: |
           Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip | ForEach-Object { "$($_.Hash) oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows.zip.sha256 }
+          Get-Alias dir
           
       - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v4
@@ -218,6 +219,7 @@ jobs:
       - name: Compute SHA256 hash for Mac
         run: |
           shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }' > oobee-desktop-macos.zip.sha256
+          ls -al
 
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
