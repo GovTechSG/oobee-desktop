@@ -72,8 +72,9 @@ jobs:
       - name: Compute SHA256 hash for Windows
         shell: pwsh
         run: |
-          Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip | ForEach-Object { "$($_.Hash) oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows.zip.sha256.txt }
-  
+          $hash = (Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip).Hash
+          [System.IO.File]::WriteAllText("oobee-desktop-windows.zip.sha256.txt", $hash)
+      
       - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
