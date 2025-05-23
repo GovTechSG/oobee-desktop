@@ -69,21 +69,38 @@ jobs:
         run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath oobee-desktop-windows.zip
         working-directory: ${{github.workspace}}
         
+      - name: Compute SHA256 hash for Windows
+        shell: pwsh
+        run: |
+          Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip | ForEach-Object { "$($_.Hash) oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows.zip.sha256.txt }
+  
       - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-windows
-          path: oobee-desktop-windows.zip
-
+          path: |
+            oobee-desktop-windows.zip
+            oobee-desktop-windows.zip.sha256.txt
+        
       - name: Release Windows artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             oobee-desktop-windows.zip
+            oobee-desktop-windows.zip.sha256.txt
             
   mac-install-purple:
-    runs-on: self-hosted
+    runs-on: macos-latest
+    env:
+      # Developer ID Application
+      CER_B64:        ${{ secrets.ORG_DEVELOPER_ID_APPLICATION_CERT_CER }}
+      P12_B64:        ${{ secrets.ORG_DEVELOPER_ID_APPLICATION_PRIVATEKEY_P12 }}
+      P12_PASSWORD:   ${{ secrets.ORG_DEVELOPER_ID_APPLICATION_PRIVATEKEY_P12_PASSWORD }}
+      # Distribution (for installer/notarization)
+      DIST_CER_B64:   ${{ secrets.ORG_DISTRIBUTION_CERT_CER }}
+      DIST_P12_B64:   ${{ secrets.ORG_DISTRIBUTION_PRIVATEKEY_P12 }}
+      DIST_P12_PASS:  ${{ secrets.ORG_DISTRIBUTION_PRIVATEKEY_P12_PASSWORD }}
     environment: macos
     
     concurrency:
@@ -91,6 +108,11 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      - name: Install Rosetta 2 (if needed)
+        run: |
+          # This command is no-op on Intel, and installs on Apple Silicon
+          sudo softwareupdate --install-rosetta --agree-to-license
+
       - name: Clean Workspace Folder
         run: |
          rm -rf ./* || true
@@ -122,6 +144,56 @@ jobs:
           CI: ""
         working-directory: ${{github.workspace}}
 
+      - name: Decode & import certs into temporary keychain
+        run: |
+          # --- prepare tmp dir ---
+          mkdir -p /tmp/signing
+
+          # --- decode into /tmp ---
+          echo "$CER_B64"   | openssl base64 -d -A > /tmp/signing/developer_id_application.cer
+          echo "$P12_B64"   | openssl base64 -d -A > /tmp/signing/developer_id_application.p12
+          echo "$DIST_CER_B64" | openssl base64 -d -A > /tmp/signing/distribution_installer.cer
+          echo "$DIST_P12_B64" | openssl base64 -d -A > /tmp/signing/distribution_installer.p12
+
+          # --- create & unlock keychain ---
+          security create-keychain -p "" build.keychain
+          security set-keychain-settings -lut 7200 build.keychain
+          security list-keychains -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+
+          # --- import Developer ID Application cert + key ---
+          security import /tmp/signing/developer_id_application.cer \
+            -k build.keychain -T /usr/bin/codesign
+          security import /tmp/signing/developer_id_application.p12 \
+            -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+
+          # --- import Distribution (Installer) cert + key ---
+          security import /tmp/signing/distribution_installer.cer \
+            -k build.keychain -T /usr/bin/codesign
+          security import /tmp/signing/distribution_installer.p12 \
+            -k build.keychain -P "$DIST_P12_PASS" -T /usr/bin/codesign
+
+          # 1) Unlock it again (just to be safe)
+          security unlock-keychain -p "" build.keychain
+
+          # 2) Allow codesign (and productbuild/pkgbuild) to use the keys without prompting
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "" build.keychain
+
+          # --- clean up all temp files ---
+          rm -rf /tmp/signing
+
+      # - name: Locate signing identity
+      #   id: find_identity
+      #   run: |
+      #     # grabs the Developer ID Application name; you can also grep the Installer if needed
+      #     ID=$(security find-identity -v -p codesigning build.keychain \
+      #          | grep "Developer ID Application:" \
+      #          | sed -E 's/^[[:space:]]*[0-9]+\) ([^"]+).*$/\1/')
+      #     echo "id=$ID" >> $GITHUB_OUTPUT
+
       - name: Install Node Modules and Build for Mac0S
         run: |
           npm install
@@ -134,20 +206,31 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         working-directory: ${{github.workspace}}
 
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain build.keychain
+        
       - name: Move and rename universal binary zip (Mac)
         run: |
           mv *.zip "${{github.workspace}}/oobee-desktop-macos.zip"
         working-directory: ${{github.workspace}}/out/make/zip/darwin/universal
         
+      - name: Compute SHA256 hash for Mac
+        run: |
+          shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }' > oobee-desktop-macos.zip.sha256.txt
+          
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-macos
-          path: oobee-desktop-macos.zip
-
+          path: |
+            oobee-desktop-macos.zip
+            oobee-desktop-macos.zip.sha256.txt
+          
       - name: Release Mac artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             oobee-desktop-macos.zip
+            oobee-desktop-macos.zip.sha256.txt
