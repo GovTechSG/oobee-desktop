@@ -218,8 +218,9 @@ jobs:
         
       - name: Compute SHA256 hash for Mac
         run: |
-          shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }' > oobee-desktop-macos.zip.sha256.txt
-          
+          hash=$(shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }')
+          printf "%s" "$hash" > oobee-desktop-macos.zip.sha256.txt
+      
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
         with:
