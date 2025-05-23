@@ -72,16 +72,15 @@ jobs:
       - name: Compute SHA256 hash for Windows
         shell: pwsh
         run: |
-          Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip | ForEach-Object { "$($_.Hash) oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows.zip.sha256 }
-          Get-Alias dir
-          
+          Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip | ForEach-Object { "$($_.Hash) oobee-desktop-windows.zip" | Out-File -Encoding ASCII -FilePath oobee-desktop-windows-sha256.txt }
+  
       - name: Upload Oobee Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-windows
           path: |
             oobee-desktop-windows.zip
-            oobee-desktop-windows.zip.sha256
+            oobee-desktop-windows-sha256.txt
         
       - name: Release Windows artifact
         uses: softprops/action-gh-release@v1
@@ -89,7 +88,7 @@ jobs:
         with:
           files: |
             oobee-desktop-windows.zip
-            oobee-desktop-windows.zip.sha256
+            oobee-desktop-windows-sha256.txt
             
   mac-install-purple:
     runs-on: macos-latest
@@ -186,14 +185,14 @@ jobs:
           # --- clean up all temp files ---
           rm -rf /tmp/signing
 
-      - name: Locate signing identity
-        id: find_identity
-        run: |
-          # grabs the Developer ID Application name; you can also grep the Installer if needed
-          ID=$(security find-identity -v -p codesigning build.keychain \
-               | grep "Developer ID Application:" \
-               | sed -E 's/^[[:space:]]*[0-9]+\) ([^"]+).*$/\1/')
-          echo "id=$ID" >> $GITHUB_OUTPUT
+      # - name: Locate signing identity
+      #   id: find_identity
+      #   run: |
+      #     # grabs the Developer ID Application name; you can also grep the Installer if needed
+      #     ID=$(security find-identity -v -p codesigning build.keychain \
+      #          | grep "Developer ID Application:" \
+      #          | sed -E 's/^[[:space:]]*[0-9]+\) ([^"]+).*$/\1/')
+      #     echo "id=$ID" >> $GITHUB_OUTPUT
 
       - name: Install Node Modules and Build for Mac0S
         run: |
@@ -218,16 +217,15 @@ jobs:
         
       - name: Compute SHA256 hash for Mac
         run: |
-          shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }' > oobee-desktop-macos.zip.sha256
-          ls -al
-
+          shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }' > oobee-desktop-macos-sha256.txt
+          
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
         with:
           name: oobee-desktop-macos
           path: |
             oobee-desktop-macos.zip
-            oobee-desktop-macos.zip.sha256
+            oobee-desktop-macos-sha256.txt
           
       - name: Release Mac artifact
         uses: softprops/action-gh-release@v1
