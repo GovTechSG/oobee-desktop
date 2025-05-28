@@ -246,12 +246,7 @@ Defaults to screen size of iPhone 11.
 - Moto G4
 - Moto G4 landscape
 - Desktop Chrome HiDPI
-- Desktop Edge HiDPI
-- Desktop Firefox HiDPI
-- Desktop Safari
 - Desktop Chrome
-- Desktop Edge
-- Desktop Firefox
 
 </details>
 

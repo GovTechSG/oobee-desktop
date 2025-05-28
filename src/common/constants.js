@@ -25,15 +25,19 @@ export const fileTypes = {
 
 // key is what will be displayed on the GUI, value is the internal value that Playwright recognises
 export const devices = Object.fromEntries(
-  Object.entries(deviceDescriptors).map(([name, _config]) => {
-    let displayName = name;
-    if (name.includes('Galaxy')) {
-      displayName = `Samsung ${name}`;
-    } else if (name.includes('Nexus') || name.includes('Pixel')) {
-      displayName = `Google ${name}`;
-    }
-    return [displayName, name]; // Invert the key-value pair
-  })
+  Object.entries(deviceDescriptors)
+    .filter(([name]) =>
+      !name.includes('Edge') && !name.includes('Firefox') && !name.includes('Safari')
+    )
+    .map(([name, _config]) => {
+      let displayName = name;
+      if (name.includes('Galaxy')) {
+        displayName = `Samsung ${name}`;
+      } else if (name.includes('Nexus') || name.includes('Pixel')) {
+        displayName = `Google ${name}`;
+      }
+      return [displayName, name];
+    })
 );
 
 export const getDefaultAdvancedOptions = (isProxy) => {
