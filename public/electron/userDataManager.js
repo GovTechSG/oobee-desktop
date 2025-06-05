@@ -10,6 +10,10 @@ const Sentry = require('@sentry/electron/main');
 const { v4: uuidv4 } = require('uuid');
 
 const readUserDataFromFile = () => {
+    if (!fs.existsSync(userDataFilePath)) {
+        // Return an empty object if the file doesn't exist to prevent errors.
+        return {};
+    }
     return JSON.parse(fs.readFileSync(userDataFilePath));
 }
 
