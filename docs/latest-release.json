@@ -1,8 +1,8 @@
 {
-  "latestRelease": "0.10.50",
+  "latestRelease": "0.10.51",
   "latestPreRelease": "0.10.45",
   "allReleaseTags": ["0.10.51","0.10.50","0.10.49","0.10.42","0.10.39","0.10.36","0.10.34","0.10.33","0.10.28","0.10.27","0.10.25","0.10.24","0.10.21","0.10.18","0.10.17","0.10.16","0.10.15","0.10.14","0.10.7","0.10.5","0.10.4","0.9.59","0.9.52","0.9.51"],
   "allPreReleaseTags": ["0.10.45","0.10.26","0.10.22","0.10.20","0.10.0","0.9.54"],
-  "latestReleaseNotes": "### Release info\r\nOobee is available as a desktop app for Mac and Windows. The setup files can be downloaded under `Assets` at the bottom of the page.\r\n\r\n### Installation Guide\r\n* Refer to the [Installation Guide](https://github.com/GovTechSG/oobee-desktop/blob/master/INSTALLATION.md) for Windows and Mac.\r\n\r\n### What's New\r\n#### Improvements\r\n- Copywriting changes for status code descriptions\r\n- Moves build and signing to GitHub-hosted actions runners for reliability (macOS)\r\n- SHA256 hashes of zipped release files\r\n\r\n#### Bug fixes\r\n- Incorrect WCAG success criteria links for 1.3.5, 2.1.1 and 3.1.2\n",
+  "latestReleaseNotes": "### Release info\r\nOobee is available as a desktop app for Mac and Windows. The setup files can be downloaded under `Assets` at the bottom of the page.\r\n\r\n### Installation Guide\r\n* Refer to the [Installation Guide](https://github.com/GovTechSG/oobee-desktop/blob/master/INSTALLATION.md) for Windows and Mac.\r\n\r\n### What's New\r\n#### Bug fixes\r\n- Fix first launch issue on Windows\n",
   "latestPreReleaseNotes": "### Release info\r\nOobee is available as a desktop app for Mac and Windows. The setup files can be downloaded under `Assets` at the bottom of the page.\r\n\r\n### Installation Guide\r\n* Refer to the [Installation Guide](https://github.com/GovTechSG/oobee-desktop/blob/master/INSTALLATION.md) for Windows and Mac.\r\n\r\n### What's New\r\n#### Improvements\r\n- Type safety improvements\r\n- Sentry.io logging for better app telemetry\r\n\n"
 }
