@@ -1,0 +1,67 @@
+name: Bump Package Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional version to bump to (e.g., 1.2.3)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Get current version
+        id: current
+        run: |
+          current_version=$(node -p "require('./package.json').version")
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Determine new version
+        id: bump
+        run: |
+          if [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            new_version=$(npm version "${{ github.event.inputs.version }}" --no-git-tag-version)
+          else
+            new_version=$(npm version patch --no-git-tag-version)
+          fi
+          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Create branch and commit changes
+        run: |
+          BRANCH="bump/version-${{ steps.bump.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package.json package-lock.json
+          git commit -m "chore: bump version ${{ steps.current.outputs.version }} → ${{ steps.bump.outputs.version }}"
+          git push origin "$BRANCH"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Authenticate GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Create pull request
+        run: |
+          gh pr create \
+            --title "chore: bump version to ${{ steps.bump.outputs.version }}" \
+            --body "Automated version bump from ${{ steps.current.outputs.version }} to ${{ steps.bump.outputs.version }}." \
+            --head "$BRANCH" \
+            --base "${{ github.ref_name }}"
