@@ -1,9 +1,10 @@
 name: Generate Latest Release JSON
 
 on:
-  workflow_dispatch:
-  release:
-    types: [released, prereleased]
+  workflow_run:
+    workflows: ["Build MacOS and Windows image"]
+    types:
+      - completed  # Runs only when the other workflow finishes
 
 jobs:
   generate_latest_release_json:
