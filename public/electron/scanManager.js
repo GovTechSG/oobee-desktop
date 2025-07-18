@@ -303,7 +303,7 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log(data)
       }
 
-      if (data.includes('Scan completed')) {
+      if (data.includes('Report generated successfully')) {
         console.log(data)
         scanEvent.emit('scanningCompleted')
       }
