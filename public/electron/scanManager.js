@@ -223,7 +223,8 @@ const startScan = async (scanDetails, scanEvent) => {
         cwd: resultsPath,
         env: {
           ...process.env,
-          RUNNING_FROM_PH_GUI: true,
+          OOBEE_VERBOSE: true,
+          OOBEE_FAST_CRAWLER: true,
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
         },
