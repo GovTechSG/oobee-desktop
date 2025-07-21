@@ -162,7 +162,7 @@ const validateUrlConnectivity = async (scanDetails) => {
         cwd: resultsPath,
         env: {
           ...process.env,
-          VALIDATE_URL_PH_GUI: true,
+          OOBEE_VALIDATE_URL: true,
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
         },
