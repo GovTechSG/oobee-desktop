@@ -215,6 +215,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
   const response = await new Promise(async (resolve) => {
     let intermediateFolderName
+    let resultsReceived = false;
 
     const scan = spawn(
       'node',
@@ -289,6 +290,8 @@ const startScan = async (scanDetails, scanEvent) => {
         currentChildProcess = null
         await cleanUpIntermediateFolders(resultsPath)
         resolve({ success: true, scanId })
+        scanEvent.emit('scanningCompleted')
+        resultsReceived = true;
       }
 
       // Handle live crawling output
@@ -304,10 +307,6 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log(data)
       }
 
-      if (data.includes('Report generated successfully')) {
-        console.log(data)
-        scanEvent.emit('scanningCompleted')
-      }
     })
 
     // Only handles error code closes (i.e. code > 0)
@@ -315,8 +314,9 @@ const startScan = async (scanDetails, scanEvent) => {
     scan.on('close', (code) => {
       if (code !== 0) {
         resolve({ success: false, statusCode: code })
+      } else if (resultsReceived) {
+        currentChildProcess = null
       }
-      currentChildProcess = null
     })
   })
 
