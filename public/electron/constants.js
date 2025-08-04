@@ -7,7 +7,9 @@ const { execSync } = require("child_process");
 
 const appPath =
   os.platform() === "win32"
-    ? path.join(process.env.PROGRAMFILES, "Oobee Desktop")
+    ? fs.existsSync(path.join(process.env.APPDATA, "Oobee Desktop"))
+      ? path.join(process.env.APPDATA, "Oobee Desktop")
+      : path.join(process.env.PROGRAMFILES, "Oobee Desktop")
     : path.join(
         os.homedir(),
         "Library",
