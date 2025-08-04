@@ -428,10 +428,8 @@ const getReportPath = (scanId) => {
 }
 
 const getResultsFolderPath = (scanId) => {
-  // const exportDir = readUserDataFromFile().exportDir
-
-  // Since Oobee 0.10.60 full folder path is stored in scanHistory
-  return scanHistory[scanId];
+  const exportDir = readUserDataFromFile().exportDir
+  return path.join(exportDir, scanHistory[scanId])
 }
 
 const mailResults = async (formDetails, scanId) => {
