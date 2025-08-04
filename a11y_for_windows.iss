@@ -11,6 +11,7 @@ AppUpdatesURL=https://github.com/GovTechSG/oobee-desktop
 
 ; Never force UAC; Program Files only if launched elevated
 PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
 DisableDirPage=yes
 DefaultDirName={code:GetDefaultDir}
 
@@ -51,14 +52,51 @@ Type: filesandordirs; Name: "\\?\{app}\Oobee Backend"
 Type: filesandordirs; Name: "\\?\{app}\Oobee Frontend"
 Type: filesandordirs; Name: "\\?\{app}\Oobee Backend"
 
-; --- Code helpers ---
+; --- Code: choose base dir based on elevation ---
 [Code]
+const
+  AppIdUninstallKey = '{cc9a344d-66b1-4f2d-844e-0b939cf31959}_is1';
+
+function MachineInstallExists(): Boolean;
+begin
+  Result :=
+    RegKeyExists(HKLM64, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + AppIdUninstallKey) or
+    RegKeyExists(HKLM,   'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + AppIdUninstallKey);
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Choice: Integer;
+begin
+  // If there is an existing per-machine install and we're not elevated,
+  // inform the user and offer only user-mode install or exit.
+  if (not IsAdmin) and MachineInstallExists() then
+  begin
+    Choice := MsgBox(
+      'A system-wide installation of Oobee Desktop already exists.'#13#10#13#10 +
+      'Without administrator rights, this setup will install a separate copy for your user only.'#13#10 +
+      'Shortcuts will be named "Oobee Desktop (User)".'#13#10#13#10 +
+      'Click "Yes" to proceed with user-only installation,'#13#10 +
+      'or "No" to cancel the installation.',
+      mbConfirmation, MB_YESNO);
+
+    if Choice = IDNO then
+    begin
+      Result := False; // Close installer
+      exit;
+    end;
+    // If "Yes", fall through and proceed with per-user install
+  end;
+
+  Result := True;
+end;
+
 function GetDefaultDir(Param: string): string;
 begin
   if IsAdmin then
-    Result := ExpandConstant('{autopf}\Oobee Desktop')      // C:\Program Files\Oobee Desktop
+    Result := ExpandConstant('{autopf}\Oobee Desktop')        // Program Files (admin)
   else
-    Result := ExpandConstant('{userappdata}\Oobee Desktop'); // %AppData%\Roaming\Oobee Desktop
+    Result := ExpandConstant('{userappdata}\Oobee Desktop');   // AppData\Roaming (per-user)
 end;
 
 function GetShortcutName(Param: string): string;
