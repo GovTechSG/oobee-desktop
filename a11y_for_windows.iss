@@ -76,7 +76,7 @@ begin
       'A system-wide installation of Oobee Desktop already exists.'#13#10#13#10 +
       'Without administrator rights, this setup will install a separate copy for your user only.'#13#10 +
       'Shortcuts will be named "Oobee Desktop (User)".'#13#10#13#10 +
-      'Click "Yes" to proceed with user-only installation,'#13#10 +
+      'Click "Yes" to proceed with user-only installation (recommended),'#13#10 +
       'or "No" to cancel the installation.',
       mbConfirmation, MB_YESNO);
 
