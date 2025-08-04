@@ -278,11 +278,13 @@ const startScan = async (scanDetails, scanEvent) => {
       // The true success where the process ran and pages were scanned
       if (data.includes('Results directory is at')) {
         console.log(data)
-        const resultsPath = data
-          .split('Results directory is at ')[1]
-          .split('/')
-          .pop()
-          .split(' ')[0]
+        const resultsDirLine = data.split('Results directory is at ')[1];
+        let resultsPath;
+        if (resultsDirLine) {
+          // Use platform-specific separator
+          const sep = process.platform === 'win32' ? '\\' : '/';
+          resultsPath = resultsDirLine.split(sep).pop().split(' ')[0];
+        }
         const scanId = randomUUID()
         scanHistory[scanId] = resultsPath
 
