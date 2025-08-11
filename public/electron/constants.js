@@ -488,39 +488,77 @@ const deleteClonedProfiles = (browserChannel) => {
   }
 };
 
-const getProxy = () => {
-  if (os.platform() === "win32") {
-    let internetSettings;
-    try {
-      internetSettings = execSync(
-        'Get-ItemProperty -Path "Registry::HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"',
-        { shell: "powershell.exe" }
-      )
-        .toString()
-        .split("\n");
-    } catch (e) {
-      console.log(e.toString());
-      silentLogger.error(e.toString());
-    }
 
-    const getSettingValue = (settingName) =>
-      internetSettings
-        .find((s) => s.startsWith(settingName))
-        // split only once at with ':' as the delimiter
-        ?.split(/:(.*)/s)[1]
-        ?.trim();
-
-    if (getSettingValue("AutoConfigURL")) {
-      return { type: "autoConfig", url: getSettingValue("AutoConfigURL") };
-    } else if (getSettingValue("ProxyEnable") === "1") {
-      return { type: "manualProxy", url: getSettingValue("ProxyServer") };
-    } else {
-      return null;
-    }
-  } else {
-    // develop for mac
+const readPsJson = (ps) => {
+  try {
+    const out = execSync(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${ps}"`,
+      { stdio: "pipe", encoding: "utf8" }
+    ).trim();
+    if (!out) return null;
+    return JSON.parse(out);
+  } catch (e) {
+    silentLogger?.error?.(`PowerShell proxy read failed: ${e.message}`);
     return null;
   }
+};
+
+const readRegValue = (valueName) => {
+  try {
+    const out = execSync(
+      `reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ${valueName}`,
+      { stdio: "pipe", encoding: "utf8" }
+    );
+    // Parse the "ValueName    REG_*    Value" format (separated by 2+ spaces)
+    const lines = out.split(/\r?\n/);
+    const line = lines.find(l => new RegExp(`\\b${valueName}\\b`, "i").test(l));
+    if (!line) return undefined;
+    const parts = line.trim().split(/\s{2,}/);
+    return parts[2]; // value
+  } catch (e) {
+    silentLogger?.error?.(`reg query for ${valueName} failed: ${e.message}`);
+    return undefined;
+  }
+};
+
+export const getProxy = () => {
+  if (os.platform() !== "win32") return null;
+
+  // 1) Try PowerShell JSON (preferred)
+  const ps = `try {
+    $p = Get-ItemProperty -Path 'Registry::HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+    [pscustomobject]@{
+      ProxyEnable   = $p.ProxyEnable
+      ProxyServer   = $p.ProxyServer
+      AutoConfigURL = $p.AutoConfigURL
+    } | ConvertTo-Json -Compress
+  } catch {
+    ''
+  }`;
+  const data = readPsJson(ps);
+
+  let ProxyEnable, ProxyServer, AutoConfigURL;
+  if (data) {
+    ({ ProxyEnable, ProxyServer, AutoConfigURL } = data);
+  } else {
+    // 2) Fallback to reg.exe if PS failed
+    ProxyEnable = readRegValue("ProxyEnable");
+    ProxyServer = readRegValue("ProxyServer");
+    AutoConfigURL = readRegValue("AutoConfigURL");
+  }
+
+  // Normalize types (reg.exe returns strings; PS may return numbers)
+  const enabled = String(ProxyEnable).trim() === "1";
+  const pacUrl = (AutoConfigURL ?? "").toString().trim();
+  const manualUrl = (ProxyServer ?? "").toString().trim();
+
+  if (pacUrl) {
+    return { type: "autoConfig", url: pacUrl };
+  }
+  if (enabled && manualUrl) {
+    return { type: "manualProxy", url: manualUrl };
+  }
+  return null;
 };
 
 const proxy = getProxy();
