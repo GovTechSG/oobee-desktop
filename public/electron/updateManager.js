@@ -23,6 +23,29 @@ const {
 
 let currentChildProcess;
 let isLabMode = false;
+let powershellAvailable = null;
+
+function checkPowerShellAvailable() {
+  if (powershellAvailable !== null) return powershellAvailable; // cache result
+
+  if (os.platform() !== "win32") {
+    powershellAvailable = false;
+    return false;
+  }
+
+  try {
+    // -Command "echo" will run quickly and fail if blocked
+    execSync('powershell.exe -NoProfile -Command "echo test"', {
+      stdio: "ignore"
+    });
+    powershellAvailable = true;
+  } catch (e) {
+    powershellAvailable = false;
+    consoleLogger.warn("PowerShell is not available or is blocked. Skipping PowerShell-dependent step.");
+    silentLogger.error(`PowerShell unavailable: ${e.message}`);
+  }
+  return powershellAvailable;
+}
 
 try {
   // to get isLabMode flag from userData.txt to determine version to update to
@@ -111,6 +134,12 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
  * @returns {Promise<void>} void if the frontend was downloaded and unzipped successfully
  */
 const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
+
+  if (!checkPowerShellAvailable()) {
+    consoleLogger.warn("Skipping Windows frontend download — PowerShell disabled");
+    return Promise.resolve(); // or reject if you want to mark it as failure
+  }
+
   const downloadUrl = tag
     ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-windows.zip`
     : frontendReleaseUrl;
@@ -198,6 +227,12 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
  * @returns {Promise<boolean>} true if the installer executable was launched successfully, false otherwise
  */
 const spawnScriptToLaunchInstaller = () => {
+
+  if (!isPowerShellAvailable()) {
+    consoleLogger.warn("Skipping installer launch — PowerShell not available");
+    return Promise.resolve(false);
+  }
+
   const shellScript = `Start-Process -FilePath "${installerExePath}"`;
 
   return new Promise((resolve, reject) => {
@@ -229,6 +264,12 @@ const spawnScriptToLaunchInstaller = () => {
  * This will cause a pop-up on the user's ends
  */
 const downloadAndUnzipBackendWindows = async (tag = undefined) => {
+
+  if (!checkPowerShellAvailable()) {
+    consoleLogger.warn("Skipping backend download — PowerShell not available");
+    return Promise.resolve(false);
+  }
+
   const scriptPath = path.join(
     __dirname,
     "..",
