@@ -50,7 +50,7 @@ export const getDefaultAdvancedOptions = () => {
     viewportWidth: '320',
     maxConcurrency: false,
     includeScreenshots: true,
-    includeSubdomains: true,
+    includeSubdomains: false,
     followRobots: false,
     customChecks: true,
     wcagAaa: true,
