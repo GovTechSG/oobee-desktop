@@ -263,4 +263,6 @@ module.exports = {
   allReleasesUrl,
   macOSPrepackageBackend,
   hashPath,
+  getDefaultChromeDataDir,
+  getDefaultEdgeDataDir
 };
