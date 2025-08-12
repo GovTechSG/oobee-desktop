@@ -16,6 +16,7 @@ const {
   hashPath,
 } = require("./constants");
 const { silentLogger, consoleLogger } = require("./logs");
+const { execSync } = require("child_process");
 const {
   writeUserDetailsToFile,
   readUserDataFromFile,
@@ -42,16 +43,16 @@ function checkPowerShellAvailable() {
   } catch (e) {
     powershellAvailable = false;
     consoleLogger.warn("PowerShell is not available or is blocked. Skipping PowerShell-dependent step.");
-    silentLogger.error(`PowerShell unavailable: ${e.message}`);
+    consoleLogger.error(`PowerShell unavailable: ${e.message}`);
   }
   return powershellAvailable;
 }
 
-try {
-  // to get isLabMode flag from userData.txt to determine version to update to
-  const userData = readUserDataFromFile();
-  isLabMode = !!userData.isLabMode; // ensure value is a boolean
-} catch (e) {
+  try {
+    // to get isLabMode flag from userData.txt to determine version to update to
+    const userData = readUserDataFromFile();
+    isLabMode = !!userData.isLabMode; // ensure value is a boolean
+  } catch (e) {
   // unable to read user data, leave isLabMode as false
 }
 
@@ -134,11 +135,6 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
  * @returns {Promise<void>} void if the frontend was downloaded and unzipped successfully
  */
 const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
-
-  if (!checkPowerShellAvailable()) {
-    consoleLogger.warn("Skipping Windows frontend download — PowerShell disabled");
-    return Promise.resolve(); // or reject if you want to mark it as failure
-  }
 
   const downloadUrl = tag
     ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-windows.zip`
@@ -228,11 +224,6 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
  */
 const spawnScriptToLaunchInstaller = () => {
 
-  if (!isPowerShellAvailable()) {
-    consoleLogger.warn("Skipping installer launch — PowerShell not available");
-    return Promise.resolve(false);
-  }
-
   const shellScript = `Start-Process -FilePath "${installerExePath}"`;
 
   return new Promise((resolve, reject) => {
@@ -259,58 +250,6 @@ const spawnScriptToLaunchInstaller = () => {
   });
 };
 
-/**
- * Spawns a powershell child_process which then runs a powershell script with admin priviledges
- * This will cause a pop-up on the user's ends
- */
-const downloadAndUnzipBackendWindows = async (tag = undefined) => {
-
-  if (!checkPowerShellAvailable()) {
-    consoleLogger.warn("Skipping backend download — PowerShell not available");
-    return Promise.resolve(false);
-  }
-
-  const scriptPath = path.join(
-    __dirname,
-    "..",
-    "..",
-    "scripts",
-    "downloadAndUnzipBackend.ps1"
-  );
-  return new Promise((resolve, reject) => {
-    const ps = spawn("powershell.exe", [
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      scriptPath,
-      tag, // release tag to download
-    ]); // Log any output from the PowerShell script
-
-    currentChildProcess = ps;
-
-    ps.stdout.on("data", (data) => {
-      silentLogger.debug(data.toString());
-      console.log(data.toString());
-    });
-
-    // Log any errors from the PowerShell script
-    ps.stderr.on("data", (data) => {
-      silentLogger.debug(data.toString());
-      console.error(data.toString());
-      currentChildProcess = null;
-      resolve(false);
-    });
-
-    ps.on("exit", (code) => {
-      currentChildProcess = null;
-      if (code === 0) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-  });
-};
 
 const downloadBackend = async (tag, zipPath) => {
   const downloadUrl = `https://github.com/GovTechSG/oobee/releases/download/${tag}/oobee-portable-mac.zip`;
@@ -341,6 +280,10 @@ const hashAndSaveZip = async (zipPath) => {
 };
 
 const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
+
+  // If Windows and powershell not available, skip update
+  if (os.platform() === "win32" && !checkPowerShellAvailable()) return;
+
   consoleLogger.info(
     `[updateManager] run - latestRelease: ${latestRelease}; latestPreRelease: ${latestPreRelease}`
   );
@@ -401,12 +344,6 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
       }
     }
 
-    // unlikely scenario
-    if (!getBackendExists()) {
-      updaterEventEmitter.emit("settingUp");
-      // Trigger download for backend via Github if backend does not exist
-      await downloadAndUnzipBackendWindows(getFrontendVersion());
-    }
   } else {
     let restartRequired = false;
     consoleLogger.info("mac detected");
