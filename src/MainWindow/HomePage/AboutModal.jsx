@@ -95,8 +95,9 @@ const ExternalLink = ({ url, children, linkClass }) => {
 const AppDescription = ({ version, versionLabel }) => {
   const releaseNotesUrl = `https://github.com/GovTechSG/oobee-desktop/releases/tag/${version}`;
   const a11yWebsiteUrl = 'https://go.gov.sg/a11y';
-  const privacyPolicyUrl = 'https://go.gov.sg/oobee-privacy-policy';
-  // const termsOfUse = 'https://go.gov.sg/oobee-terms-of-use';
+  const privacyStatementUrl = 'https://go.gov.sg/oobee-privacy-statement';
+  const termsOfUseUrl = 'https://go.gov.sg/oobee-terms-of-use';
+  const reportVulnerabilityUrl = 'https://go.gov.sg/oobee-report-vulnerability';
   const thirdPartyDesktop = 'https://go.gov.sg/oobee-third-party-licenses';
   const thirdPartyCLI = 'https://go.gov.sg/oobee-cli-third-party-licenses';
   const thirdPartyReport = 'https://go.gov.sg/oobee-report-third-party-licenses';
@@ -118,8 +119,9 @@ const AppDescription = ({ version, versionLabel }) => {
       </p>
       <div className='d-flex gap-3'>
         <ExternalLink url={a11yWebsiteUrl}>A11Y Website</ExternalLink>
-        <ExternalLink url={privacyPolicyUrl}>Privacy Policy</ExternalLink>
-        {/* <ExternalLink url={termsOfUse}>Terms Of Use</ExternalLink> */}
+        <ExternalLink url={privacyStatementUrl}>Privacy Statement</ExternalLink>
+        <ExternalLink url={termsOfUseUrl}>Terms Of Use</ExternalLink>
+        <ExternalLink url={reportVulnerabilityUrl}>Report Vulnerability</ExternalLink>
       </div>
 
       <p className='mt-3 mb-2'>
