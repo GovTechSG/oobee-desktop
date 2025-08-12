@@ -270,7 +270,19 @@ const startScan = async (scanDetails, scanEvent) => {
       // consider this as successful that the process ran,
       // but failure in the sense that no pages were scanned so that we can display a message to the user
       if (data.includes('No pages were scanned')) {
-        scan.kill('SIGKILL')
+        currentChildProcess = null
+        resolve({ success: false })
+      }
+
+      if (data.includes('"level":"info","message":"PID: ')) {
+        console.log(data);
+      }
+
+      if (data.includes('An error occured. Log file is located at:')) {
+        currentChildProcess = null
+        process.env.OOBEE_ERROR_LOG_PATH = data.substring(data.lastIndexOf(':') + 1).trim()
+        console.log("Error located at: ")
+        console.log(process.env.OOBEE_ERROR_LOG_PATH);
         currentChildProcess = null
         resolve({ success: false })
       }
@@ -605,7 +617,7 @@ const init = (scanEvent) => {
   ipcMain.handle(
     'getErrorLog',
     async (event, timeOfScanString, timeOfError) => {
-      const errorLogPath = path.join(appPath, 'errors.txt')
+      const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt');
       const errorLog = fs.readFileSync(errorLogPath, 'utf-8')
       const regex = /{.*?}/gs
       const entries = errorLog.match(regex)
