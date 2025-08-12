@@ -6,11 +6,6 @@ contextBridge.exposeInMainWorld("services", {
       callback(data);
     });
   },
-  getIsProxy: (callback) => {
-    ipcRenderer.on("isProxy", (event, data) => {
-      callback(data);
-    });
-  },
   restartApp: () => {
     ipcRenderer.send("restartApp");
   },

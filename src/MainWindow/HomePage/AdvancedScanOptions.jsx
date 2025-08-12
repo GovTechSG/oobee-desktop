@@ -12,7 +12,6 @@ import purpleEditIcon from '../../assets/edit-pencil-purple.svg'
 import greyEditIcon from '../../assets/edit-pencil-grey.svg'
 
 const AdvancedScanOptions = ({
-  isProxy,
   scanTypeOptions,
   fileTypesOptions,
   viewportOptions,
@@ -114,7 +113,7 @@ const AdvancedScanOptions = ({
       setAdvancedOptions(newOptions)
 
       // check if new options are the default
-      const defaultAdvancedOptions = getDefaultAdvancedOptions(isProxy)
+      const defaultAdvancedOptions = getDefaultAdvancedOptions()
       const isNewOptionsDefault = Object.keys(defaultAdvancedOptions).reduce(
         (isDefaultSoFar, key) => {
           return (
@@ -168,7 +167,7 @@ const AdvancedScanOptions = ({
             onChange={handleSetAdvancedOption('viewport')}
           />
           {advancedOptions.viewport === viewportOptions.specific &&
-            !isProxy && (
+            (
               <SelectField
                 id="specific-device-dropdown"
                 label="Device:"

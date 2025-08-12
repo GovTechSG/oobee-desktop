@@ -2,7 +2,6 @@ const fs = require("fs");
 const {
     userDataFilePath,
     defaultExportDir, 
-    proxy
 } = require("./constants"); 
 const { ipcMain, dialog, shell } = require("electron");
 const path = require('path');
@@ -50,7 +49,7 @@ const init = async () => {
             name: "", 
             email: "",
             event: false, 
-            browser: proxy ? "edge" : "chrome",
+            browser: "chrome",
             autoUpdate: true,
             exportDir: defaultExportDir,
             userId: uuidv4() // Generate a unique ID for new users
@@ -69,7 +68,7 @@ const init = async () => {
             userData.email = "";
         }
         if (!userData.browser) {
-            userData.browser = proxy ? "edge" : "chrome";
+            userData.browser = "chrome";
         }
         if (!userData.userId) {
             userData.userId = uuidv4(); // Generate ID for existing users who don't have one

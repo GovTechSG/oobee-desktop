@@ -23,7 +23,6 @@ function convertToReadablePath(path) {
 }
 
 const InitScanForm = ({
-  isProxy,
   startScan,
   prevUrlErrorMessage,
   scanButtonIsClicked,
@@ -48,12 +47,8 @@ const InitScanForm = ({
     useState(false)
   const toggleUrlFileRef = useRef(null)
 
-  if (isProxy) {
-    delete viewportTypes.specific
-  }
-
   const viewportOptions = viewportTypes
-  const deviceOptions = isProxy ? [] : Object.keys(devices)
+  const deviceOptions = Object.keys(devices)
 
   const cachedPageLimit = sessionStorage.getItem('pageLimit')
   const cachedAdvancedOptions = sessionStorage.getItem('advancedOptions')
@@ -64,7 +59,7 @@ const InitScanForm = ({
   const [advancedOptions, setAdvancedOptions] = useState(() => {
     return cachedAdvancedOptions
       ? JSON.parse(cachedAdvancedOptions)
-      : getDefaultAdvancedOptions(isProxy)
+      : getDefaultAdvancedOptions()
   })
 
   const [isFileOptionChecked, setIsFileOptionChecked] = useState(() => {
@@ -175,7 +170,7 @@ const InitScanForm = ({
       }
     }
 
-    if (isProxy && advancedOptions.viewport === viewportTypes.mobile) {
+    if (advancedOptions.viewport === viewportTypes.mobile) {
       advancedOptions.viewport = viewportTypes.custom
       advancedOptions.viewportWidth = 414
     }
@@ -390,7 +385,6 @@ const InitScanForm = ({
       </div>
 
       <AdvancedScanOptions
-        isProxy={isProxy}
         scanTypeOptions={
           isFileOptionChecked
             ? scanTypeOptions.filter(

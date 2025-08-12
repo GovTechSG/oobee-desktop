@@ -24,7 +24,7 @@ import Button from '../../common/components/Button'
 import WhatsNewModal from './WhatsNewModal'
 import AboutModal from './AboutModal'
 
-const HomePage = ({ isProxy, appVersionInfo, setCompletedScanId }) => {
+const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   const navigate = useNavigate()
   const [prevUrlErrorMessage, setPrevUrlErrorMessage] = useState('')
   const [{ name, email, browser, isLabMode }, setUserData] = useState({
@@ -171,7 +171,7 @@ const HomePage = ({ isProxy, appVersionInfo, setCompletedScanId }) => {
   }
 
   const startScan = async (scanDetails) => {
-    scanDetails.browser = isProxy ? 'edge' : browser
+    scanDetails.browser = browser
     const timeOfScan = new Date()
 
     if (scanDetails.scanUrl.length === 0) {
@@ -323,7 +323,6 @@ const HomePage = ({ isProxy, appVersionInfo, setCompletedScanId }) => {
           />
           <h1 id="app-title">Accessibility Site Scanner</h1>
           <InitScanForm
-            isProxy={isProxy}
             startScan={startScan}
             prevUrlErrorMessage={prevUrlErrorMessage}
             scanButtonIsClicked={scanButtonIsClicked}

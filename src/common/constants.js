@@ -40,8 +40,8 @@ export const devices = Object.fromEntries(
     })
 );
 
-export const getDefaultAdvancedOptions = (isProxy) => {
-  const deviceOptions = isProxy ? [] : Object.keys(devices)
+export const getDefaultAdvancedOptions = () => {
+  const deviceOptions = Object.keys(devices)
   return {
     scanType: Object.keys(scanTypes)[0],
     viewport: viewportTypes.desktop,

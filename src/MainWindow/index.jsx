@@ -9,7 +9,7 @@ import ConnectionNotification from "./ConnectionNotification";
 import "./MainWindow.css";
 import CustomFlowPage from "./CustomFlow";
 
-const MainWindow = ({ isProxy, appVersionInfo }) => {
+const MainWindow = ({ appVersionInfo }) => {
   const [completedScanId, setCompletedScanId] = useState(null);
   const [dataExistStatus, setDataExistStatus] = useState(null);
 
@@ -37,7 +37,6 @@ const MainWindow = ({ isProxy, appVersionInfo }) => {
               path="/"
               element={
                 <HomePage
-                  isProxy={isProxy}
                   appVersionInfo={appVersionInfo}
                   setCompletedScanId={setCompletedScanId}
                 />
