@@ -7,7 +7,6 @@ import "./App.css";
 function App() {
   const [status, setStatus] = useState(null);
   const [appVersionInfo, setAppVersionInfo] = useState({});
-  const [isProxy, setIsProxy] = useState(false);
 
   useEffect(() => {
     window.services.guiReady();
@@ -22,9 +21,6 @@ function App() {
       setAppVersionInfo(appVersionInfo);
     })
     
-    window.services.getIsProxy((res) => {
-      setIsProxy(res)
-    })
   }, []);
 
   if (status === "launch") {
@@ -32,7 +28,7 @@ function App() {
   }
 
   if (status === "ready") {
-    return <MainWindow isProxy={isProxy} appVersionInfo={appVersionInfo} />;
+    return <MainWindow appVersionInfo={appVersionInfo} />;
   }
 
   return null;
