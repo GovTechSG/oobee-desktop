@@ -48,7 +48,7 @@ const ErrorPage = () => {
 
   const copyErrorLog=() => {
     navigator.clipboard.writeText(errorLog).then(() => {
-      alert("Copied the text: " + errorLog.slice(0, 1000));
+      alert("Copied the text: " + errorLog.slice(0, 10000));
     });  
   }
 

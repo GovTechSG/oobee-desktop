@@ -68,6 +68,7 @@ export const cliErrorTypes = {
   unauthorisedBasicAuth: 16,
   browserError: 17,
   notALocalFile: 19,
+  terminated: 145
 }
 
 export const errorStates = {
