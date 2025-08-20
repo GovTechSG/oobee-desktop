@@ -162,6 +162,7 @@ const validateUrlConnectivity = async (scanDetails) => {
         cwd: resultsPath,
         env: {
           ...process.env,
+          OOBEE_VERBOSE: true,
           OOBEE_VALIDATE_URL: true,
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
@@ -171,20 +172,66 @@ const validateUrlConnectivity = async (scanDetails) => {
 
     currentChildProcess = check
 
+    
     check.stderr.setEncoding('utf8')
     check.stderr.on('data', function (data) {
       console.log('stderr: ' + data)
     })
 
     check.stdout.setEncoding('utf8')
+
     check.stdout.on('data', async (data) => {
+
+      if (data.includes('"level":"info","message":"PID: ')) {
+        console.log(data);
+      }
+      
+      if (data.includes('Logger writing to:')) {
+        try {
+          const logData = JSON.parse(data);
+          const message = logData.message;
+          const prefix = "Logger writing to: ";
+          const index = message.indexOf(prefix);
+          if (index !== -1) {
+            process.env.OOBEE_ERROR_LOG_PATH = message.substring(index + prefix.length).trim();
+            console.log("Error log path set to:\n", process.env.OOBEE_ERROR_LOG_PATH);
+          }
+        } catch (error) {
+          console.error("Failed to parse log data as JSON:", error);
+        }
+      }
+
+      if (data.includes('An error occured. Log file is located at:')) {
+        const match = data.match(/An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/);
+        if (match && match[1]) {
+          process.env.OOBEE_ERROR_LOG_PATH = match[1];
+          console.log("Error log path changed to:\n", process.env.OOBEE_ERROR_LOG_PATH);
+        }
+        
+      }
+
       if (data.includes('Url is valid')) {
         resolve({ success: true })
       }
+  
     })
 
     check.on('close', (code) => {
+      let validateErrorLog = "";
       if (code !== 0) {
+        if (process.env.OOBEE_ERROR_LOG_PATH && fs.existsSync(process.env.OOBEE_ERROR_LOG_PATH)) {
+          validateErrorLog = fs.readFileSync(process.env.OOBEE_ERROR_LOG_PATH).toString();
+        } else {
+          console.log("Url validation log not available.")
+        }
+
+        // Treat no code as termination
+        if (!code) {
+          code = 145;
+        }
+
+        console.log(`Url validation process exited with code ${code}`);
+
         resolve({ success: false, statusCode: code })
       }
       currentChildProcess = null
@@ -217,6 +264,8 @@ const startScan = async (scanDetails, scanEvent) => {
     let intermediateFolderName
     let resultsReceived = false;
 
+    console.log("Starting Scan Process...")
+    
     const scan = spawn(
       'node',
       [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
@@ -278,12 +327,28 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log(data);
       }
 
+      if (data.includes('Logger writing to:')) {
+        try {
+          const logData = JSON.parse(data);
+          const message = logData.message;
+          const prefix = "Logger writing to: ";
+          const index = message.indexOf(prefix);
+          if (index !== -1) {
+            process.env.OOBEE_ERROR_LOG_PATH = message.substring(index + prefix.length).trim();
+            console.log("Error log path set to:\n", process.env.OOBEE_ERROR_LOG_PATH);
+          }
+        } catch (error) {
+          console.error("Failed to parse log data as JSON:", error);
+        }
+      }
+
       if (data.includes('An error occured. Log file is located at:')) {
         currentChildProcess = null
-        process.env.OOBEE_ERROR_LOG_PATH = data.substring(data.lastIndexOf(':') + 1).trim()
-        console.log("Error located at: ")
-        console.log(process.env.OOBEE_ERROR_LOG_PATH);
-        currentChildProcess = null
+        const match = data.match(/An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/);
+        if (match && match[1]) {
+          process.env.OOBEE_ERROR_LOG_PATH = match[1];
+          console.log("Error log path changed to:\n", process.env.OOBEE_ERROR_LOG_PATH);
+        }
         resolve({ success: false })
       }
 
