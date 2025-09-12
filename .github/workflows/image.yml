@@ -20,7 +20,7 @@ jobs:
       
       - name: Download node.js version from nodejs.org
         run: |
-          curl -o ./nodejs-win.zip --create-dirs https://nodejs.org/dist/v20.10.0/node-v20.10.0-win-x64.zip
+          curl -o ./nodejs-win.zip --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip
           mkdir nodejs-win && tar -xzf nodejs-win.zip -C nodejs-win --strip-components=1 && rm ./nodejs-win.zip
         working-directory: ${{github.workspace}}
 
@@ -126,9 +126,9 @@ jobs:
 
       - name: Download node.js version from nodejs.org
         run: |
-          curl -o ./nodejs-mac-arm64.tar.gz --create-dirs https://nodejs.org/dist/v20.10.0/node-v20.10.0-darwin-arm64.tar.gz
+          curl -o ./nodejs-mac-arm64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-arm64.tar.gz
           mkdir nodejs-mac-arm64 && tar -xzf nodejs-mac-arm64.tar.gz -C nodejs-mac-arm64 --strip-components=1 && rm ./nodejs-mac-arm64.tar.gz
-          curl -o ./nodejs-mac-x64.tar.gz --create-dirs https://nodejs.org/dist/v20.10.0/node-v20.10.0-darwin-x64.tar.gz
+          curl -o ./nodejs-mac-x64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-x64.tar.gz
           mkdir nodejs-mac-x64 && tar -xzf nodejs-mac-x64.tar.gz -C nodejs-mac-x64 --strip-components=1 && rm ./nodejs-mac-x64.tar.gz
         working-directory: ${{github.workspace}}
 
