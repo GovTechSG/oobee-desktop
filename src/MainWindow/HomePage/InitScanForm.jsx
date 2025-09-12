@@ -170,11 +170,6 @@ const InitScanForm = ({
       }
     }
 
-    if (advancedOptions.viewport === viewportTypes.mobile) {
-      advancedOptions.viewport = viewportTypes.custom
-      advancedOptions.viewportWidth = 414
-    }
-
     setScanButtonIsClicked(true)
     sessionStorage.setItem('pageLimit', JSON.stringify(pageLimit))
     sessionStorage.setItem('advancedOptions', JSON.stringify(advancedOptions))
