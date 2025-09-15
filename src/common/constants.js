@@ -58,7 +58,7 @@ export const getDefaultAdvancedOptions = () => {
 }
 
 // exit codes returned by Oobee cli when there is an error with the URL provided
-export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 19])
+export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
 export const cliErrorTypes = {
   invalidUrl: 11,
   cannotBeResolved: 12,
@@ -66,9 +66,43 @@ export const cliErrorTypes = {
   systemError: 14,
   notASitemap: 15,
   unauthorisedBasicAuth: 16,
+  unauthorised: 16, // alias to match urlCheckStatuses naming
   browserError: 17,
+  axiosTimeout: 18,
   notALocalFile: 19,
-  terminated: 145
+  notAPdf: 20,
+  terminated: 145,
+  terminationRequested: 15,
+}
+
+export const urlCheckStatuses = {
+  success: { code: 0 },
+  invalidUrl: { code: 11, message: 'Invalid URL or URL is not using http or https.' },
+  cannotBeResolved: {
+    code: 12,
+    message:
+      'Provided URL cannot be accessed. Please verify your internet connectivity and the correctness of the domain.',
+  },
+  errorStatusReceived: {
+    // unused for now
+    code: 13,
+    message: 'Provided URL cannot be accessed. Server responded with code ', // append it with the response code received,
+  },
+  systemError: {
+    code: 14,
+    message: 'Something went wrong when verifying the URL. Please try again later.',
+  },
+  notASitemap: { code: 15, message: 'Provided URL is not a sitemap.' },
+  unauthorised: { code: 16, message: 'Provided URL needs basic authorisation.' },
+  browserError: {
+    code: 17,
+    message:
+      'No browser available to run scans. Please ensure you have Chrome or Edge (for Windows only) installed.',
+  },
+  axiosTimeout: { code: 18, message: 'Axios timeout exceeded. Falling back on browser checks.' },
+  notALocalFile: { code: 19, message: 'Provided filepath is not a local html or sitemap file.' },
+  notAPdf: { code: 20, message: 'Provided filepath is not a PDF file.' },
+  terminationRequested: { code: 15, message: 'Termination requested.' }
 }
 
 export const errorStates = {

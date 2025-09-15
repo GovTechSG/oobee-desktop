@@ -15,6 +15,7 @@ import {
   errorStates,
   versionComparator,
   urlWithoutAuth,
+  urlCheckStatuses
 } from '../../common/constants'
 import Modal from '../../common/components/Modal'
 import { BasicAuthForm, BasicAuthFormFooter } from './BasicAuthForm'
@@ -249,35 +250,21 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       }
 
       if (cliErrorCodes.has(checkUrlResponse.statusCode)) {
-        let errorMessageToShow
-        switch (checkUrlResponse.statusCode) {
-          /* technically urlErrorTypes.invalidUrl is not needed since this case
-          was handled above, but just for completeness */
-          case cliErrorTypes.unauthorisedBasicAuth:
-            errorMessageToShow = 'Unauthorised Basic Authentication.'
-            break
-          case cliErrorTypes.invalidUrl:
-          case cliErrorTypes.cannotBeResolved:
-          case cliErrorTypes.errorStatusReceived:
-            errorMessageToShow = 'Invalid URL.'
-            break
-          case cliErrorTypes.notASitemap:
-            errorMessageToShow = 'Invalid sitemap.'
-            break
-          case cliErrorTypes.notALocalFile:
-            errorMessageToShow = 'File is not a local html or sitemap file.'
-            break
-          case cliErrorTypes.browserError:
-            navigate('/error', {
-              state: { errorState: errorStates.browserError, timeOfScan },
-            })
-            return
-          case cliErrorTypes.systemError:
-          default:
-            errorMessageToShow = 'Something went wrong. Please try again later.'
+        if (checkUrlResponse.statusCode === cliErrorTypes.browserError) {
+          navigate('/error', {
+            state: { errorState: errorStates.browserError, timeOfScan },
+          })
+          return
         }
-        console.log(`status error: ${checkUrlResponse.statusCode}`)
-        setPrevUrlErrorMessage(errorMessageToShow)
+
+        // Use messages from urlCheckStatuses when available
+        const statuses = urlCheckStatuses
+        const match = Object.values(statuses).find(
+          (s) => s.code === checkUrlResponse.statusCode
+        )
+        const msg = match && 'message' in match ? match.message : 'Something went wrong.  Please try again later.'
+        console.log(msg)
+        setPrevUrlErrorMessage(msg)
         return
       } else if (checkUrlResponse.statusCode) {
         console.error(
