@@ -6,7 +6,7 @@
   "author": "Government Technology Agency <info@tech.gov.sg>",
   "dependencies": {
     "@sentry/electron": "^6.5.0",
-    "axios": "^1.7.4",
+    "axios": "^1.12.0",
     "fs-extra": "^11.1.1",
     "glob": "^11.0.3",
     "node": "^21.2.0",
@@ -56,11 +56,11 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
-    "@electron-forge/cli": "^7.4.0",
-    "@electron-forge/maker-deb": "^7.4.0",
-    "@electron-forge/maker-rpm": "^7.4.0",
-    "@electron-forge/maker-squirrel": "^7.4.0",
-    "@electron-forge/maker-zip": "^7.4.0",
+    "@electron-forge/cli": "^7.9.0",
+    "@electron-forge/maker-deb": "^7.9.0",
+    "@electron-forge/maker-rpm": "^7.9.0",
+    "@electron-forge/maker-squirrel": "^7.9.0",
+    "@electron-forge/maker-zip": "^7.9.0",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.3.3",
@@ -72,7 +72,10 @@
     "webpack": "^5.78.0",
     "nth-check": "^2.1.1",
     "postcss": "^8.4.31",
-    "webpack-dev-server": "^5.2.2"
+    "webpack-dev-server": "^5.2.2",
+    "tmp": "^0.2.5",
+    "brace-expansion": "^1.1.12",
+    "debug": "^4.4.3"
   },
   "description": "Oobee Desktop"
 }
