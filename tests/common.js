@@ -1,4 +1,4 @@
-const { _electron: electron } = require('playwright');
+import { _electron as electron } from 'playwright';
 import { expect } from '@playwright/test';
 import common from "./common.js";
 
