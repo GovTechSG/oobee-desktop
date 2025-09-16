@@ -77,33 +77,29 @@ export const cliErrorTypes = {
 
 export const urlCheckStatuses = {
   success: { code: 0 },
-  invalidUrl: { code: 11, message: 'Invalid URL or URL is not using http or https.' },
-  cannotBeResolved: {
-    code: 12,
-    message:
-      'Provided URL cannot be accessed. Please verify your internet connectivity and the correctness of the domain.',
-  },
+  invalidUrl: { code: 11, message: 'Invalid URL. Please check and try again.' },
+  cannotBeResolved: { code: 12, message: 'URL cannot be accessed. Please verify whether the website exists.' },
   errorStatusReceived: {
     // unused for now
     code: 13,
     message: 'Provided URL cannot be accessed. Server responded with code ', // append it with the response code received,
   },
-  systemError: {
-    code: 14,
-    message: 'Something went wrong when verifying the URL. Please try again later.',
-  },
-  notASitemap: { code: 15, message: 'Provided URL is not a sitemap.' },
-  unauthorised: { code: 16, message: 'Provided URL needs basic authorisation.' },
+  systemError: { code: 14, message: 'Something went wrong when verifying the URL. Please try again in a few minutes. If this issue persists, please contact the Oobee team.'},
+  notASitemap: { code: 15, message: 'Invalid sitemap URL format. Please enter a valid sitemap URL ending with .XML e.g. https://www.example.com/sitemap.xml.' },
+  unauthorised: { code: 16, message: 'Login required. Please enter your credentials and try again.' },
+  // browserError means engine could not find a browser to run the scan
   browserError: {
     code: 17,
     message:
-      'No browser available to run scans. Please ensure you have Chrome or Edge (for Windows only) installed.',
+      'Incompatible browser. Please ensure you are using Chrome or Edge browser.',
   },
-  axiosTimeout: { code: 18, message: 'Axios timeout exceeded. Falling back on browser checks.' },
-  notALocalFile: { code: 19, message: 'Provided filepath is not a local html or sitemap file.' },
-  notAPdf: { code: 20, message: 'Provided filepath is not a PDF file.' },
-  terminationRequested: { code: 15, message: 'Termination requested.' }
-}
+  sslProtocolError: { code: 18, message: 'SSL certificate  error. Please check the SSL configuration of your website and try again.' },
+  notALocalFile: { code: 19, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
+  notAPdf: { code: 20, message: 'URL/file format is incorrect. Please upload a PDF file.' },
+  notASupportedDocument: { code: 21, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
+  connectionRefused: { code: 22, message: 'Connection refused. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+  timedOut: { code: 23, message: 'Request timed out. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+};
 
 export const errorStates = {
   browserError: 'browserError',
