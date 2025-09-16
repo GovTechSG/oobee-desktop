@@ -112,7 +112,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   useEffect(() => {
     if (
       prevUrlErrorMessage !== null &&
-      prevUrlErrorMessage.includes('Unauthorised Basic Authentication')
+      prevUrlErrorMessage.includes('Login required')
     ) {
       setShowBasicAuthModal(true)
     }
