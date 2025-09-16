@@ -5,17 +5,34 @@ const { globSync } = require("glob");
 const { silentLogger } = require("./logs.js");
 const { execSync } = require("child_process");
 
-const appPath =
-  os.platform() === "win32"
-    ? fs.existsSync(path.join(process.env.APPDATA, "Oobee Desktop"))
+const appPath = (() => {
+  if (os.platform() === "win32") {
+    try {
+      // Prefer relative path to Frontend if provided and contains "Oobee Backend"
+      const windowsAppParentPath = path.join(process.cwd(), "..");
+      if (
+        windowsAppParentPath &&
+        fs.existsSync(path.join(windowsAppParentPath, "Oobee Backend"))
+      ) {
+        return windowsAppParentPath;
+      }
+    } catch (error) {
+      // Do nothing
+    }
+ 
+    // Fallback: Check common installation directories
+    return fs.existsSync(path.join(process.env.APPDATA, "Oobee Desktop"))
       ? path.join(process.env.APPDATA, "Oobee Desktop")
-      : path.join(process.env.PROGRAMFILES, "Oobee Desktop")
-    : path.join(
-        os.homedir(),
-        "Library",
-        "Application Support",
-        "Oobee"
-      );
+      : path.join(process.env.PROGRAMFILES, "Oobee Desktop");
+  } else {
+    // macOS
+    return path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Oobee"
+    );
+}})();
 
 const releaseUrl =
   "https://api.github.com/repos/GovTechSG/oobee/releases/latest";

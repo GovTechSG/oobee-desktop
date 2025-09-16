@@ -58,7 +58,7 @@ export const getDefaultAdvancedOptions = () => {
 }
 
 // exit codes returned by Oobee cli when there is an error with the URL provided
-export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 19])
+export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
 export const cliErrorTypes = {
   invalidUrl: 11,
   cannotBeResolved: 12,
@@ -66,10 +66,40 @@ export const cliErrorTypes = {
   systemError: 14,
   notASitemap: 15,
   unauthorisedBasicAuth: 16,
+  unauthorised: 16, // alias to match urlCheckStatuses naming
   browserError: 17,
+  axiosTimeout: 18,
   notALocalFile: 19,
-  terminated: 145
+  notAPdf: 20,
+  terminated: 145,
+  terminationRequested: 15,
 }
+
+export const urlCheckStatuses = {
+  success: { code: 0 },
+  invalidUrl: { code: 11, message: 'Invalid URL. Please check and try again.' },
+  cannotBeResolved: { code: 12, message: 'URL cannot be accessed. Please verify whether the website exists.' },
+  errorStatusReceived: {
+    // unused for now
+    code: 13,
+    message: 'Provided URL cannot be accessed. Server responded with code ', // append it with the response code received,
+  },
+  systemError: { code: 14, message: 'Something went wrong when verifying the URL. Please try again in a few minutes. If this issue persists, please contact the Oobee team.'},
+  notASitemap: { code: 15, message: 'Invalid sitemap URL format. Please enter a valid sitemap URL ending with .XML e.g. https://www.example.com/sitemap.xml.' },
+  unauthorised: { code: 16, message: 'Login required. Please enter your credentials and try again.' },
+  // browserError means engine could not find a browser to run the scan
+  browserError: {
+    code: 17,
+    message:
+      'Incompatible browser. Please ensure you are using Chrome or Edge browser.',
+  },
+  sslProtocolError: { code: 18, message: 'SSL certificate  error. Please check the SSL configuration of your website and try again.' },
+  notALocalFile: { code: 19, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
+  notAPdf: { code: 20, message: 'URL/file format is incorrect. Please upload a PDF file.' },
+  notASupportedDocument: { code: 21, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
+  connectionRefused: { code: 22, message: 'Connection refused. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+  timedOut: { code: 23, message: 'Request timed out. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+};
 
 export const errorStates = {
   browserError: 'browserError',
