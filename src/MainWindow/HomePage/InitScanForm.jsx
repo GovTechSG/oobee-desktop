@@ -158,6 +158,9 @@ const InitScanForm = ({
   }
 
   const handleScanButtonClicked = () => {
+    // Capture the current scan type to ensure consistency
+    const currentScanType = isFileOptionChecked ? displayScanType : advancedOptions.scanType
+
     if (isFileOptionChecked) {
       const fileExtension = '.' + scanUrl.split('.').pop().toLowerCase()
       if (!allowedFileTypes.includes(fileExtension)) {
@@ -182,6 +185,8 @@ const InitScanForm = ({
         scanUrl,
         ...advancedOptions,
         scanType: scanTypeOptions[3],
+        // if sitemap scan, then pageLimit is set
+        ...(currentScanType === scanTypeOptions[1]) && { pageLimit: pageLimit }
       })
     } else {
       setStaticHttpUrl(scanUrl)
@@ -279,9 +284,8 @@ const InitScanForm = ({
                 {isFileOptionChecked ? 'FILE' : 'URL'}
               </button>
               <ToolTip
-                description={`Toggle to ${
-                  isFileOptionChecked ? 'URL' : 'file'
-                } input`}
+                description={`Toggle to ${isFileOptionChecked ? 'URL' : 'file'
+                  } input`}
                 id="toggle-url-file-tooltip"
                 showToolTip={showToggleUrlFileTooltip}
               />
@@ -311,9 +315,11 @@ const InitScanForm = ({
             </div>
           )}
 
-          {advancedOptions.scanType !== scanTypeOptions[2] &&
-            advancedOptions.scanType !== scanTypeOptions[3] &&
-            !isFileOptionChecked && (
+          {
+            (
+              (!isFileOptionChecked && advancedOptions.scanType !== scanTypeOptions[2]) ||
+              (isFileOptionChecked && displayScanType === scanTypeOptions[1])
+            ) && (
               <div>
                 <Button
                   type="btn-link"
@@ -383,9 +389,9 @@ const InitScanForm = ({
         scanTypeOptions={
           isFileOptionChecked
             ? scanTypeOptions.filter(
-                (option) =>
-                  option !== scanTypeOptions[2] && option !== scanTypeOptions[3]
-              )
+              (option) =>
+                option !== scanTypeOptions[2] && option !== scanTypeOptions[3]
+            )
             : scanTypeOptions.filter((option) => option !== scanTypeOptions[3])
         }
         fileTypesOptions={fileTypesOptions}
