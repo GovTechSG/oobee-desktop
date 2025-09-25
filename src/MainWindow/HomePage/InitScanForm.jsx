@@ -183,10 +183,10 @@ const InitScanForm = ({
       startScan({
         file: selectedFile,
         scanUrl,
-        ...advancedOptions,
         scanType: scanTypeOptions[3],
         // if sitemap scan, then pageLimit is set
-        ...(currentScanType === scanTypeOptions[1]) && { pageLimit: pageLimit }
+        ...(currentScanType === scanTypeOptions[1]) && { pageLimit: pageLimit },
+        ...advancedOptions,
       })
     } else {
       setStaticHttpUrl(scanUrl)
