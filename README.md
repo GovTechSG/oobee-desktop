@@ -50,9 +50,10 @@ $env:BE_TAG=0.10.68
 npm run make-win
 ```
 
-##### Special information about Windows build
+##### Special information about Mac and Windows built app
 - The Mac dev app includes a zipped Oobee backend when built using `npm run make-mac` process. When Oobee.app is run in the Setting Up screen, it first checks if the bundled `oobee-portable-mac.zip` version of Oobee the version to be unzipped.  If it does not match, it unzips `Oobee.app/Contents/oobee-portable-mac.zip` to the `~/Library/Application Support/Oobee/Oobee Baclemd`.
 - The Windows dev app does not include the Oobee backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `C:\Program Files\Oobee Desktop\Oobee Backend` or `%APPDATA%\Oobee Desktop\Oobee Backend`.
+- The Windows installer exe is built using the InnoSetup (automated build pipeline through GitHub Actions).
 
 #### Run and Debug (Development)
 
