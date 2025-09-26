@@ -17,48 +17,72 @@ For software engineers who wish to run Oobee as a command line, please refer to 
 
 Oobee is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
 
-### Development and Testing
+### Development, Build and Testing
 
+#### NodeJS Requirement
+- Node LTS (22.19.0) is recommended.  The `npm` and `node` command is assumed to be available in `PATH`.
+- 
 #### Set Engine Version
 
 First open terminal and navigate to the location of clone respository of Oobee.
-
-Then export BE_TAG to set version of Oobee (engine).
-
-```shell
-export BE_TAG=0.9.48<version number>
-```
+Then set environment variable BE_TAG to set version of Oobee CLI Portable to be downloaded (see below).  Replace the version of BE_TAG `0.10.68` with the desired version.
 
 #### Build Standalone App
 
-For Mac
+##### For Mac
 
 ```shell
+npm install
+export BE_TAG=0.10.68
 npm run make-mac
 ```
 
-For Windows
+This will create a folder in your repository in the _out_ folder.
+Enter and run the `Oobee.app` in the newly created folder in ../out.
+
+##### For Windows
 
 ```shell
+npm install -g win-node-env
+npm install
+$env:BE_TAG=0.10.68
 npm run make-win
 ```
 
-This will create a folder in your repository in the _out_ folder.
-Enter and run the Oobee.app in the newly created folder in ../out.
+##### Special information about Windows build
+- The Mac dev app includes a zipped Oobee backend when built using `npm run make-mac` process. When Oobee.app is run in the Setting Up screen, it first checks if the bundled `oobee-portable-mac.zip` version of Oobee the version to be unzipped.  If it does not match, it unzips `Oobee.app/Contents/oobee-portable-mac.zip` to the `~/Library/Application Support/Oobee/Oobee Baclemd`.
+- The Windows dev app does not include the Oobee backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `C:\Program Files\Oobee Desktop\Oobee Backend` or `%APPDATA%\Oobee Desktop\Oobee Backend`.
 
-#### Run and Debug
+#### Run and Debug (Development)
 
-Enter the code below to build Oobee.
+The dev command is provided below so that a user can debug the Oobee app with STDOUT logs in the Terminal.
+
+Run the code below to build Oobee.
+
+##### For Mac
 
 ```shell
+npm install
+npm run make-mac
+```
+
+##### For Windows
+```shell
+npm install -g win-node-env
+npm install
 npm run build
 ```
 
+##### Run the Dev App
 Finally to start Oobee enter the code below.
 
 ```shell
 npm run start
 ```
+
+##### Special information about Mac and Windows development
+- The Mac dev app does not include the Oobee Portable backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `~/Library/Application Support/Oobee/Oobee Baclemd`.
+- The Windows dev app does not include the Oobee Portable backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `C:\Program Files\Oobee Desktop\Oobee Backend` or `%APPDATA%\Oobee Desktop\Oobee Backend`.
 
 An application window should be open with the inserted version. You may debug the app through Terminal / PowerShell window.
 
