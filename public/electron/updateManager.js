@@ -218,36 +218,23 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
 };
 
 /**
- * Spawn a PowerShell process to launch the InnoSetup installer executable, which contains the frontend and backend
+ * Spawn a process to launch the InnoSetup installer executable, which contains the frontend and backend
  * upon confirmation from the user, the installer will be launched & Electron will exit
  * @returns {Promise<boolean>} true if the installer executable was launched successfully, false otherwise
  */
 const spawnScriptToLaunchInstaller = () => {
-
-  const shellScript = `Start-Process -FilePath "${installerExePath}"`;
-
-  return new Promise((resolve, reject) => {
-    const ps = spawn("powershell.exe", ["-Command", shellScript]);
-    currentChildProcess = ps;
-
-    ps.stdout.on("data", (data) => {
-      console.log(data.toString());
+  try {
+    // Launch the installer executable directly without waiting for it to finish
+    const child = spawn(installerExePath, [], {
+      detached: true,
+      stdio: "ignore"
     });
-
-    ps.stderr.on("data", (data) => {
-      currentChildProcess = null;
-      console.error(data.toString());
-    });
-
-    ps.on("exit", (code) => {
-      currentChildProcess = null;
-      if (code === 0) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-  });
+    child.unref();
+    return true;
+  } catch (e) {
+    consoleLogger.error(`Failed to launch installer: ${e.message}`);
+    return false;
+  }
 };
 
 
