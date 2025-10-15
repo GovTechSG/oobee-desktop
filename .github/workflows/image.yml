@@ -24,10 +24,11 @@ jobs:
           mkdir nodejs-win && tar -xzf nodejs-win.zip -C nodejs-win --strip-components=1 && rm ./nodejs-win.zip
         working-directory: ${{github.workspace}}
 
-      - name: Download Inno Setup
+      - name: Download and Install Inno Setup
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "${{github.workspace}}\is.exe" 
+          Start-Process -FilePath "${{github.workspace}}\is.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
           $env:path = "$env:path" + ";${env:programfiles(x86)}\Inno Setup 6"
 
       - name: Install Node Modules and Build for Windows
