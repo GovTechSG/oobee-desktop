@@ -24,6 +24,12 @@ const validateUrlConnectivity = async (scanDetails) => {
     viewportWidth,
     browser,
     fileTypes: selectedFileTypes,
+    customChecks,
+    wcagAaa,
+    maxConcurrency,
+    includeScreenshots,
+    includeSubdomains,
+    followRobots,
   } = scanDetails
 
   currentScanUrl = scanUrl
@@ -34,6 +40,12 @@ const validateUrlConnectivity = async (scanDetails) => {
     url: scanUrl,
     browser: browser,
     fileTypes: fileTypes[selectedFileTypes],
+    customChecks: customChecks,
+    wcagAaa: wcagAaa,
+    maxConcurrency: maxConcurrency,
+    includeScreenshots,
+    includeSubdomains,
+    followRobots,
   }
 
   if (viewport === viewportTypes.mobile) {
