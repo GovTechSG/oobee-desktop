@@ -158,9 +158,6 @@ const InitScanForm = ({
   }
 
   const handleScanButtonClicked = () => {
-    // Capture the current scan type to ensure consistency
-    const currentScanType = isFileOptionChecked ? displayScanType : advancedOptions.scanType
-
     if (isFileOptionChecked) {
       const fileExtension = '.' + scanUrl.split('.').pop().toLowerCase()
       if (!allowedFileTypes.includes(fileExtension)) {
@@ -180,14 +177,17 @@ const InitScanForm = ({
 
     if (isFileOptionChecked) {
       setStaticFilePath(scanUrl)
-      startScan({
+      const scanParams = {
         file: selectedFile,
         scanUrl,
-        scanType: scanTypeOptions[3],
-        // if sitemap scan, then pageLimit is set
-        ...(currentScanType === scanTypeOptions[1]) && { pageLimit: pageLimit },
         ...advancedOptions,
-      })
+        scanType: scanTypeOptions[3], // Send 'Local file' to CLI
+      }
+      // Only include pageLimit for sitemap scans
+      if (displayScanType === scanTypeOptions[1]) {
+        scanParams.pageLimit = pageLimit
+      }
+      startScan(scanParams)
     } else {
       setStaticHttpUrl(scanUrl)
       startScan({ scanUrl: scanUrl.trim(), pageLimit, ...advancedOptions })
@@ -284,8 +284,9 @@ const InitScanForm = ({
                 {isFileOptionChecked ? 'FILE' : 'URL'}
               </button>
               <ToolTip
-                description={`Toggle to ${isFileOptionChecked ? 'URL' : 'file'
-                  } input`}
+                description={`Toggle to ${
+                  isFileOptionChecked ? 'URL' : 'file'
+                } input`}
                 id="toggle-url-file-tooltip"
                 showToolTip={showToggleUrlFileTooltip}
               />
@@ -315,11 +316,8 @@ const InitScanForm = ({
             </div>
           )}
 
-          {
-            (
-              (!isFileOptionChecked && advancedOptions.scanType !== scanTypeOptions[2]) ||
-              (isFileOptionChecked && displayScanType === scanTypeOptions[1])
-            ) && (
+          {displayScanType !== scanTypeOptions[2] &&
+            !(isFileOptionChecked && displayScanType === scanTypeOptions[0]) && (
               <div>
                 <Button
                   type="btn-link"
@@ -389,9 +387,9 @@ const InitScanForm = ({
         scanTypeOptions={
           isFileOptionChecked
             ? scanTypeOptions.filter(
-              (option) =>
-                option !== scanTypeOptions[2] && option !== scanTypeOptions[3]
-            )
+                (option) =>
+                  option !== scanTypeOptions[2] && option !== scanTypeOptions[3]
+              )
             : scanTypeOptions.filter((option) => option !== scanTypeOptions[3])
         }
         fileTypesOptions={fileTypesOptions}
