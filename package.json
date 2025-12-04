@@ -65,7 +65,7 @@
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.3.3",
     "electron": "^38.2.0",
-    "playwright": "^1.55.0",
+    "playwright": "^1.55.1",
     "react-scripts": "^5.0.1"
   },
   "overrides": {
