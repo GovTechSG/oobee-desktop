@@ -28,9 +28,6 @@ contextBridge.exposeInMainWorld("services", {
     await ipcRenderer.invoke("abortScan");
   },
 
-  generateReport: (customFormLabel, scanId) => {
-    ipcRenderer.send("generateReport", customFormLabel, scanId);
-  },
   openReport: (scanId) => {
     ipcRenderer.send("openReport", scanId);
   },
