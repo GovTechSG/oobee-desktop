@@ -1,7 +1,7 @@
 {
   "name": "purplea11ydesktop",
   "productName": "Oobee",
-  "version": "0.10.70",
+  "version": "0.10.71",
   "private": true,
   "author": "Government Technology Agency <info@tech.gov.sg>",
   "dependencies": {
