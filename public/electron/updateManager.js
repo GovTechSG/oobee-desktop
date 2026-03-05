@@ -98,7 +98,7 @@ const hashPrepackage = async (prepackagePath) => {
 
 // unzip backend zip for mac
 const unzipBackendAndCleanUp = async (zipPath) => {
-  let unzipCommand = `mkdir -p '${backendPath}' && tar -xf '${zipPath}' -C '${backendPath}' &&
+  let unzipCommand = `rm -rf '${backendPath}' && mkdir -p '${backendPath}' && tar -xf '${zipPath}' -C '${backendPath}' &&
     cd '${backendPath}' &&
     './a11y_shell.sh' echo "Initialise"
     `;
