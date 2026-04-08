@@ -13,6 +13,13 @@ const ScanningComponent = ({ scanningMessage }) => {
   const [displayPageNum, setDisplayPageNum] = useState(0);
   const [scanCompleted, setScanCompleted] = useState(false);
   const [displayPageWord, setDisplayPageWord] = useState("page");
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  useEffect(() => {
+    window.services.generatingReport(() => {
+      setIsGeneratingReport(true);
+    });
+  }, []);
 
   useEffect(() => {
     if (!scanCompleted) {
@@ -95,7 +102,9 @@ const ScanningComponent = ({ scanningMessage }) => {
   };
   return (
     <div className="scanning-component">
-      {urlItems.length > 0 ? (
+      {isGeneratingReport ? (
+        <LoadingScanningStatus scanningMessage="Finalising your report, please give it some time." />
+      ) : urlItems.length > 0 ? (
         <>
           <h1 className="scanning-url-title">
             Scanned: {displayPageNum} {displayPageWord}
