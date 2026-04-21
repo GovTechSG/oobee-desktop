@@ -91,6 +91,11 @@ contextBridge.exposeInMainWorld("services", {
       callback();
     });
   },
+  generatingReport: (callback) => {
+    ipcRenderer.on("generatingReport", () => {
+      callback();
+    });
+  },
   killScan: (callback) => {
     ipcRenderer.on("killScan", () => {
       callback();

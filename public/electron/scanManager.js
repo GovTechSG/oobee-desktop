@@ -384,6 +384,11 @@ const startScan = async (scanDetails, scanEvent) => {
         scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
       }
 
+      // Detect report generation phase
+      if (data.includes('Generating report artifacts')) {
+        scanEvent.emit('generatingReport')
+      }
+
       if (data.includes('Starting scan')) {
         console.log(data)
       }
