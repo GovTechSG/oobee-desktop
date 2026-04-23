@@ -16,7 +16,7 @@
     "react-router-dom": "^6.30.3",
     "sass": "^1.61.0",
     "showdown": "^2.1.0",
-    "uuid": "^11.1.0",
+    "uuid": "^14.0.0",
     "webkit": "^0.0.0",
     "winston": "^3.8.2"
   },
