@@ -81,7 +81,7 @@ const getScanOptions = (details) => {
     options.push('none')
   }
 
-  if (!includeSubdomains && scanType === 'website') {
+  if (!includeSubdomains && (scanType === 'website' || scanType === 'intelligent')) {
     options.push('-s')
     options.push('same-hostname')
   }
