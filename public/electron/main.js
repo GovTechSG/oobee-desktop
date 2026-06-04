@@ -39,7 +39,7 @@ const constants = require('./constants')
 const scanManager = require('./scanManager')
 const updateManager = require('./updateManager')
 const userDataManager = require('./userDataManager.js')
-const showdown = require('showdown')
+const { marked } = require('marked')
 const fs = require('fs')
 const path = require('path')
 
@@ -290,12 +290,12 @@ app.on('ready', async () => {
 
   mainWindow.webContents.send('appStatus', 'ready')
 
-  const markdownToHTML = (converter, md) => {
+  const markdownToHTML = (md) => {
     const escaped = md
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-    return converter.makeHtml(escaped)
+    return marked.parse(escaped)
   }
 
   if (releaseInfo) {
@@ -308,9 +308,8 @@ app.on('ready', async () => {
       newestNotes = latestReleaseNotes
     }
 
-    const markdownConverter = new showdown.Converter()
-    const newestFormattedNotes = markdownToHTML(markdownConverter, newestNotes)
-    const latestRelNotes = markdownToHTML(markdownConverter, latestReleaseNotes)
+    const newestFormattedNotes = markdownToHTML(newestNotes)
+    const latestRelNotes = markdownToHTML(latestReleaseNotes)
 
     mainWindow.webContents.send('versionInfo', {
       appVersion: constants.appVersion,
