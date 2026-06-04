@@ -39,6 +39,14 @@ const killChildProcess = () => {
   }
 }
 
+const getMaxOldSpaceSize = () => {
+  const totalMemMb = Math.floor(os.totalmem() / (1024 * 1024))
+  if (totalMemMb < 4096) {
+    return Math.floor(totalMemMb * 1.5)
+  }
+  return Math.floor(totalMemMb * 0.75)
+}
+
 const getScanOptions = (details) => {
   const {
     scanType,
@@ -153,7 +161,7 @@ const validateUrlConnectivity = async (scanDetails) => {
     const check = spawn(
       'node',
       [
-        `--max-old-space-size=6144`,
+        `--max-old-space-size=${getMaxOldSpaceSize()}`,
         `${enginePath}/dist/cli.js`,
         ...getScanOptions(scanDetails),
       ],
@@ -268,7 +276,7 @@ const startScan = async (scanDetails, scanEvent) => {
     
     const scan = spawn(
       'node',
-      [`${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
+      [`--max-old-space-size=${getMaxOldSpaceSize()}`, `${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
       {
         cwd: resultsPath,
         env: {
