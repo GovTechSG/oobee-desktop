@@ -18,7 +18,7 @@ const WhatsNewModal = ({
 
     // remove unneeded info
     const allElements = releaseNotesNode.childNodes;
-    const toRemoveUpToId = "whatsnew";
+    const toRemoveUpToId = "whats-new";
     for (const element of allElements) {
       element.remove();
       if (element.id === toRemoveUpToId) break;

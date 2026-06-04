@@ -291,11 +291,7 @@ app.on('ready', async () => {
   mainWindow.webContents.send('appStatus', 'ready')
 
   const markdownToHTML = (md) => {
-    const escaped = md
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-    return marked.parse(escaped)
+    return marked.parse(md)
   }
 
   if (releaseInfo) {
