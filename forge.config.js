@@ -33,7 +33,9 @@ module.exports = {
     ],
     ...(os.platform() === 'darwin' && { extraResource: ["/tmp/oobee-portable-mac.zip"]})
   },
-  rebuildConfig: {},
+  rebuildConfig: {
+    onlyModules: [],
+  },
   makers: [
     {
       name: '@electron-forge/maker-zip',
