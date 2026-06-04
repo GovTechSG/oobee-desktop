@@ -162,8 +162,8 @@ app.on('ready', async () => {
     launchWindow.webContents.send('launchStatus', 'checkingUpdates')
   })
 
-  updateEvent.on('promptFrontendUpdate', (userResponse) => {
-    launchWindow.webContents.send('launchStatus', 'promptFrontendUpdate')
+  updateEvent.on('promptFrontendUpdate', (userResponse, versionInfo) => {
+    launchWindow.webContents.send('launchStatus', { status: 'promptFrontendUpdate', ...versionInfo })
     ipcMain.once('proceedUpdate', (_event, response) => {
       userResponse(response)
     })
