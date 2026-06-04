@@ -40,6 +40,16 @@ const scanManager = require('./scanManager')
 const updateManager = require('./updateManager')
 const userDataManager = require('./userDataManager.js')
 const { marked } = require('marked')
+marked.use({
+  renderer: {
+    heading({tokens, depth}) {
+      const text = this.parser.parseInline(tokens);
+      const rawText = tokens.map(t => t.raw || t.text || '').join('');
+      const slug = rawText.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/[\s]+/g, '-');
+      return `<h${depth} id="${slug}">${text}</h${depth}>\n`;
+    }
+  }
+})
 const fs = require('fs')
 const path = require('path')
 
