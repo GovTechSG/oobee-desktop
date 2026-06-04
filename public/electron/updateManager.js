@@ -81,6 +81,12 @@ const execCommand = async (command) => {
   return await execution;
 };
 
+const execCommandElevated = async (command) => {
+  const escapedCommand = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const osaCommand = `osascript -e 'do shell script "${escapedCommand}" with administrator privileges'`;
+  return execCommand(osaCommand);
+};
+
 // get hash value of prepackage zip
 const hashPrepackage = async (prepackagePath) => {
   const zipFileReadStream = fs.createReadStream(prepackagePath);
@@ -195,26 +201,28 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
     ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-macos.zip`
     : frontendReleaseUrl;
 
-  const command = `
-  mkdir -p '${resultsPath}' &&
-  curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip' &&
-  mv '${macOSExecutablePath}' '${path.join(
-    macOSExecutablePath,
-    ".."
-  )}/Oobee Old.app' &&
-  ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${path.join(
-    macOSExecutablePath,
-    ".."
-  )}' &&
-  rm '${resultsPath}/oobee-desktop-mac.zip' &&
-  rm -rf '${path.join(macOSExecutablePath, "..")}/Oobee Old.app' &&
-  xattr -rd com.apple.quarantine '${path.join(
-    macOSExecutablePath,
-    ".."
-  )}/Oobee.app' `;
+  const parentDir = path.join(macOSExecutablePath, "..");
 
-  await execCommand(command);
+  const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip'`;
 
+  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/Oobee Old.app' && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/Oobee Old.app' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
+
+  await execCommand(downloadCommand);
+
+  let needsElevation = false;
+  try {
+    fs.accessSync(parentDir, fs.constants.W_OK);
+    fs.accessSync(macOSExecutablePath, fs.constants.W_OK);
+  } catch (e) {
+    needsElevation = true;
+  }
+
+  if (needsElevation) {
+    consoleLogger.info("Elevating privileges for app update");
+    await execCommandElevated(installCommand);
+  } else {
+    await execCommand(installCommand);
+  }
 };
 
 /**
@@ -289,7 +297,10 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
   if (toUpdateFrontendVer) {
     consoleLogger.info(`update prompted for version: ${toUpdateFrontendVer}`);
     const userResponse = new Promise((resolve) => {
-      updaterEventEmitter.emit("promptFrontendUpdate", resolve);
+      updaterEventEmitter.emit("promptFrontendUpdate", resolve, {
+        currentVersion: getFrontendVersion(),
+        newVersion: toUpdateFrontendVer,
+      });
     });
 
     proceedUpdate = await userResponse;

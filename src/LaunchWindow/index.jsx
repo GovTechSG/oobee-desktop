@@ -44,10 +44,14 @@ const Prompt = ({
 const LaunchWindow = () => {
   const [launchStatus, setLaunchStatus] = useState(null)
   const [promptUpdate, setPromptUpdate] = useState(false)
+  const [versionInfo, setVersionInfo] = useState(null)
 
   useEffect(() => {
     window.services.launchStatus((s) => {
-      if (s === 'promptFrontendUpdate' || s === 'promptBackendUpdate') {
+      if (typeof s === 'object' && s.status === 'promptFrontendUpdate') {
+        setVersionInfo({ currentVersion: s.currentVersion, newVersion: s.newVersion })
+        setPromptUpdate(true)
+      } else if (s === 'promptFrontendUpdate' || s === 'promptBackendUpdate') {
         setPromptUpdate(true)
       } else {
         setLaunchStatus(s)
@@ -113,10 +117,13 @@ const LaunchWindow = () => {
   }
 
   if (promptUpdate) {
+    const versionDesc = versionInfo
+      ? `Current installed: ${versionInfo.currentVersion}, new version ${versionInfo.newVersion} available. Would you like to update now? It may take a few minutes.`
+      : 'Would you like to update now? It may take a few minutes.'
     return (
       <Prompt
         header='New update available'
-        desc='Would you like to update now? It may take a few minutes.'
+        desc={versionDesc}
         proceedLabel='Update'
         proceedHandler={handlePromptUpdateResponse(true)}
         dismissLabel='Later'
