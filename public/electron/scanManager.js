@@ -270,7 +270,24 @@ const startScan = async (scanDetails, scanEvent) => {
 
   const response = await new Promise(async (resolve) => {
     let intermediateFolderName
-    let resultsReceived = false;
+    let resultsReceived = false
+    let hasResolved = false
+    let finalResultsFolderName = null
+
+    const resolveOnce = (result) => {
+      if (hasResolved) return
+      hasResolved = true
+      resolve(result)
+    }
+
+    const hasGeneratedReportHtml = () => {
+      if (!finalResultsFolderName) return false
+      const userData = readUserDataFromFile() || {}
+      const exportDir = userData.exportDir || scanDetails.exportDir
+      if (!exportDir) return false
+      const reportFilePath = path.join(exportDir, finalResultsFolderName, 'report.html')
+      return fs.existsSync(reportFilePath)
+    }
 
     console.log("Starting Scan Process...")
     
@@ -293,11 +310,20 @@ const startScan = async (scanDetails, scanEvent) => {
     )
 
     scan.on('message', (message) => {
-      let parsedMessage = JSON.parse(message)
-      let messageFromBackend = parsedMessage.payload
+      try {
+        const parsedMessage = typeof message === 'string' ? JSON.parse(message) : message
+        const messageFromBackend = parsedMessage.payload
 
-      if (parsedMessage.type === 'randomToken') {
-        intermediateFolderName = messageFromBackend
+        if (parsedMessage.type === 'randomToken') {
+          intermediateFolderName = messageFromBackend
+        }
+
+        // More reliable than stdout parsing because this is sent via process IPC.
+        if (parsedMessage.type === 'storagePath' && messageFromBackend) {
+          finalResultsFolderName = path.basename(messageFromBackend.trim())
+        }
+      } catch (error) {
+        console.error('Failed to parse IPC message from scan process:', error)
       }
     })
 
@@ -317,7 +343,7 @@ const startScan = async (scanDetails, scanEvent) => {
         if (intermediateFolderName) {
           await cleanUpIntermediateFolders(intermediateFolderName)
         }
-        resolve({ cancelled: true })
+        resolveOnce({ cancelled: true })
         scanEvent.emit('killScan')
         return
       }
@@ -329,7 +355,7 @@ const startScan = async (scanDetails, scanEvent) => {
       // but failure in the sense that no pages were scanned so that we can display a message to the user
       if (data.includes('No pages were scanned')) {
         currentChildProcess = null
-        resolve({ success: false })
+        resolveOnce({ success: false })
       }
 
       if (data.includes('"level":"info","message":"PID: ')) {
@@ -358,29 +384,30 @@ const startScan = async (scanDetails, scanEvent) => {
           process.env.OOBEE_ERROR_LOG_PATH = match[1];
           console.log("Error log path changed to:\n", process.env.OOBEE_ERROR_LOG_PATH);
         }
-        resolve({ success: false })
+        resolveOnce({ success: false })
       }
 
       // The true success where the process ran and pages were scanned
       if (data.includes('Results directory is at')) {
         console.log(data)
         const resultsDirLine = data.split('Results directory is at ')[1];
-        let resultsPath;
+        let parsedResultsPath;
         if (resultsDirLine) {
           // Use platform-specific separator
           const sep = process.platform === 'win32' ? '\\' : '/';
-          resultsPath = resultsDirLine.split(sep).pop().split(' ')[0];
+          parsedResultsPath = resultsDirLine.split(sep).pop().split(' ')[0];
+          finalResultsFolderName = parsedResultsPath
         }
         const scanId = randomUUID()
-        scanHistory[scanId] = resultsPath
+        scanHistory[scanId] = finalResultsFolderName
 
         // Do not add scan kill here as it will kill clean up processes
         // scan.kill("SIGKILL");
         currentChildProcess = null
-        await cleanUpIntermediateFolders(resultsPath)
-        resolve({ success: true, scanId })
+        await cleanUpIntermediateFolders(finalResultsFolderName)
+        resolveOnce({ success: true, scanId })
         scanEvent.emit('scanningCompleted')
-        resultsReceived = true;
+        resultsReceived = true
       }
 
       // Handle live crawling output
@@ -403,14 +430,33 @@ const startScan = async (scanDetails, scanEvent) => {
 
     })
 
-    // Only handles error code closes (i.e. code > 0)
-    // as successful resolves are handled above
-    scan.on('close', (code) => {
-      if (code !== 0) {
-        resolve({ success: false, statusCode: code })
-      } else if (resultsReceived) {
+    // Handles exit fallback when success markers are not emitted to stdout
+    scan.on('close', async (code) => {
+      if (hasResolved) {
         currentChildProcess = null
+        return
       }
+
+      if (resultsReceived) {
+        currentChildProcess = null
+        return
+      }
+
+      // Fallback success criteria:
+      // if report.html exists in storage path, treat as success
+      // regardless of exit code or missing success markers.
+      if (hasGeneratedReportHtml()) {
+        const scanId = randomUUID()
+        scanHistory[scanId] = finalResultsFolderName
+        currentChildProcess = null
+        await cleanUpIntermediateFolders(finalResultsFolderName)
+        resolveOnce({ success: true, scanId })
+        scanEvent.emit('scanningCompleted')
+        return
+      }
+
+      currentChildProcess = null
+      resolveOnce({ success: false, statusCode: code ?? 0 })
     })
   })
 
