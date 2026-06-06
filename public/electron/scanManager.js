@@ -273,6 +273,9 @@ const startScan = async (scanDetails, scanEvent) => {
     let resultsReceived = false
     let hasResolved = false
     let finalResultsFolderName = null
+    let finalResultsAbsolutePath = null
+    let noPagesScannedDetected = false
+    let stdoutRemainder = ''
 
     const resolveOnce = (result) => {
       if (hasResolved) return
@@ -281,12 +284,133 @@ const startScan = async (scanDetails, scanEvent) => {
     }
 
     const hasGeneratedReportHtml = () => {
-      if (!finalResultsFolderName) return false
-      const userData = readUserDataFromFile() || {}
-      const exportDir = userData.exportDir || scanDetails.exportDir
-      if (!exportDir) return false
-      const reportFilePath = path.join(exportDir, finalResultsFolderName, 'report.html')
-      return fs.existsSync(reportFilePath)
+      if (finalResultsAbsolutePath) {
+        const reportFilePathFromAbsolutePath = path.join(
+          finalResultsAbsolutePath,
+          'report.html'
+        )
+        if (fs.existsSync(reportFilePathFromAbsolutePath)) {
+          return true
+        }
+      }
+
+      if (finalResultsFolderName) {
+        const userData = readUserDataFromFile() || {}
+        const exportDir = userData.exportDir || scanDetails.exportDir
+        if (exportDir) {
+          const reportFilePath = path.join(
+            exportDir,
+            finalResultsFolderName,
+            'report.html'
+          )
+          if (fs.existsSync(reportFilePath)) {
+            return true
+          }
+        }
+      }
+
+      return false
+    }
+
+    const captureResultsPath = (possiblePath) => {
+      if (!possiblePath) return
+      const trimmedPath = possiblePath.trim().replace(/["']/g, '')
+      if (!trimmedPath) return
+      finalResultsAbsolutePath = trimmedPath
+      finalResultsFolderName = path.basename(trimmedPath)
+    }
+
+    const parseAndEmitCrawlingLines = (line) => {
+      const crawlRegex = /crawling::(\d+)::([^:]+)::(.+)/g
+      let crawlMatch
+      while ((crawlMatch = crawlRegex.exec(line)) !== null) {
+        const urlScannedNum = parseInt(crawlMatch[1].trim())
+        const status = crawlMatch[2].trim()
+        const url = crawlMatch[3].trim()
+        console.log(urlScannedNum, ': ', status, ': ', '*'.repeat(url.length))
+        scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
+      }
+    }
+
+    const processStdoutLine = async (line) => {
+      const trimmedLine = line.trim()
+      if (!trimmedLine) return
+
+      if (trimmedLine.includes('No pages were scanned')) {
+        // Decide no-pages outcome only when the process closes,
+        // because long scans can emit chunked logs where this line is stale/noisy.
+        noPagesScannedDetected = true
+      }
+
+      if (trimmedLine.includes('"level":"info","message":"PID: ')) {
+        console.log(trimmedLine)
+      }
+
+      if (trimmedLine.includes('Logger writing to:')) {
+        try {
+          const logData = JSON.parse(trimmedLine)
+          const message = logData.message
+          const prefix = 'Logger writing to: '
+          const index = message.indexOf(prefix)
+          if (index !== -1) {
+            process.env.OOBEE_ERROR_LOG_PATH = message
+              .substring(index + prefix.length)
+              .trim()
+            console.log('Error log path set to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+          }
+        } catch (error) {
+          console.error('Failed to parse log data as JSON:', error)
+        }
+      }
+
+      if (trimmedLine.includes('An error occured. Log file is located at:')) {
+        const match = trimmedLine.match(
+          /An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/
+        )
+        if (match && match[1]) {
+          process.env.OOBEE_ERROR_LOG_PATH = match[1]
+          console.log('Error log path changed to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+        }
+        resolveOnce({ success: false })
+        return
+      }
+
+      if (trimmedLine.includes('Results directory is at')) {
+        const match = trimmedLine.match(/Results directory is at\s+(.+)$/)
+        if (match && match[1]) {
+          captureResultsPath(match[1])
+        }
+
+        if (finalResultsFolderName) {
+          const scanId = randomUUID()
+          scanHistory[scanId] = finalResultsFolderName
+          currentChildProcess = null
+          await cleanUpIntermediateFolders(finalResultsFolderName)
+          resolveOnce({ success: true, scanId })
+          scanEvent.emit('scanningCompleted')
+          resultsReceived = true
+        }
+        return
+      }
+
+      if (trimmedLine.includes('Generating report artifacts')) {
+        scanEvent.emit('generatingReport')
+      }
+
+      // Infer results path from artifact output lines even when final summary lines are split/missing.
+      const artifactPathMatch = trimmedLine.match(
+        /(Sitemap written to|JSON file written successfully:|File successfully compressed and saved to)\s+(.+)$/
+      )
+      if (artifactPathMatch && artifactPathMatch[2]) {
+        const artifactPath = artifactPathMatch[2].trim()
+        captureResultsPath(path.dirname(artifactPath))
+      }
+
+      if (trimmedLine.includes('Starting scan')) {
+        console.log(trimmedLine)
+      }
+
+      parseAndEmitCrawlingLines(trimmedLine)
     }
 
     console.log("Starting Scan Process...")
@@ -320,7 +444,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
         // More reliable than stdout parsing because this is sent via process IPC.
         if (parsedMessage.type === 'storagePath' && messageFromBackend) {
-          finalResultsFolderName = path.basename(messageFromBackend.trim())
+          captureResultsPath(messageFromBackend)
         }
       } catch (error) {
         console.error('Failed to parse IPC message from scan process:', error)
@@ -347,91 +471,29 @@ const startScan = async (scanDetails, scanEvent) => {
         scanEvent.emit('killScan')
         return
       }
-      /** Code 0 handled indirectly here (i.e. successful process run),
-      as unable to get stdout on close event after changing to spawn from fork */
 
-      // Output from combine.js which prints the string "No pages were scanned" if crawled URL <= 0
-      // consider this as successful that the process ran,
-      // but failure in the sense that no pages were scanned so that we can display a message to the user
-      if (data.includes('No pages were scanned')) {
-        currentChildProcess = null
-        resolveOnce({ success: false })
+      stdoutRemainder += data
+      const stdoutLines = stdoutRemainder.split(/\r?\n/)
+      stdoutRemainder = stdoutLines.pop() || ''
+
+      for (const stdoutLine of stdoutLines) {
+        await processStdoutLine(stdoutLine)
       }
-
-      if (data.includes('"level":"info","message":"PID: ')) {
-        console.log(data);
-      }
-
-      if (data.includes('Logger writing to:')) {
-        try {
-          const logData = JSON.parse(data);
-          const message = logData.message;
-          const prefix = "Logger writing to: ";
-          const index = message.indexOf(prefix);
-          if (index !== -1) {
-            process.env.OOBEE_ERROR_LOG_PATH = message.substring(index + prefix.length).trim();
-            console.log("Error log path set to:\n", process.env.OOBEE_ERROR_LOG_PATH);
-          }
-        } catch (error) {
-          console.error("Failed to parse log data as JSON:", error);
-        }
-      }
-
-      if (data.includes('An error occured. Log file is located at:')) {
-        currentChildProcess = null
-        const match = data.match(/An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/);
-        if (match && match[1]) {
-          process.env.OOBEE_ERROR_LOG_PATH = match[1];
-          console.log("Error log path changed to:\n", process.env.OOBEE_ERROR_LOG_PATH);
-        }
-        resolveOnce({ success: false })
-      }
-
-      // The true success where the process ran and pages were scanned
-      if (data.includes('Results directory is at')) {
-        console.log(data)
-        const resultsDirLine = data.split('Results directory is at ')[1];
-        let parsedResultsPath;
-        if (resultsDirLine) {
-          // Use platform-specific separator
-          const sep = process.platform === 'win32' ? '\\' : '/';
-          parsedResultsPath = resultsDirLine.split(sep).pop().split(' ')[0];
-          finalResultsFolderName = parsedResultsPath
-        }
-        const scanId = randomUUID()
-        scanHistory[scanId] = finalResultsFolderName
-
-        // Do not add scan kill here as it will kill clean up processes
-        // scan.kill("SIGKILL");
-        currentChildProcess = null
-        await cleanUpIntermediateFolders(finalResultsFolderName)
-        resolveOnce({ success: true, scanId })
-        scanEvent.emit('scanningCompleted')
-        resultsReceived = true
-      }
-
-      // Handle live crawling output
-      if (data.includes('crawling::')) {
-        const urlScannedNum = parseInt(data.split('::')[1].trim())
-        const status = data.split('::')[2].trim()
-        const url = data.split('::')[3].trim()
-        console.log(urlScannedNum, ': ', status, ': ', '*'.repeat(url.length))
-        scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
-      }
-
-      // Detect report generation phase
-      if (data.includes('Generating report artifacts')) {
-        scanEvent.emit('generatingReport')
-      }
-
-      if (data.includes('Starting scan')) {
-        console.log(data)
-      }
-
     })
 
     // Handles exit fallback when success markers are not emitted to stdout
     scan.on('close', async (code) => {
+      if (hasResolved) {
+        currentChildProcess = null
+        return
+      }
+
+      // Process any trailing partial line left in the buffer.
+      if (stdoutRemainder.trim()) {
+        await processStdoutLine(stdoutRemainder)
+        stdoutRemainder = ''
+      }
+
       if (hasResolved) {
         currentChildProcess = null
         return
@@ -452,6 +514,12 @@ const startScan = async (scanDetails, scanEvent) => {
         await cleanUpIntermediateFolders(finalResultsFolderName)
         resolveOnce({ success: true, scanId })
         scanEvent.emit('scanningCompleted')
+        return
+      }
+
+      if (noPagesScannedDetected) {
+        currentChildProcess = null
+        resolveOnce({ success: false })
         return
       }
 
