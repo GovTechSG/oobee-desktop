@@ -12,8 +12,6 @@ const sanitizeIncomingPath = (rawPath) => {
     if (!rawPath || typeof rawPath !== 'string') return '';
     return rawPath
         .replace(/\x1B\[[0-9;]*m/g, '')
-        .replace(/\[[0-9;]*m/g, '')
-        .replace(/\s*[│┆┊].*$/, '')
         .trim();
 }
 

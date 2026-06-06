@@ -1,5 +1,6 @@
 const { BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
+const { pathToFileURL } = require('url')
 const { fork, spawn } = require('child_process')
 const fs = require('fs-extra')
 const os = require('os')
@@ -37,12 +38,9 @@ const sanitizeLogPath = (rawPath) => {
   if (!rawPath) return ''
 
   return rawPath
-    // Remove ANSI escape sequences, e.g. \x1b[33m
+    // Remove real ANSI escape sequences only (do not strip plain text tokens
+    // like "[33m" that may legitimately appear in filenames).
     .replace(/\x1B\[[0-9;]*m/g, '')
-    // Remove stray color tokens that may remain in plain text logs, e.g. [33m
-    .replace(/\[[0-9;]*m/g, '')
-    // Remove table/progress artifacts appended after the path, e.g. "│ ..."
-    .replace(/\s*[│┆┊].*$/, '')
     .trim()
 }
 
@@ -740,7 +738,21 @@ const init = (scanEvent) => {
   ipcMain.on('openReport', async (_event, scanId) => {
     const reportPath = getReportPath(scanId)
     if (!reportPath) return
-    shell.openExternal(`file://${reportPath}`)
+
+    if (!fs.existsSync(reportPath)) {
+      console.error(`Report not found: ${reportPath}`)
+      return
+    }
+
+    try {
+      const openPathError = await shell.openPath(reportPath)
+      if (openPathError) {
+        const reportUrl = pathToFileURL(reportPath).toString()
+        await shell.openExternal(reportUrl)
+      }
+    } catch (error) {
+      console.error(`Failed to open report: ${error?.message || error}`)
+    }
   })
 
   ipcMain.handle('getResultsFolderPath', async (_event, scanId) => {
