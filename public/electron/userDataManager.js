@@ -8,6 +8,15 @@ const path = require('path');
 const Sentry = require('@sentry/electron/main');
 const { v4: uuidv4 } = require('uuid');
 
+const sanitizeIncomingPath = (rawPath) => {
+    if (!rawPath || typeof rawPath !== 'string') return '';
+    return rawPath
+        .replace(/\x1B\[[0-9;]*m/g, '')
+        .replace(/\[[0-9;]*m/g, '')
+        .replace(/\s*[│┆┊].*$/, '')
+        .trim();
+}
+
 const readUserDataFromFile = () => {
     if (!fs.existsSync(userDataFilePath)) {
         // Return an empty object if the file doesn't exist to prevent errors.
@@ -100,7 +109,12 @@ const init = async () => {
     })
 
     ipcMain.on("openResultsFolder", (_event, resultsPath) => {
-        shell.openPath(resultsPath);
+        const safeResultsPath = sanitizeIncomingPath(resultsPath);
+        if (!safeResultsPath) {
+            console.error('openResultsFolder received an invalid path');
+            return;
+        }
+        shell.openPath(path.normalize(safeResultsPath));
     })
 }
 

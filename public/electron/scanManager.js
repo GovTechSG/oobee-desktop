@@ -33,6 +33,19 @@ let setKillChildProcessSignal = () => {
   killChildProcessSignal = true
 }
 
+const sanitizeLogPath = (rawPath) => {
+  if (!rawPath) return ''
+
+  return rawPath
+    // Remove ANSI escape sequences, e.g. \x1b[33m
+    .replace(/\x1B\[[0-9;]*m/g, '')
+    // Remove stray color tokens that may remain in plain text logs, e.g. [33m
+    .replace(/\[[0-9;]*m/g, '')
+    // Remove table/progress artifacts appended after the path, e.g. "│ ..."
+    .replace(/\s*[│┆┊].*$/, '')
+    .trim()
+}
+
 const killChildProcess = () => {
   if (currentChildProcess) {
     currentChildProcess.kill('SIGKILL')
@@ -274,6 +287,7 @@ const startScan = async (scanDetails, scanEvent) => {
     let hasResolved = false
     let finalResultsFolderName = null
     let finalResultsAbsolutePath = null
+    let hasStoragePathFromIpc = false
     let noPagesScannedDetected = false
     let stdoutRemainder = ''
 
@@ -314,7 +328,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
     const captureResultsPath = (possiblePath) => {
       if (!possiblePath) return
-      const trimmedPath = possiblePath.trim().replace(/["']/g, '')
+      const trimmedPath = sanitizeLogPath(possiblePath).replace(/["']/g, '')
       if (!trimmedPath) return
       finalResultsAbsolutePath = trimmedPath
       finalResultsFolderName = path.basename(trimmedPath)
@@ -376,9 +390,13 @@ const startScan = async (scanDetails, scanEvent) => {
       }
 
       if (trimmedLine.includes('Results directory is at')) {
-        const match = trimmedLine.match(/Results directory is at\s+(.+)$/)
-        if (match && match[1]) {
-          captureResultsPath(match[1])
+        // This line comes from printMessage() and may include ANSI/table decorations.
+        // Prefer IPC storagePath when available; parse stdout only as fallback.
+        if (!hasStoragePathFromIpc) {
+          const match = trimmedLine.match(/Results directory is at\s+(.+)$/)
+          if (match && match[1]) {
+            captureResultsPath(match[1])
+          }
         }
 
         if (finalResultsFolderName) {
@@ -444,6 +462,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
         // More reliable than stdout parsing because this is sent via process IPC.
         if (parsedMessage.type === 'storagePath' && messageFromBackend) {
+          hasStoragePathFromIpc = true
           captureResultsPath(messageFromBackend)
         }
       } catch (error) {
