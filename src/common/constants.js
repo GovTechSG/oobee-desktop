@@ -4,8 +4,9 @@ import boxRightArrow from '../assets/box-arrow-up-right-purple.svg'
 import deviceDescriptors from './deviceDescriptorsSource.json';
 
 export const scanTypes = {
-  'Website crawl': 'website',
+  'Website crawler (Intelligent)': 'intelligent',
   'Sitemap crawl': 'sitemap',
+  'Website crawler (Legacy)': 'website',
   'Custom flow': 'custom',
   'Local file': 'localfile',
 }

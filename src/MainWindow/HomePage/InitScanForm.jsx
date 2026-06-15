@@ -388,9 +388,9 @@ const InitScanForm = ({
           isFileOptionChecked
             ? scanTypeOptions.filter(
                 (option) =>
-                  option !== scanTypeOptions[2] && option !== scanTypeOptions[3]
+                  option !== scanTypeOptions[3] && option !== scanTypeOptions[4]
               )
-            : scanTypeOptions.filter((option) => option !== scanTypeOptions[3])
+            : scanTypeOptions.filter((option) => option !== scanTypeOptions[4])
         }
         fileTypesOptions={fileTypesOptions}
         viewportOptions={viewportOptions}
