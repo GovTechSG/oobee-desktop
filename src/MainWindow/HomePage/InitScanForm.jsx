@@ -68,7 +68,7 @@ const InitScanForm = ({
   })
 
   const getAllowedFileTypes = (scanType) => {
-    if (scanType === scanTypeOptions[0]) {
+    if (scanType === scanTypeOptions[0] || scanType === scanTypeOptions[4]) {
       return ['.html', '.htm', '.shtml', '.xhtml', '.pdf']
     } else if (scanType === scanTypeOptions[1]) {
       return ['.xml', '.txt']
@@ -79,17 +79,21 @@ const InitScanForm = ({
   useEffect(() => {
     const cachedScanUrl = sessionStorage.getItem('scanUrl')
     const cachedScanType = sessionStorage.getItem('scanType')
-    const wasLocalFileScan = cachedScanType === scanTypeOptions[3]
+    const wasLocalFileScan = cachedScanType === scanTypeOptions[4]
 
     if (wasLocalFileScan) {
       setIsFileOptionChecked(true)
       const newScanUrl = cachedScanUrl
         ? JSON.parse(cachedScanUrl)
         : 'Choose file...'
+      const safeCachedNonFileScanType =
+        cachedNonFileScanType === scanTypeOptions[4]
+          ? scanTypeOptions[0]
+          : cachedNonFileScanType
       setScanUrl(newScanUrl)
       setStaticFilePath(newScanUrl)
       setStaticHttpUrl('https://')
-      setDisplayScanType(cachedNonFileScanType)
+      setDisplayScanType(safeCachedNonFileScanType)
     } else {
       setIsFileOptionChecked(false)
       const newScanUrl = cachedScanUrl ? JSON.parse(cachedScanUrl) : 'https://'
@@ -125,7 +129,7 @@ const InitScanForm = ({
     )
     sessionStorage.setItem(
       'scanType',
-      isFileOptionChecked ? scanTypeOptions[3] : displayScanType
+      isFileOptionChecked ? scanTypeOptions[4] : displayScanType
     )
     sessionStorage.setItem('scanUrl', JSON.stringify(scanUrl))
     sessionStorage.setItem('cachedNonFileScanType', cachedNonFileScanType)
@@ -181,7 +185,7 @@ const InitScanForm = ({
         file: selectedFile,
         scanUrl,
         ...advancedOptions,
-        scanType: scanTypeOptions[3], // Send 'Local file' to CLI
+        scanType: scanTypeOptions[4], // Send 'Local file' to CLI
       }
       // Only include pageLimit for sitemap scans
       if (displayScanType === scanTypeOptions[1]) {
@@ -238,16 +242,22 @@ const InitScanForm = ({
     setScanUrl(newState ? staticFilePath : staticHttpUrl)
     if (newState) {
       setCachedNonFileScanType(displayScanType)
+      setDisplayScanType(scanTypeOptions[4])
       setAdvancedOptions((prevOptions) => ({
         ...prevOptions,
-        scanType: scanTypeOptions[3],
+        scanType: scanTypeOptions[4],
       }))
     } else {
+      const restoredScanType =
+        cachedNonFileScanType === scanTypeOptions[4]
+          ? scanTypeOptions[0]
+          : cachedNonFileScanType
       setAdvancedOptions((prevOptions) => ({
         ...prevOptions,
-        scanType: cachedNonFileScanType,
+        scanType: restoredScanType,
       }))
-      setDisplayScanType(cachedNonFileScanType)
+      setDisplayScanType(restoredScanType)
+      setCachedNonFileScanType(restoredScanType)
     }
     // Have screenreader to focus and announce the button
     if (toggleUrlFileRef.current) {
@@ -267,7 +277,8 @@ const InitScanForm = ({
       </label>
       <div id="url-bar-group">
         <div id="url-bar">
-          {advancedOptions.scanType !== scanTypeOptions[2] && (
+          {(isFileOptionChecked ||
+            advancedOptions.scanType !== scanTypeOptions[3]) && (
             <div
               className="toggle-url-file-tooltip-container"
               onMouseEnter={() => setShowToggleUrlFileTooltip(true)}
@@ -316,8 +327,8 @@ const InitScanForm = ({
             </div>
           )}
 
-          {displayScanType !== scanTypeOptions[2] &&
-            !(isFileOptionChecked && displayScanType === scanTypeOptions[0]) && (
+          {displayScanType !== scanTypeOptions[3] &&
+            !(isFileOptionChecked && displayScanType === scanTypeOptions[4]) && (
               <div>
                 <Button
                   type="btn-link"
@@ -386,10 +397,7 @@ const InitScanForm = ({
       <AdvancedScanOptions
         scanTypeOptions={
           isFileOptionChecked
-            ? scanTypeOptions.filter(
-                (option) =>
-                  option !== scanTypeOptions[3] && option !== scanTypeOptions[4]
-              )
+            ? [scanTypeOptions[4], scanTypeOptions[1]]
             : scanTypeOptions.filter((option) => option !== scanTypeOptions[4])
         }
         fileTypesOptions={fileTypesOptions}
@@ -408,11 +416,13 @@ const InitScanForm = ({
             setCachedNonFileScanType(newOptions.scanType)
           } else {
             setDisplayScanType(newOptions.scanType)
-            setCachedNonFileScanType(newOptions.scanType)
+            if (newOptions.scanType !== scanTypeOptions[4]) {
+              setCachedNonFileScanType(newOptions.scanType)
+            }
             setAdvancedOptions({
               ...advancedOptions,
               ...newOptions,
-              scanType: scanTypeOptions[3],
+              scanType: scanTypeOptions[4],
             })
           }
           setAllowedFileTypes(getAllowedFileTypes(newOptions.scanType))

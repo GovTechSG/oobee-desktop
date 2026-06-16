@@ -204,8 +204,9 @@ const AdvancedScanOptions = ({
             </div>
           )}
 
-          {/* Scan Type chosen is either Website Crawl or Sitemap Crawl */}
-          {advancedOptions.scanType !== scanTypeOptions[2] && (
+          {/* Show File Type for non-Custom-flow and non-Local-file scan types */}
+          {advancedOptions.scanType !== 'Custom flow' &&
+            advancedOptions.scanType !== 'Local file' && (
             <SelectField
               id="file-type-dropdown"
               label="File Type:"
@@ -234,7 +235,8 @@ const AdvancedScanOptions = ({
           </div>
 
           {!isFileOptionChecked &&
-            advancedOptions.scanType === scanTypeOptions[0] && (
+            (advancedOptions.scanType === 'Intelligent crawler' ||
+              advancedOptions.scanType === 'Website crawler') && (
               <div
                 id="subdomain-toggle-group"
                 class="advanced-options-toggle-group"
@@ -340,7 +342,8 @@ const AdvancedScanOptions = ({
           </div>
           {/* END: WCAG AAA */}
 
-          {advancedOptions.scanType !== scanTypeOptions[2] && (
+          {advancedOptions.scanType !== 'Custom flow' &&
+            advancedOptions.scanType !== 'Local file' && (
             <>
               <div
                 id="max-concurrency-toggle-group"
@@ -384,25 +387,6 @@ const AdvancedScanOptions = ({
                 </div>
               </div>
 
-              <div
-                id="follow-robots-toggle-group"
-                class="advanced-options-toggle-group"
-              >
-                <input
-                  type="checkbox"
-                  id="follow-robots-toggle"
-                  class="advanced-options-toggle"
-                  aria-describedby="follow-robots-tooltip"
-                  checked={advancedOptions.followRobots}
-                  onChange={handleSetAdvancedOption(
-                    'followRobots',
-                    (e) => e.target.checked
-                  )}
-                />
-                <label htmlFor="follow-robots-toggle">
-                  Adhere to robots.txt
-                </label>
-              </div>
             </>
           )}
           <hr />
