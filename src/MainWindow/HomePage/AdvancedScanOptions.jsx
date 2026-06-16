@@ -204,9 +204,8 @@ const AdvancedScanOptions = ({
             </div>
           )}
 
-          {/* Show File Type for non-Custom-flow and non-Local-file scan types */}
-          {advancedOptions.scanType !== 'Custom flow' &&
-            advancedOptions.scanType !== 'Local file' && (
+          {/* Show File Type for all scan types except Custom flow */}
+          {advancedOptions.scanType !== 'Custom flow' && (
             <SelectField
               id="file-type-dropdown"
               label="File Type:"

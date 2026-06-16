@@ -55,7 +55,7 @@ From `src/common/constants.js`:
 | URL/File toggle (URL mode) | Show | Show | Show | Hide | N/A |
 | URL/File toggle (File mode) | N/A | N/A | N/A | N/A | Show |
 | Capped at N pages | Show | Show | Show | Hide | Hide |
-| File Type dropdown | Show | Show | Show | Hide | Hide |
+| File Type dropdown | Show | Show | Show | Hide | Show |
 | Allow subdomains for scans | Show | Hide | Show | Hide | Hide |
 | Slow Scan Mode | Show | Show | Show | Hide | Hide |
 | Adhere to robots.txt | Hide (removed) | Hide (removed) | Hide (removed) | Hide (removed) | Hide (removed) |
@@ -80,9 +80,3 @@ From `src/common/constants.js`:
   - visibility matrix above
 
 ---
-
-## Source of Truth
-
-Implemented in commit:
-
-- `a35d1af` — `fix(homepage): correct scan-type specific option visibility and URL/File toggle state`
