@@ -368,13 +368,18 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
       updaterEventEmitter.emit("restartTriggered");
     }
 
-    const isPrepackageValid = await validateZipFile(macOSPrepackageBackend);
-    const isDev = process.env.NODE_ENV === "dev";
-    if (isDev) {
-      consoleLogger.info(
-        "detected running from dev environment, will not validate/download prepackage"
-      );
-    } else if (isPrepackageValid) {
+    // If backend already exists, skip the entire backend setup process
+    // This handles the case where the app was updated and the new bundle doesn't have the prepackage
+    if (getBackendExists()) {
+      consoleLogger.info("backend already exists, skipping backend setup");
+    } else {
+      const isPrepackageValid = await validateZipFile(macOSPrepackageBackend);
+      const isDev = process.env.NODE_ENV === "dev";
+      if (isDev) {
+        consoleLogger.info(
+          "detected running from dev environment, will not validate/download prepackage"
+        );
+      } else if (isPrepackageValid) {
       let skipUnzip = false;
       if (getBackendExists() && fs.existsSync(hashPath)) {
         consoleLogger.info("backend and hash path exists");
@@ -396,14 +401,15 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
         await unzipBackendAndCleanUp(macOSPrepackageBackend);
         await hashAndSaveZip(macOSPrepackageBackend);
       }
-    } else {
-      // unlikely scenario
-      consoleLogger.info(
-        "prepackage zip is invalid. proceed to download from backend."
-      );
-      await downloadBackend(getFrontendVersion(), macOSPrepackageBackend);
-      await unzipBackendAndCleanUp(macOSPrepackageBackend);
-      await hashAndSaveZip(macOSPrepackageBackend);
+      } else {
+        // unlikely scenario
+        consoleLogger.info(
+          "prepackage zip is invalid. proceed to download from backend."
+        );
+        await downloadBackend(getFrontendVersion(), macOSPrepackageBackend);
+        await unzipBackendAndCleanUp(macOSPrepackageBackend);
+        await hashAndSaveZip(macOSPrepackageBackend);
+      }
     }
 
   }
