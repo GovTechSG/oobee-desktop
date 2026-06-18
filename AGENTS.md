@@ -4,6 +4,7 @@ This document defines the expected UI behavior for scan type handling in:
 
 - `src/MainWindow/HomePage/InitScanForm.jsx`
 - `src/MainWindow/HomePage/AdvancedScanOptions.jsx`
+- `src/MainWindow/HomePage/index.jsx` (scan submission + validation behavior)
 
 ## Scan Types
 
@@ -38,6 +39,7 @@ From `src/common/constants.js`:
 - Scan Type options must be exactly:
   1. `Local file`
   2. `Sitemap crawler`
+  3. `Custom flow`
 - URL/File toggle must remain visible so user can switch back to URL.
 - Default selection on URL → File toggle is `Local file`.
 
@@ -66,6 +68,19 @@ From `src/common/constants.js`:
 
 - `Local file`: allow webpage/pdf extensions (`.html`, `.htm`, `.shtml`, `.xhtml`, `.pdf`)
 - `Sitemap crawler`: allow sitemap extensions (`.xml`, `.txt`)
+- `Custom flow`: allow webpage/pdf extensions (`.html`, `.htm`, `.shtml`, `.xhtml`, `.pdf`) (same as website crawl)
+
+---
+
+## Submission & Validation Rules
+
+- In file mode, **do not force** `scanType` to `Local file` during submit.
+- Submit the currently selected file-mode scan type (`Local file` / `Sitemap crawler` / `Custom flow`).
+- Persist the actual selected `scanType`; use `isFileOptionChecked` to determine URL vs FILE mode.
+- In `HomePage/index.jsx` validation:
+  - `Sitemap crawler`: allow `http(s)://` and `file://`
+  - `Local file`: allow `file://` only
+  - `Custom flow`: allow `http(s)://` and `file://`
 
 ---
 
@@ -78,5 +93,7 @@ From `src/common/constants.js`:
   - File → URL toggle
   - dropdown persistence
   - visibility matrix above
+  - file-mode submit payload uses selected scan type (not forced `Local file`)
+  - file-mode `Custom flow` with valid `file://` path does not show `Invalid URL.`
 
 ---
