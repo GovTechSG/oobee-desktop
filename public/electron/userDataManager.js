@@ -23,6 +23,18 @@ const readUserDataFromFile = () => {
     return JSON.parse(fs.readFileSync(userDataFilePath));
 }
 
+const getProxySettings = () => {
+    const userData = readUserDataFromFile();
+    return userData.allProxy || '';
+}
+
+const setProxySettings = (proxyValue) => {
+    const userData = readUserDataFromFile();
+    userData.allProxy = proxyValue || '';
+    fs.writeFileSync(userDataFilePath, JSON.stringify(userData));
+    return { success: true };
+}
+
 const writeUserDetailsToFile = (data) => {
     const userData = readUserDataFromFile();
     const updatedData = { ...userData, ...data };
@@ -137,4 +149,6 @@ module.exports = {
     readUserDataFromFile,
     writeUserDetailsToFile,
     createExportDir,
+    getProxySettings,
+    setProxySettings,
 }

@@ -24,7 +24,7 @@ const {
   getDefaultEdgeDataDir,
   uploadFolderName,
 } = require('./constants')
-const { readUserDataFromFile, createExportDir } = require('./userDataManager')
+const { readUserDataFromFile, createExportDir, getProxySettings } = require('./userDataManager')
 const scanHistory = {}
 
 let currentChildProcess
@@ -185,6 +185,7 @@ const validateUrlConnectivity = async (scanDetails) => {
           OOBEE_SENTRY_DSN: 'https://9f2001daae75a14b01e65a67eabfa404@o4509047624761344.ingest.us.sentry.io/4510751209160704',
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
+          ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
         },
       }
     )
@@ -444,6 +445,7 @@ const startScan = async (scanDetails, scanEvent) => {
           CRAWLEE_SYSTEM_INFO_V2: '1',
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
+          ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
