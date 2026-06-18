@@ -14,6 +14,28 @@ import { ReactComponent as ChevronDownIcon } from '../../assets/chevron-down-whi
 import LoadingSpinner from '../../common/components/LoadingSpinner'
 import ToolTip from '../../common/components/ToolTip'
 
+const SCAN_TYPE = {
+  INTELLIGENT: 'Intelligent crawler',
+  SITEMAP: 'Sitemap crawler',
+  WEBSITE: 'Website crawler',
+  CUSTOM_FLOW: 'Custom flow',
+  LOCAL_FILE: 'Local file',
+}
+
+const getAllowedFileTypes = (scanType) => {
+  if (
+    scanType === SCAN_TYPE.INTELLIGENT ||
+    scanType === SCAN_TYPE.WEBSITE ||
+    scanType === SCAN_TYPE.CUSTOM_FLOW ||
+    scanType === SCAN_TYPE.LOCAL_FILE
+  ) {
+    return ['.html', '.htm', '.shtml', '.xhtml', '.pdf']
+  } else if (scanType === SCAN_TYPE.SITEMAP) {
+    return ['.xml', '.txt']
+  }
+  return []
+}
+
 function convertToReadablePath(path) {
   let readable = path.replace(/\\/g, '/')
   if (/^[a-zA-Z]:/.test(readable)) {
@@ -39,9 +61,11 @@ const InitScanForm = ({
   const [staticHttpUrl, setStaticHttpUrl] = useState('https://')
   const [staticFilePath, setStaticFilePath] = useState('file:///')
   const [cachedNonFileScanType, setCachedNonFileScanType] = useState(() => {
-    return sessionStorage.getItem('cachedNonFileScanType') || scanTypeOptions[0]
+    return (
+      sessionStorage.getItem('cachedNonFileScanType') || SCAN_TYPE.INTELLIGENT
+    )
   })
-  const [displayScanType, setDisplayScanType] = useState(scanTypeOptions[0])
+  const [displayScanType, setDisplayScanType] = useState(SCAN_TYPE.INTELLIGENT)
   const [allowedFileTypes, setAllowedFileTypes] = useState([])
   const [showToggleUrlFileTooltip, setShowToggleUrlFileTooltip] =
     useState(false)
@@ -67,52 +91,51 @@ const InitScanForm = ({
     return cachedCheckboxState ? JSON.parse(cachedCheckboxState) : false
   })
 
-  const getAllowedFileTypes = (scanType) => {
-    if (scanType === scanTypeOptions[0] || scanType === scanTypeOptions[4]) {
-      return ['.html', '.htm', '.shtml', '.xhtml', '.pdf']
-    } else if (scanType === scanTypeOptions[1]) {
-      return ['.xml', '.txt']
-    }
-    return []
-  }
-
   useEffect(() => {
     const cachedScanUrl = sessionStorage.getItem('scanUrl')
     const cachedScanType = sessionStorage.getItem('scanType')
-    const wasLocalFileScan = cachedScanType === scanTypeOptions[4]
+    const cachedIsFileOptionChecked =
+      JSON.parse(sessionStorage.getItem('isFileOptionChecked')) || false
+    const isValidFileModeScanType =
+      cachedScanType === SCAN_TYPE.LOCAL_FILE ||
+      cachedScanType === SCAN_TYPE.SITEMAP ||
+      cachedScanType === SCAN_TYPE.CUSTOM_FLOW
+    const safeFileModeScanType = isValidFileModeScanType
+      ? cachedScanType
+      : SCAN_TYPE.LOCAL_FILE
 
-    if (wasLocalFileScan) {
+    if (cachedIsFileOptionChecked) {
       setIsFileOptionChecked(true)
       const newScanUrl = cachedScanUrl
         ? JSON.parse(cachedScanUrl)
         : 'Choose file...'
-      const safeCachedNonFileScanType =
-        cachedNonFileScanType === scanTypeOptions[4]
-          ? scanTypeOptions[0]
-          : cachedNonFileScanType
       setScanUrl(newScanUrl)
       setStaticFilePath(newScanUrl)
       setStaticHttpUrl('https://')
-      setDisplayScanType(safeCachedNonFileScanType)
+      setDisplayScanType(safeFileModeScanType)
     } else {
       setIsFileOptionChecked(false)
       const newScanUrl = cachedScanUrl ? JSON.parse(cachedScanUrl) : 'https://'
       setScanUrl(newScanUrl)
       setStaticHttpUrl(newScanUrl)
       setStaticFilePath('Choose file...')
-      setCachedNonFileScanType(cachedScanType || scanTypeOptions[0])
-      setDisplayScanType(cachedScanType || scanTypeOptions[0])
+      setCachedNonFileScanType(cachedScanType || SCAN_TYPE.INTELLIGENT)
+      setDisplayScanType(cachedScanType || SCAN_TYPE.INTELLIGENT)
     }
 
     setAdvancedOptions((prevOptions) => ({
       ...prevOptions,
-      scanType: wasLocalFileScan
-        ? cachedNonFileScanType
+      scanType: cachedIsFileOptionChecked
+        ? safeFileModeScanType
         : cachedScanType || prevOptions.scanType,
     }))
 
     setAllowedFileTypes(
-      getAllowedFileTypes(cachedScanType || scanTypeOptions[0])
+      getAllowedFileTypes(
+        cachedIsFileOptionChecked
+          ? safeFileModeScanType
+          : cachedScanType || SCAN_TYPE.INTELLIGENT
+      )
     )
   }, [])
 
@@ -127,10 +150,7 @@ const InitScanForm = ({
       'isFileOptionChecked',
       JSON.stringify(isFileOptionChecked)
     )
-    sessionStorage.setItem(
-      'scanType',
-      isFileOptionChecked ? scanTypeOptions[4] : displayScanType
-    )
+    sessionStorage.setItem('scanType', displayScanType)
     sessionStorage.setItem('scanUrl', JSON.stringify(scanUrl))
     sessionStorage.setItem('cachedNonFileScanType', cachedNonFileScanType)
   }, [isFileOptionChecked, scanUrl, displayScanType, cachedNonFileScanType])
@@ -185,10 +205,10 @@ const InitScanForm = ({
         file: selectedFile,
         scanUrl,
         ...advancedOptions,
-        scanType: scanTypeOptions[4], // Send 'Local file' to CLI
+        scanType: displayScanType,
       }
       // Only include pageLimit for sitemap scans
-      if (displayScanType === scanTypeOptions[1]) {
+      if (displayScanType === SCAN_TYPE.SITEMAP) {
         scanParams.pageLimit = pageLimit
       }
       startScan(scanParams)
@@ -242,15 +262,15 @@ const InitScanForm = ({
     setScanUrl(newState ? staticFilePath : staticHttpUrl)
     if (newState) {
       setCachedNonFileScanType(displayScanType)
-      setDisplayScanType(scanTypeOptions[4])
+      setDisplayScanType(SCAN_TYPE.LOCAL_FILE)
       setAdvancedOptions((prevOptions) => ({
         ...prevOptions,
-        scanType: scanTypeOptions[4],
+        scanType: SCAN_TYPE.LOCAL_FILE,
       }))
     } else {
       const restoredScanType =
-        cachedNonFileScanType === scanTypeOptions[4]
-          ? scanTypeOptions[0]
+        cachedNonFileScanType === SCAN_TYPE.LOCAL_FILE
+          ? SCAN_TYPE.INTELLIGENT
           : cachedNonFileScanType
       setAdvancedOptions((prevOptions) => ({
         ...prevOptions,
@@ -278,7 +298,7 @@ const InitScanForm = ({
       <div id="url-bar-group">
         <div id="url-bar">
           {(isFileOptionChecked ||
-            advancedOptions.scanType !== scanTypeOptions[3]) && (
+            advancedOptions.scanType !== SCAN_TYPE.CUSTOM_FLOW) && (
             <div
               className="toggle-url-file-tooltip-container"
               onMouseEnter={() => setShowToggleUrlFileTooltip(true)}
@@ -327,8 +347,8 @@ const InitScanForm = ({
             </div>
           )}
 
-          {displayScanType !== scanTypeOptions[3] &&
-            !(isFileOptionChecked && displayScanType === scanTypeOptions[4]) && (
+          {displayScanType !== SCAN_TYPE.CUSTOM_FLOW &&
+            !(isFileOptionChecked && displayScanType === SCAN_TYPE.LOCAL_FILE) && (
               <div>
                 <Button
                   type="btn-link"
@@ -397,8 +417,8 @@ const InitScanForm = ({
       <AdvancedScanOptions
         scanTypeOptions={
           isFileOptionChecked
-            ? [scanTypeOptions[4], scanTypeOptions[1]]
-            : scanTypeOptions.filter((option) => option !== scanTypeOptions[4])
+            ? [SCAN_TYPE.LOCAL_FILE, SCAN_TYPE.SITEMAP, SCAN_TYPE.CUSTOM_FLOW]
+            : scanTypeOptions.filter((option) => option !== SCAN_TYPE.LOCAL_FILE)
         }
         fileTypesOptions={fileTypesOptions}
         viewportOptions={viewportOptions}
@@ -416,13 +436,12 @@ const InitScanForm = ({
             setCachedNonFileScanType(newOptions.scanType)
           } else {
             setDisplayScanType(newOptions.scanType)
-            if (newOptions.scanType !== scanTypeOptions[4]) {
+            if (newOptions.scanType !== SCAN_TYPE.LOCAL_FILE) {
               setCachedNonFileScanType(newOptions.scanType)
             }
             setAdvancedOptions({
               ...advancedOptions,
               ...newOptions,
-              scanType: scanTypeOptions[4],
             })
           }
           setAllowedFileTypes(getAllowedFileTypes(newOptions.scanType))

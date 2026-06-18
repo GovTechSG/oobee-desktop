@@ -181,7 +181,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       return
     }
 
-    if (scanDetails.scanType === 'Sitemap crawl') {
+    if (scanDetails.scanType === 'Sitemap crawler') {
       if (
         !isValidHttpUrl(scanDetails.scanUrl) &&
         !isValidFilepath(scanDetails.scanUrl)
@@ -194,6 +194,15 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       if (!isValidFilepath(scanDetails.scanUrl)) {
         setScanButtonIsClicked(false)
         setPrevUrlErrorMessage('File is not a local html or sitemap file.')
+        return
+      }
+    } else if (scanDetails.scanType === 'Custom flow') {
+      if (
+        !isValidHttpUrl(scanDetails.scanUrl) &&
+        !isValidFilepath(scanDetails.scanUrl)
+      ) {
+        setScanButtonIsClicked(false)
+        setPrevUrlErrorMessage('Invalid URL.')
         return
       }
     } else if (!isValidHttpUrl(scanDetails.scanUrl)) {
