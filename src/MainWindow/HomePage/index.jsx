@@ -39,11 +39,52 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   const [showNoChromeErrorModal, setShowNoChromeErrorModal] = useState(false)
   const [showWhatsNewModal, setShowWhatsNewModal] = useState(false)
   const [showAboutPhModal, setShowAboutPhModal] = useState(false)
+  const [showProxyModal, setShowProxyModal] = useState(false)
+  const [proxyValue, setProxyValue] = useState('')
   const [url, setUrl] = useState('')
   const [scanButtonIsClicked, setScanButtonIsClicked] = useState(false)
   const [isAbortingScan, setIsAbortingScan] = useState(false)
 
   const location = useLocation()
+
+  // Hidden proxy configuration feature (Ctrl/Cmd+Shift+X)
+  useEffect(() => {
+    const handleProxyShortcut = async (e) => {
+      // Ctrl+Shift+X (Windows/Linux) or Cmd+Shift+X (macOS)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'X' || e.key === 'x')) {
+        e.preventDefault()
+        
+        try {
+          const currentProxy = await window.services.getProxySettings()
+          setProxyValue(currentProxy || '')
+          setShowProxyModal(true)
+        } catch (error) {
+          console.error('Proxy shortcut error:', error)
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleProxyShortcut)
+    return () => document.removeEventListener('keydown', handleProxyShortcut)
+  }, [])
+
+  const handleProxySubmit = async (e) => {
+    e.preventDefault()
+    try {
+      const trimmedValue = proxyValue.trim()
+      await window.services.setProxySettings(trimmedValue)
+      setShowProxyModal(false)
+      
+      // Optional: Show confirmation
+      if (trimmedValue) {
+        console.log(`Proxy set to: ${trimmedValue}`)
+      } else {
+        console.log('Proxy settings cleared')
+      }
+    } catch (error) {
+      console.error('Error saving proxy:', error)
+    }
+  }
   // Handle disabling of scan button when scan is aborting
   useEffect(() => {
     if (location.state && location.state.abortingScan) {
@@ -384,6 +425,50 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             appVersionLabel={getVersionLabel(appVersionInfo.appVersion)}
             isLabMode={isLabMode}
             setIsLabMode={(bool) => editUserData({ isLabMode: bool })}
+          />
+        )}
+        {showProxyModal && (
+          <Modal
+            id="proxy-config-modal"
+            showHeader={true}
+            showModal={showProxyModal}
+            setShowModal={setShowProxyModal}
+            modalTitle={'Configure Proxy Settings'}
+            modalSizeClass="modal-dialog-centered"
+            modalBody={
+              <>
+                <div className="user-form">
+                  <form id="proxy-form" onSubmit={handleProxySubmit}>
+                    <div className="user-form-field">
+                      <label className="user-form-label" htmlFor="proxy-input">
+                        ALL_PROXY Value
+                      </label>
+                      <input
+                        type="text"
+                        id="proxy-input"
+                        className="user-form-input"
+                        placeholder="http://proxy.example.com:8080"
+                        value={proxyValue}
+                        onChange={(e) => setProxyValue(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                  </form>
+                </div>
+                <p>
+                  Leave empty to clear proxy settings. This will be used for all scans.
+                </p>
+              </>
+            }
+            modalFooter={
+              <button
+                type="submit"
+                form="proxy-form"
+                className="btn-primary modal-button"
+              >
+                Save
+              </button>
+            }
           />
         )}
         <div id="home-page-footer">
