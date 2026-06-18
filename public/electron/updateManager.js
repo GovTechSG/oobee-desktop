@@ -84,7 +84,27 @@ const execCommand = async (command) => {
 const execCommandElevated = async (command) => {
   const escapedCommand = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const osaCommand = `osascript -e 'do shell script "${escapedCommand}" with administrator privileges'`;
-  return execCommand(osaCommand);
+  
+  return new Promise((resolve, reject) => {
+    const process = exec(osaCommand, { cwd: appPath }, (err, stdout, stderr) => {
+      if (err) {
+        consoleLogger.error("Elevated command failed:", command);
+        consoleLogger.error("Error:", err.message);
+        if (stderr) consoleLogger.error("Stderr:", stderr.toString());
+        
+        // Check if user cancelled the authentication prompt
+        if (err.message.includes('User canceled') || err.message.includes('-128')) {
+          consoleLogger.warn("User cancelled administrator authentication");
+        }
+        
+        reject(err);
+      } else {
+        consoleLogger.info("Elevated command completed successfully");
+        resolve(stdout);
+      }
+    });
+    currentChildProcess = process;
+  });
 };
 
 // get hash value of prepackage zip
@@ -205,22 +225,43 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
 
   const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip'`;
 
-  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/Oobee Old.app' && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/Oobee Old.app' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
+  // Use a temporary name that won't trigger macOS security warnings
+  const tempAppName = `.Oobee.tmp.${Date.now()}.app`;
+  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}' && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
 
   await execCommand(downloadCommand);
 
+  // Check if we need elevated privileges to update the app
   let needsElevation = false;
-  try {
-    fs.accessSync(parentDir, fs.constants.W_OK);
-    fs.accessSync(macOSExecutablePath, fs.constants.W_OK);
-  } catch (e) {
-    needsElevation = true;
+  const checkPaths = [
+    { path: parentDir, desc: 'parent directory' },
+    { path: macOSExecutablePath, desc: 'app bundle' }
+  ];
+
+  for (const item of checkPaths) {
+    try {
+      fs.accessSync(item.path, fs.constants.W_OK);
+      consoleLogger.info(`✓ ${item.desc} is writable: ${item.path}`);
+    } catch (e) {
+      consoleLogger.warn(`✗ ${item.desc} is NOT writable: ${item.path}`);
+      needsElevation = true;
+    }
   }
 
   if (needsElevation) {
-    consoleLogger.info("Elevating privileges for app update");
-    await execCommandElevated(installCommand);
+    consoleLogger.info("=== Admin privileges required for app update ===");
+    consoleLogger.info("The app is installed in a location that requires administrator access.");
+    consoleLogger.info("A macOS authentication dialog will appear - please enter your admin credentials.");
+    
+    try {
+      await execCommandElevated(installCommand);
+      consoleLogger.info("Update completed successfully with elevated privileges");
+    } catch (err) {
+      consoleLogger.error("Failed to update with elevated privileges");
+      throw err;
+    }
   } else {
+    consoleLogger.info("Installing update without elevation (directory is writable)");
     await execCommand(installCommand);
   }
 };
