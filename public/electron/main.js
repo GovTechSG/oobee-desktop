@@ -39,6 +39,7 @@ const constants = require('./constants')
 const scanManager = require('./scanManager')
 const updateManager = require('./updateManager')
 const userDataManager = require('./userDataManager.js')
+const { consoleLogger } = require('./logs')
 const { marked } = require('marked')
 marked.use({
   renderer: {
@@ -216,8 +217,23 @@ app.on('ready', async () => {
   })
 
   updateEvent.on('restartTriggered', () => {
-    app.relaunch()
-    app.exit()
+    // Explicitly specify the path to relaunch to ensure we launch the NEW updated app
+    // This is critical when the app is installed in non-standard locations like Downloads
+    const execPath = constants.macOSExecutablePath;
+    consoleLogger.info(`Relaunching app from: ${execPath}`);
+    
+    // Use macOS 'open' command to relaunch the .app bundle
+    // This is more reliable than app.relaunch() after the binary has been replaced
+    const { spawn } = require('child_process');
+    spawn('open', ['-n', execPath], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    
+    // Give the spawn command time to execute before exiting
+    setTimeout(() => {
+      app.exit();
+    }, 500);
   })
 
   updateEvent.on('frontendDownloadFailed', () => {
