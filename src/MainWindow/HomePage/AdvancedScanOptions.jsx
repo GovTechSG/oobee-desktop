@@ -256,6 +256,30 @@ const AdvancedScanOptions = ({
               </div>
             )}
 
+          {!isFileOptionChecked &&
+            (advancedOptions.scanType === 'Intelligent crawler' ||
+              advancedOptions.scanType === 'Website crawler') && (
+              <div
+                id="follow-robots-toggle-group"
+                class="advanced-options-toggle-group"
+              >
+                <input
+                  type="checkbox"
+                  id="follow-robots-toggle"
+                  class="advanced-options-toggle"
+                  aria-describedby="follow-robots-tooltip"
+                  checked={advancedOptions.followRobots}
+                  onChange={handleSetAdvancedOption(
+                    'followRobots',
+                    (e) => e.target.checked
+                  )}
+                />
+                <label htmlFor="follow-robots-toggle">
+                  Adhere to robots.txt
+                </label>
+              </div>
+            )}
+
           {/* START: Custom Checks */}
           <div
             id="custom-checks-toggle-group"

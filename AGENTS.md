@@ -60,7 +60,7 @@ From `src/common/constants.js`:
 | File Type dropdown | Show | Show | Show | Hide | Show |
 | Allow subdomains for scans | Show | Hide | Show | Hide | Hide |
 | Slow Scan Mode | Show | Show | Show | Hide | Hide |
-| Adhere to robots.txt | Hide (removed) | Hide (removed) | Hide (removed) | Hide (removed) | Hide (removed) |
+| Adhere to robots.txt | Show | Hide | Show | Hide | Hide |
 
 ---
 
