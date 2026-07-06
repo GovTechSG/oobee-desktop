@@ -14,7 +14,7 @@ To install the **user-friendly desktop application** for Oobee, you may continue
 * Google Chrome browser is [installed](https://www.google.com/chrome).
 * One-time Internet access is needed to download and install Oobee.
 * You are recommended to be logged on to an admin user to run Oobee.
-* Note that Apple has discontinued support for developing Intel-based apps in [future macOS versions](https://support.apple.com/en-us/102527).  Oobee will discontinue supporting on Intel-based Mac when that happens.
+* Note that Apple has discontinued support for developing Intel-based apps in [future macOS versions](https://support.apple.com/en-us/102527).  Oobee will discontinue support on Intel-based Mac when that happens.
 
 ## Windows
 
