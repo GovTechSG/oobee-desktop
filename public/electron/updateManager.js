@@ -5,6 +5,8 @@ const crypto = require("crypto");
 const { exec, spawn } = require("child_process");
 const {
   getFrontendVersion,
+  getEngineVersion,
+  appVersion,
   appPath,
   backendPath,
   resultsPath,
@@ -409,10 +411,31 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
       updaterEventEmitter.emit("restartTriggered");
     }
 
-    // If backend already exists, skip the entire backend setup process
-    // This handles the case where the app was updated and the new bundle doesn't have the prepackage
+    // If backend already exists, check whether the engine version matches the app version.
+    // If versions differ, the bundled prepackage is newer and we need to re-extract.
+    let backendNeedsSetup = !getBackendExists();
+
     if (getBackendExists()) {
-      consoleLogger.info("backend already exists, skipping backend setup");
+      try {
+        const engineVersion = getEngineVersion();
+        if (engineVersion && engineVersion !== appVersion) {
+          consoleLogger.info(
+            `Engine version (${engineVersion}) differs from app version (${appVersion}), re-extracting backend`
+          );
+          backendNeedsSetup = true;
+        } else {
+          consoleLogger.info(
+            `Engine version (${engineVersion}) matches app version (${appVersion}), skipping backend setup`
+          );
+        }
+      } catch (e) {
+        consoleLogger.warn("Unable to read engine version, re-extracting backend");
+        backendNeedsSetup = true;
+      }
+    }
+
+    if (!backendNeedsSetup) {
+      consoleLogger.info("backend already exists and is up to date, skipping backend setup");
     } else {
       const isPrepackageValid = await validateZipFile(macOSPrepackageBackend);
       const isDev = process.env.NODE_ENV === "dev";
@@ -421,27 +444,10 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
           "detected running from dev environment, will not validate/download prepackage"
         );
       } else if (isPrepackageValid) {
-      let skipUnzip = false;
-      if (getBackendExists() && fs.existsSync(hashPath)) {
-        consoleLogger.info("backend and hash path exists");
-        // compare zip file hash to determine whether to unzip
-        const currHash = await hashPrepackage(macOSPrepackageBackend);
-        const hash = fs.readFileSync(hashPath, "utf-8"); // stored hash
-
-        // compare
-        if (hash === currHash) {
-          consoleLogger.info("hash of prepackage and hash path is the same");
-          skipUnzip = true;
-        }
-      }
-
-      if (!skipUnzip) {
-        // expected to reach here when restart triggered on update
-        consoleLogger.info("proceeding to unzip backend prepackage");
-        updaterEventEmitter.emit("settingUp");
-        await unzipBackendAndCleanUp(macOSPrepackageBackend);
-        await hashAndSaveZip(macOSPrepackageBackend);
-      }
+      consoleLogger.info("proceeding to unzip backend prepackage");
+      updaterEventEmitter.emit("settingUp");
+      await unzipBackendAndCleanUp(macOSPrepackageBackend);
+      await hashAndSaveZip(macOSPrepackageBackend);
       } else {
         // unlikely scenario
         consoleLogger.info(
