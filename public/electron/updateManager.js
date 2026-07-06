@@ -444,27 +444,10 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
           "detected running from dev environment, will not validate/download prepackage"
         );
       } else if (isPrepackageValid) {
-      let skipUnzip = false;
-      if (getBackendExists() && fs.existsSync(hashPath)) {
-        consoleLogger.info("backend and hash path exists");
-        // compare zip file hash to determine whether to unzip
-        const currHash = await hashPrepackage(macOSPrepackageBackend);
-        const hash = fs.readFileSync(hashPath, "utf-8"); // stored hash
-
-        // compare
-        if (hash === currHash) {
-          consoleLogger.info("hash of prepackage and hash path is the same");
-          skipUnzip = true;
-        }
-      }
-
-      if (!skipUnzip) {
-        // expected to reach here when restart triggered on update
-        consoleLogger.info("proceeding to unzip backend prepackage");
-        updaterEventEmitter.emit("settingUp");
-        await unzipBackendAndCleanUp(macOSPrepackageBackend);
-        await hashAndSaveZip(macOSPrepackageBackend);
-      }
+      consoleLogger.info("proceeding to unzip backend prepackage");
+      updaterEventEmitter.emit("settingUp");
+      await unzipBackendAndCleanUp(macOSPrepackageBackend);
+      await hashAndSaveZip(macOSPrepackageBackend);
       } else {
         // unlikely scenario
         consoleLogger.info(
