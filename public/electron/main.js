@@ -29,6 +29,7 @@ const {
   shell,
   session,
   dialog,
+  powerMonitor,
 } = require('electron')
 const Sentry = require('@sentry/electron/main')
 const os = require('os')
@@ -253,6 +254,24 @@ app.on('ready', async () => {
   })
 
   createMainWindow()
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload()
+    }
+  })
+
+  powerMonitor.on('unlock-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.invalidate()
+    }
+  })
+
+  powerMonitor.on('resume', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.invalidate()
+    }
+  })
 
   const scanEvent = new EventEmitter()
   scanManager.init(scanEvent)

@@ -6,7 +6,6 @@ import crossCircleIcon from "../../assets/cross-circle.svg";
 import LoadingScanningStatus from "./LoadingScanningStatus";
 
 const ScanningComponent = ({ scanningMessage }) => {
-  const [scannedItems, setScannedItems] = useState([]);
   const [urlItems, setUrlItems] = useState([]);
   const [urlItemComponents, setUrlItemComponents] = useState([]);
   const [pagesScanned, setPagesScanned] = useState(0);
@@ -22,46 +21,53 @@ const ScanningComponent = ({ scanningMessage }) => {
   }, []);
 
   useEffect(() => {
-    if (!scanCompleted) {
-      window.services.scanningUrl((urlItem) => {
-        if (urlItem.status === "scanned") {
-          const currDisplayPageNum = urlItem.urlScannedNum;
-          setDisplayPageNum(currDisplayPageNum);
-          setPagesScanned(currDisplayPageNum);
-        } else {
-          setDisplayPageNum(pagesScanned);
-        }
+    window.services.scanningUrl((urlItem) => {
+      if (urlItem.status === "scanned") {
+        setDisplayPageNum(urlItem.urlScannedNum);
+        setPagesScanned(urlItem.urlScannedNum);
+      } else {
+        setPagesScanned((prev) => {
+          setDisplayPageNum(prev);
+          return prev;
+        });
+      }
 
-        const newUrlItems = [urlItem, ...urlItems].slice(0, 50);
-        setUrlItems(newUrlItems);
-
-        const newUrlItemComponents = [
-          ...newUrlItems.map((urlItem, index) => (
-            <UrlItemComponent key={index} index={index} urlItem={urlItem} />
-          )),
-        ];
-        setUrlItemComponents(newUrlItemComponents);
+      setUrlItems((prev) => {
+        const newUrlItems = [urlItem, ...prev].slice(0, 50);
+        setUrlItemComponents(
+          newUrlItems.map((item, index) => (
+            <UrlItemComponent key={index} index={index} urlItem={item} />
+          ))
+        );
+        return newUrlItems;
       });
+    });
 
-      window.services.scanningCompleted(() => {
-        setDisplayPageNum(pagesScanned);
-        const completedUrlItems = [
-          ...urlItems
-            .map((urlItem, index) => (
-              <UrlItemComponent
-                key={index}
-                index={index}
-                urlItem={urlItem}
-                scanCompleted={true}
-              />
-            ))
-            .slice(0, 50),
-        ];
-        setUrlItemComponents(completedUrlItems);
-        setScanCompleted(true);
+    window.services.scanningCompleted(() => {
+      setPagesScanned((prev) => {
+        setDisplayPageNum(prev);
+        return prev;
       });
-    }
-  });
+      setUrlItems((prev) => {
+        setUrlItemComponents(
+          prev.slice(0, 50).map((item, index) => (
+            <UrlItemComponent
+              key={index}
+              index={index}
+              urlItem={item}
+              scanCompleted={true}
+            />
+          ))
+        );
+        return prev;
+      });
+      setScanCompleted(true);
+    });
+
+    return () => {
+      window.services.removeAllScanListeners();
+    };
+  }, []);
 
   useEffect(() => {
     setDisplayPageWord(displayPageNum === 1 ? "page" : "pages");
