@@ -162,14 +162,7 @@ const getDataForForm = async () => {
 }
 
 const getFeedbackFormUrl = async () => {
-  const phEngineVersion = await window.services.getEngineVersion();
-
-  const mailtoAddress = `oobee@wogaa.gov.sg`;
-  const mailtoSubject = encodeURIComponent(`Support Request - Oobee Version ${phEngineVersion}`);
-  const mailtoBody = encodeURIComponent(`URL Scanned: ${currentScanUrl}\nVersion: ${phEngineVersion}`);
-  const feedbackEmail = `mailto:${mailtoAddress}?subject=${mailtoSubject}&body=${mailtoBody}`;
-
-  return feedbackEmail;
+  return 'https://go.gov.sg/contact-oobee';
 }
 
 const isValidEmail = (email) => {
