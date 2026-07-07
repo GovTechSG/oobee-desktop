@@ -50,7 +50,7 @@ const killChildProcess = () => {
     proc.kill('SIGTERM')
     setTimeout(() => {
       try { proc.kill('SIGKILL') } catch {}
-    }, 5000)
+    }, 120000)
   }
 }
 
@@ -487,7 +487,7 @@ const startScan = async (scanDetails, scanEvent) => {
         scan.kill('SIGTERM')
         setTimeout(() => {
           try { scan.kill('SIGKILL') } catch {}
-        }, 5000)
+        }, 120000)
         currentChildProcess = null
         killChildProcessSignal = false
         if (intermediateFolderName) {
