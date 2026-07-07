@@ -46,7 +46,11 @@ const sanitizeLogPath = (rawPath) => {
 
 const killChildProcess = () => {
   if (currentChildProcess) {
-    currentChildProcess.kill('SIGKILL')
+    const proc = currentChildProcess
+    proc.kill('SIGTERM')
+    setTimeout(() => {
+      try { proc.kill('SIGKILL') } catch {}
+    }, 5000)
   }
 }
 
@@ -480,7 +484,10 @@ const startScan = async (scanDetails, scanEvent) => {
     scan.stdout.setEncoding('utf8')
     scan.stdout.on('data', async (data) => {
       if (killChildProcessSignal) {
-        scan.kill('SIGKILL')
+        scan.kill('SIGTERM')
+        setTimeout(() => {
+          try { scan.kill('SIGKILL') } catch {}
+        }, 5000)
         currentChildProcess = null
         killChildProcessSignal = false
         if (intermediateFolderName) {
