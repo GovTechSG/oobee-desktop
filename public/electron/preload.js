@@ -82,24 +82,34 @@ contextBridge.exposeInMainWorld("services", {
     });
   },
   scanningUrl: (callback) => {
+    ipcRenderer.removeAllListeners("scanningUrl");
     ipcRenderer.on("scanningUrl", (event, data) => {
       callback(data);
     });
   },
   scanningCompleted: (callback) => {
+    ipcRenderer.removeAllListeners("scanningCompleted");
     ipcRenderer.on("scanningCompleted", () => {
       callback();
     });
   },
   generatingReport: (callback) => {
+    ipcRenderer.removeAllListeners("generatingReport");
     ipcRenderer.on("generatingReport", () => {
       callback();
     });
   },
   killScan: (callback) => {
+    ipcRenderer.removeAllListeners("killScan");
     ipcRenderer.on("killScan", () => {
       callback();
     });
+  },
+  removeAllScanListeners: () => {
+    ipcRenderer.removeAllListeners("scanningUrl");
+    ipcRenderer.removeAllListeners("scanningCompleted");
+    ipcRenderer.removeAllListeners("generatingReport");
+    ipcRenderer.removeAllListeners("killScan");
   },
   userDataExists: (callback) => {
     ipcRenderer.on("userDataExists", (event, data) => {
