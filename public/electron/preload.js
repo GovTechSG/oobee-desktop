@@ -13,13 +13,6 @@ contextBridge.exposeInMainWorld("services", {
     const chromeExists = await ipcRenderer.invoke("checkChromeExistsOnMac");
     return chromeExists;
   },
-  validateUrlConnectivity: async (scanDetails) => {
-    const results = await ipcRenderer.invoke(
-      "validateUrlConnectivity",
-      scanDetails
-    );
-    return results;
-  },
   startScan: async (scanDetails) => {
     const results = await ipcRenderer.invoke("startScan", scanDetails);
     return results;

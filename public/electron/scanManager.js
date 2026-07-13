@@ -160,110 +160,6 @@ const getScanOptions = (details) => {
   return options
 }
 
-const validateUrlConnectivity = async (scanDetails) => {
-  console.log('Validating URL...')
-
-  const userData = readUserDataFromFile()
-  if (userData) {
-    scanDetails.email = userData.email
-    scanDetails.name = userData.name
-    scanDetails.exportDir = userData.exportDir
-    const success = createExportDir(userData.exportDir)
-    if (!success) return { failedToCreateExportDir: true }
-  }
-
-  const response = await new Promise(async (resolve) => {
-    const check = spawn(
-      'node',
-      [
-        `--max-old-space-size=${getMaxOldSpaceSize()}`,
-        `${enginePath}/dist/cli.js`,
-        ...getScanOptions(scanDetails),
-      ],
-      {
-        cwd: resultsPath,
-        env: {
-          ...process.env,
-          OOBEE_VERBOSE: true,
-          OOBEE_VALIDATE_URL: true,
-          OOBEE_SENTRY_DSN: 'https://9f2001daae75a14b01e65a67eabfa404@o4509047624761344.ingest.us.sentry.io/4510751209160704',
-          PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
-          PATH: getPathVariable(),
-          ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
-        },
-      }
-    )
-
-    currentChildProcess = check
-
-    
-    check.stderr.setEncoding('utf8')
-    check.stderr.on('data', function (data) {
-      console.log('stderr: ' + data)
-    })
-
-    check.stdout.setEncoding('utf8')
-
-    check.stdout.on('data', async (data) => {
-
-      if (data.includes('"level":"info","message":"PID: ')) {
-        console.log(data);
-      }
-      
-      if (data.includes('Logger writing to:')) {
-        try {
-          const logData = JSON.parse(data);
-          const message = logData.message;
-          const prefix = "Logger writing to: ";
-          const index = message.indexOf(prefix);
-          if (index !== -1) {
-            process.env.OOBEE_ERROR_LOG_PATH = message.substring(index + prefix.length).trim();
-            console.log("Error log path set to:\n", process.env.OOBEE_ERROR_LOG_PATH);
-          }
-        } catch (error) {
-          console.error("Failed to parse log data as JSON:", error);
-        }
-      }
-
-      if (data.includes('An error occured. Log file is located at:')) {
-        const match = data.match(/An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/);
-        if (match && match[1]) {
-          process.env.OOBEE_ERROR_LOG_PATH = match[1];
-          console.log("Error log path changed to:\n", process.env.OOBEE_ERROR_LOG_PATH);
-        }
-        
-      }
-
-      if (data.includes('Url is valid')) {
-        resolve({ success: true })
-      }
-  
-    })
-
-    check.on('close', (code) => {
-      let validateErrorLog = "";
-      if (code !== 0) {
-        if (process.env.OOBEE_ERROR_LOG_PATH && fs.existsSync(process.env.OOBEE_ERROR_LOG_PATH)) {
-          validateErrorLog = fs.readFileSync(process.env.OOBEE_ERROR_LOG_PATH).toString();
-        } else {
-          console.log("Url validation log not available.")
-        }
-
-        // Treat no code as termination
-        if (!code) {
-          code = 145;
-        }
-
-        console.log(`Url validation process exited with code ${code}`);
-
-        resolve({ success: false, statusCode: code })
-      }
-      currentChildProcess = null
-    })
-  })
-
-  return response
-}
 
 const startScan = async (scanDetails, scanEvent) => {
   const userData = readUserDataFromFile()
@@ -292,6 +188,7 @@ const startScan = async (scanDetails, scanEvent) => {
     let finalResultsAbsolutePath = null
     let hasStoragePathFromIpc = false
     let noPagesScannedDetected = false
+    let httpResponseCode = null
     let stdoutRemainder = ''
 
     const resolveOnce = (result) => {
@@ -361,6 +258,13 @@ const startScan = async (scanDetails, scanEvent) => {
 
       if (trimmedLine.includes('"level":"info","message":"PID: ')) {
         console.log(trimmedLine)
+      }
+
+      if (trimmedLine.includes('Connectivity Check HTTP Response Code:')) {
+        const codeMatch = trimmedLine.match(/Connectivity Check HTTP Response Code:\s*(\d+)/)
+        if (codeMatch) {
+          httpResponseCode = parseInt(codeMatch[1])
+        }
       }
 
       if (trimmedLine.includes('Logger writing to:')) {
@@ -550,7 +454,7 @@ const startScan = async (scanDetails, scanEvent) => {
       }
 
       currentChildProcess = null
-      resolveOnce({ success: false, statusCode: code ?? 0 })
+      resolveOnce({ success: false, statusCode: code ?? 0, httpResponseCode })
     })
   })
 
@@ -732,10 +636,6 @@ const moveCustomFlowResultsToExportDir = (
 }
 
 const init = (scanEvent) => {
-  ipcMain.handle('validateUrlConnectivity', async (_event, scanDetails) => {
-    return await validateUrlConnectivity(scanDetails)
-  })
-
   ipcMain.handle('startScan', async (_event, scanDetails) => {
     return await startScan(scanDetails, scanEvent)
   })

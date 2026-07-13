@@ -59,7 +59,7 @@ export const getDefaultAdvancedOptions = () => {
 }
 
 // exit codes returned by Oobee cli when there is an error with the URL provided
-export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
 export const cliErrorTypes = {
   invalidUrl: 11,
   cannotBeResolved: 12,
@@ -81,9 +81,8 @@ export const urlCheckStatuses = {
   invalidUrl: { code: 11, message: 'Invalid URL. Please check and try again.' },
   cannotBeResolved: { code: 12, message: 'URL cannot be accessed. Please verify whether the website exists.' },
   errorStatusReceived: {
-    // unused for now
     code: 13,
-    message: 'Provided URL cannot be accessed. Server responded with code ', // append it with the response code received,
+    message: 'Provided URL cannot be accessed. Server responded with an error status code.',
   },
   systemError: { code: 14, message: 'Something went wrong when verifying the URL. Please try again in a few minutes. If this issue persists, please contact the Oobee team.'},
   notASitemap: { code: 15, message: 'Invalid sitemap URL format. Please enter a valid sitemap URL ending with .XML or .TXT e.g. https://www.example.com/sitemap.xml.' },
