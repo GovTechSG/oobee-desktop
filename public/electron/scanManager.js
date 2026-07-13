@@ -333,6 +333,7 @@ const startScan = async (scanDetails, scanEvent) => {
 
       if (trimmedLine.includes('Starting scan')) {
         console.log(trimmedLine)
+        scanEvent.emit('scanStarted')
       }
 
       parseAndEmitCrawlingLines(trimmedLine)

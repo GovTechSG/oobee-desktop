@@ -260,17 +260,22 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
     window.localStorage.setItem('scanDetails', JSON.stringify(scanDetails))
 
-    navigate('/scanning', {
-      state: { url: urlWithoutAuth(scanDetails.scanUrl).toString() },
+    let hasNavigatedToScanning = false
+    window.services.scanStarted(() => {
+      hasNavigatedToScanning = true
+      navigate('/scanning', {
+        state: { url: urlWithoutAuth(scanDetails.scanUrl).toString() },
+      })
     })
+
     const scanResponse = await services.startScan(scanDetails)
 
     if (scanResponse.cancelled) {
+      setScanButtonIsClicked(false)
       return
     }
 
     if (scanResponse.failedToCreateExportDir) {
-      navigate('/')
       setScanButtonIsClicked(false)
       setPrevUrlErrorMessage('Unable to create download directory')
       return
@@ -294,7 +299,6 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         return
       }
 
-      navigate('/')
       setScanButtonIsClicked(false)
       const match = Object.values(urlCheckStatuses).find(
         (s) => s.code === scanResponse.statusCode
@@ -308,16 +312,14 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       return
     }
 
-    if (scanResponse.statusCode) {
-      console.error(
-        `unexpected status error: (code ${scanResponse.statusCode})`,
-        scanResponse.message
-      )
+    if (hasNavigatedToScanning) {
+      navigate('/error', {
+        state: { errorState: errorStates.noPagesScannedError, timeOfScan },
+      })
+    } else {
+      setScanButtonIsClicked(false)
+      setPrevUrlErrorMessage('Something went wrong. Please try again later.')
     }
-
-    navigate('/error', {
-      state: { errorState: errorStates.noPagesScannedError, timeOfScan },
-    })
   }
 
   const areUserDetailsSet = name !== '' && email !== ''

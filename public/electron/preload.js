@@ -74,6 +74,12 @@ contextBridge.exposeInMainWorld("services", {
       callback(data);
     });
   },
+  scanStarted: (callback) => {
+    ipcRenderer.removeAllListeners("scanStarted");
+    ipcRenderer.on("scanStarted", () => {
+      callback();
+    });
+  },
   scanningUrl: (callback) => {
     ipcRenderer.removeAllListeners("scanningUrl");
     ipcRenderer.on("scanningUrl", (event, data) => {
