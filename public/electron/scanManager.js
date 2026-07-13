@@ -389,10 +389,10 @@ const startScan = async (scanDetails, scanEvent) => {
     scan.stdout.setEncoding('utf8')
     scan.stdout.on('data', async (data) => {
       if (killChildProcessSignal) {
-        scan.kill('SIGTERM')
+        scan.kill('SIGINT')
         setTimeout(() => {
           try { scan.kill('SIGKILL') } catch {}
-        }, 120000)
+        }, 180000)
         currentChildProcess = null
         killChildProcessSignal = false
         if (intermediateFolderName) {
