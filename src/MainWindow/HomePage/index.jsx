@@ -260,68 +260,65 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
     window.localStorage.setItem('scanDetails', JSON.stringify(scanDetails))
 
-    const checkUrlResponse = await services.validateUrlConnectivity(scanDetails)
-    if (checkUrlResponse.success) {
+    let hasNavigatedToScanning = false
+    window.services.scanStarted(() => {
+      hasNavigatedToScanning = true
       navigate('/scanning', {
         state: { url: urlWithoutAuth(scanDetails.scanUrl).toString() },
       })
-      const scanResponse = await services.startScan(scanDetails)
+    })
 
-      if (scanResponse.cancelled) {
-        return
-      }
+    const scanResponse = await services.startScan(scanDetails)
 
-      if (scanResponse.failedToCreateExportDir) {
-        setPrevUrlErrorMessage('Unable to create download directory')
-        return
-      }
+    if (scanResponse.cancelled) {
+      setScanButtonIsClicked(false)
+      return
+    }
 
-      if (scanResponse.success) {
-        setCompletedScanId(scanResponse.scanId)
-        if (scanDetails.scanType === 'Custom flow') {
-          navigate('/custom_flow', { state: { scanDetails } })
-        } else {
-          navigate('/result')
-        }
-        return
+    if (scanResponse.failedToCreateExportDir) {
+      setScanButtonIsClicked(false)
+      setPrevUrlErrorMessage('Unable to create download directory')
+      return
+    }
+
+    if (scanResponse.success) {
+      setCompletedScanId(scanResponse.scanId)
+      if (scanDetails.scanType === 'Custom flow') {
+        navigate('/custom_flow', { state: { scanDetails } })
       } else {
-        /* When no pages were scanned (e.g. out of domain upon redirects when valid URL was entered),
-                redirects user to error page to going to result page with empty result */
+        navigate('/result')
+      }
+      return
+    }
+
+    if (cliErrorCodes.has(scanResponse.statusCode)) {
+      if (scanResponse.statusCode === cliErrorTypes.browserError) {
         navigate('/error', {
-          state: { errorState: errorStates.noPagesScannedError, timeOfScan },
+          state: { errorState: errorStates.browserError, timeOfScan },
         })
         return
       }
+
+      setScanButtonIsClicked(false)
+      const match = Object.values(urlCheckStatuses).find(
+        (s) => s.code === scanResponse.statusCode
+      )
+      let msg = match && 'message' in match ? match.message : 'Something went wrong. Please try again later.'
+      if (scanResponse.httpResponseCode) {
+        msg += ` (HTTP ${scanResponse.httpResponseCode})`
+      }
+      console.log(msg)
+      setPrevUrlErrorMessage(msg)
+      return
+    }
+
+    if (hasNavigatedToScanning) {
+      navigate('/error', {
+        state: { errorState: errorStates.noPagesScannedError, timeOfScan },
+      })
     } else {
       setScanButtonIsClicked(false)
-      if (checkUrlResponse.failedToCreateExportDir) {
-        setPrevUrlErrorMessage('Unable to create download directory')
-        return
-      }
-
-      if (cliErrorCodes.has(checkUrlResponse.statusCode)) {
-        if (checkUrlResponse.statusCode === cliErrorTypes.browserError) {
-          navigate('/error', {
-            state: { errorState: errorStates.browserError, timeOfScan },
-          })
-          return
-        }
-
-        // Use messages from urlCheckStatuses when available
-        const statuses = urlCheckStatuses
-        const match = Object.values(statuses).find(
-          (s) => s.code === checkUrlResponse.statusCode
-        )
-        const msg = match && 'message' in match ? match.message : 'Something went wrong.  Please try again later.'
-        console.log(msg)
-        setPrevUrlErrorMessage(msg)
-        return
-      } else if (checkUrlResponse.statusCode) {
-        console.error(
-          `unexpected status error: (code ${checkUrlResponse.statusCode})`,
-          checkUrlResponse.message
-        )
-      }
+      setPrevUrlErrorMessage('Something went wrong. Please try again later.')
     }
   }
 

@@ -13,13 +13,6 @@ contextBridge.exposeInMainWorld("services", {
     const chromeExists = await ipcRenderer.invoke("checkChromeExistsOnMac");
     return chromeExists;
   },
-  validateUrlConnectivity: async (scanDetails) => {
-    const results = await ipcRenderer.invoke(
-      "validateUrlConnectivity",
-      scanDetails
-    );
-    return results;
-  },
   startScan: async (scanDetails) => {
     const results = await ipcRenderer.invoke("startScan", scanDetails);
     return results;
@@ -79,6 +72,12 @@ contextBridge.exposeInMainWorld("services", {
   launchStatus: (callback) => {
     ipcRenderer.on("launchStatus", (event, data) => {
       callback(data);
+    });
+  },
+  scanStarted: (callback) => {
+    ipcRenderer.removeAllListeners("scanStarted");
+    ipcRenderer.on("scanStarted", () => {
+      callback();
     });
   },
   scanningUrl: (callback) => {

@@ -294,6 +294,10 @@ app.on('ready', async () => {
     mainWindow.webContents.send('generatingReport')
   })
 
+  scanEvent.on('scanStarted', () => {
+    mainWindow.webContents.send('scanStarted')
+  })
+
   scanEvent.on('killScan', () => {
     mainWindow.webContents.send('killScan')
   })
