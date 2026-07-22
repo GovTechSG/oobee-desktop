@@ -350,6 +350,7 @@ const startScan = async (scanDetails, scanEvent) => {
           ...process.env,
           OOBEE_VERBOSE: '1',
           OOBEE_FAST_CRAWLER: '1',
+          GOOGLE_SAFE_BROWSING: '1',
           OOBEE_SENTRY_DSN: 'https://9f2001daae75a14b01e65a67eabfa404@o4509047624761344.ingest.us.sentry.io/4510751209160704',
           CRAWLEE_SYSTEM_INFO_V2: '1',
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
