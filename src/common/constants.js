@@ -74,6 +74,7 @@ export const cliErrorTypes = {
   notAPdf: 20,
   terminated: 145,
   terminationRequested: 15,
+  blockedByClient: 24,
 }
 
 export const urlCheckStatuses = {
@@ -99,6 +100,11 @@ export const urlCheckStatuses = {
   notASupportedDocument: { code: 21, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
   connectionRefused: { code: 22, message: 'Connection refused. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
   timedOut: { code: 23, message: 'Request timed out. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+  blockedByClient: {
+    code: 24,
+    message:
+      'Something went wrong when verifying the URL. If this issue persists, please contact the Oobee team.',
+  },
 };
 
 export const errorStates = {
