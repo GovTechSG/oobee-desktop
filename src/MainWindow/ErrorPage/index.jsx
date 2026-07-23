@@ -46,10 +46,12 @@ const ErrorPage = () => {
 
   }
 
-  const copyErrorLog=() => {
-    navigator.clipboard.writeText(errorLog).then(() => {
-      alert("Copied the text: " + errorLog.slice(0, 10000));
-    });  
+  const copyErrorLog = async () => {
+    await navigator.clipboard.writeText(errorLog);
+    const result = await window.services.openErrorLog();
+    if (!result?.success) {
+      alert("Error log copied to clipboard.");
+    }
   }
 
   return (

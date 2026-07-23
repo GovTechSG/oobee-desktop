@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld("services", {
     );
     return errorLog;
   },
+  openErrorLog: async () => {
+    return await ipcRenderer.invoke("openErrorLog");
+  },
   editUserData: async (userData) => {
     ipcRenderer.send("editUserData", userData);
   },

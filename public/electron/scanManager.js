@@ -753,6 +753,18 @@ const init = (scanEvent) => {
     }
   )
 
+  ipcMain.handle('openErrorLog', async () => {
+    const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt')
+    if (!fs.existsSync(errorLogPath)) {
+      return { success: false, reason: 'not-found' }
+    }
+    const openPathError = await shell.openPath(errorLogPath)
+    if (openPathError) {
+      shell.showItemInFolder(errorLogPath)
+    }
+    return { success: true }
+  })
+
   ipcMain.handle('mailReport', (_event, formDetails, scanId) => {
     return mailResults(formDetails, scanId)
   })
