@@ -24,7 +24,7 @@ const {
   getDefaultEdgeDataDir,
   uploadFolderName,
 } = require('./constants')
-const { readUserDataFromFile, createExportDir, getProxySettings } = require('./userDataManager')
+const { readUserDataFromFile, createExportDir, getProxySettings, getIncludeProxy } = require('./userDataManager')
 const scanHistory = {}
 
 let currentChildProcess
@@ -356,6 +356,7 @@ const startScan = async (scanDetails, scanEvent) => {
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
           ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
+          ...(getIncludeProxy() && { INCLUDE_PROXY: getIncludeProxy() }),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }

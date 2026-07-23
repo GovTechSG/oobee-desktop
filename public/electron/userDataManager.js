@@ -35,6 +35,18 @@ const setProxySettings = (proxyValue) => {
     return { success: true };
 }
 
+const getIncludeProxy = () => {
+    const userData = readUserDataFromFile();
+    return userData.includeProxy || '';
+}
+
+const setIncludeProxy = (includeProxyValue) => {
+    const userData = readUserDataFromFile();
+    userData.includeProxy = includeProxyValue || '';
+    fs.writeFileSync(userDataFilePath, JSON.stringify(userData));
+    return { success: true };
+}
+
 const writeUserDetailsToFile = (data) => {
     const userData = readUserDataFromFile();
     const updatedData = { ...userData, ...data };
@@ -151,4 +163,6 @@ module.exports = {
     createExportDir,
     getProxySettings,
     setProxySettings,
+    getIncludeProxy,
+    setIncludeProxy,
 }
