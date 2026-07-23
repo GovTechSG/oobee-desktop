@@ -31,7 +31,7 @@
     "package": "electron-forge package",
     "make": "react-scripts build && electron-forge make",
     "make-mac": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && react-scripts build && electron-forge make --arch=universal --platform darwin",
-    "make-mac-arm64-only": "rm -rf ./out && [ -f /tmp/oobee-portable-mac.zip ] || curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && react-scripts build && electron-forge make --arch=arm64 --platform darwin",
+    "make-mac-arm64-only": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && react-scripts build && electron-forge make --arch=arm64 --platform darwin",
     "make-win": "react-scripts build && electron-forge make --arch=x64 --platform win32"
   },
   "config": {

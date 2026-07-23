@@ -83,29 +83,67 @@ const execCommand = async (command) => {
   return await execution;
 };
 
-const execCommandElevated = async (command) => {
-  const escapedCommand = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const osaCommand = `osascript -e 'do shell script "${escapedCommand}" with administrator privileges'`;
-  
+// Rejects on non-zero exit so callers can detect failure (unlike execCommand).
+const execCommandStrict = async (command) => {
+  const options = { cwd: appPath };
   return new Promise((resolve, reject) => {
-    const process = exec(osaCommand, { cwd: appPath }, (err, stdout, stderr) => {
+    const process = exec(command, options, (err, stdout, stderr) => {
+      currentChildProcess = null;
       if (err) {
-        consoleLogger.error("Elevated command failed:", command);
-        consoleLogger.error("Error:", err.message);
-        if (stderr) consoleLogger.error("Stderr:", stderr.toString());
-        
-        // Check if user cancelled the authentication prompt
-        if (err.message.includes('User canceled') || err.message.includes('-128')) {
-          consoleLogger.warn("User cancelled administrator authentication");
-        }
-        
-        reject(err);
-      } else {
-        consoleLogger.info("Elevated command completed successfully");
-        resolve(stdout);
+        if (stderr) silentLogger.error(stderr.toString());
+        return reject(err);
       }
+      resolve(stdout);
     });
     currentChildProcess = process;
+  });
+};
+
+// Runs a shell command with macOS admin privileges via osascript, triggering the
+// native username/password prompt (which Admin By Request intercepts).
+//
+// Uses spawn with an argv array so the AppleScript expression is passed as a
+// single argument — no outer bash quoting. That matters because our install
+// command contains single-quoted paths ('/Applications/Oobee.app'), which cannot
+// be nested inside bash `-e '...'` single quotes. The previous implementation
+// wrapped with sh -c "osascript -e '...single-quoted paths...'", which bash
+// silently mis-parsed, so osascript received a scrambled script and no admin
+// prompt ever appeared.
+const execCommandElevated = async (command) => {
+  // Escape for AppleScript's "..." string literal. Single quotes need no
+  // escaping since the surrounding delimiters are double quotes.
+  const appleScriptEscaped = command
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+  const appleScript = `do shell script "${appleScriptEscaped}" with administrator privileges`;
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn("osascript", ["-e", appleScript], { cwd: appPath });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); });
+    proc.on("error", (err) => {
+      currentChildProcess = null;
+      consoleLogger.error("Failed to spawn osascript:", err.message);
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      currentChildProcess = null;
+      if (code === 0) {
+        consoleLogger.info("Elevated command completed successfully");
+        return resolve(stdout);
+      }
+      const errMsg = (stderr || `osascript exited ${code}`).trim();
+      consoleLogger.error("Elevated command failed:", command);
+      consoleLogger.error("osascript stderr:", errMsg);
+      // User cancel: AppleScript returns error -128 on the admin prompt.
+      if (errMsg.includes("-128") || errMsg.includes("User canceled")) {
+        consoleLogger.warn("User cancelled administrator authentication");
+      }
+      reject(new Error(errMsg));
+    });
+    currentChildProcess = proc;
   });
 };
 
@@ -233,38 +271,55 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
 
   await execCommand(downloadCommand);
 
-  // Check if we need elevated privileges to update the app
-  let needsElevation = false;
-  const checkPaths = [
-    { path: parentDir, desc: 'parent directory' },
-    { path: macOSExecutablePath, desc: 'app bundle' }
-  ];
-
-  for (const item of checkPaths) {
-    try {
-      fs.accessSync(item.path, fs.constants.W_OK);
-      consoleLogger.info(`✓ ${item.desc} is writable: ${item.path}`);
-    } catch (e) {
-      consoleLogger.warn(`✗ ${item.desc} is NOT writable: ${item.path}`);
-      needsElevation = true;
-    }
+  // Try unprivileged first. If it fails for any reason (POSIX denial, MDM/Admin
+  // By Request policy, SIP, etc.), fall back to the elevated path which triggers
+  // the native macOS username/password prompt — the same prompt Admin By Request
+  // intercepts to run its approval workflow.
+  let installed = false;
+  try {
+    consoleLogger.info("Attempting install without elevation");
+    await execCommandStrict(installCommand);
+    installed = true;
+    consoleLogger.info("Install completed without elevation");
+  } catch (err) {
+    consoleLogger.warn(`Unprivileged install failed: ${err.message}. Falling back to elevated install.`);
   }
 
-  if (needsElevation) {
+  if (!installed) {
     consoleLogger.info("=== Admin privileges required for app update ===");
-    consoleLogger.info("The app is installed in a location that requires administrator access.");
     consoleLogger.info("A macOS authentication dialog will appear - please enter your admin credentials.");
-    
+    await execCommandElevated(installCommand);
+    consoleLogger.info("Elevated install completed");
+  }
+
+  // Verify the new bundle is actually in place AND is the expected version
+  // before the caller treats this as success. Without this, a silent failure
+  // (swallowed error, cancelled auth prompt, MDM block returning 0, or a stale
+  // bundle left behind at the same path) would restart on the old version.
+  if (!fs.existsSync(macOSExecutablePath)) {
+    throw new Error(`Update verification failed: ${macOSExecutablePath} not found after install`);
+  }
+
+  if (tag) {
+    const plistPath = path.join(macOSExecutablePath, "Contents", "Info.plist");
+    let installedVersion;
     try {
-      await execCommandElevated(installCommand);
-      consoleLogger.info("Update completed successfully with elevated privileges");
-    } catch (err) {
-      consoleLogger.error("Failed to update with elevated privileges");
-      throw err;
+      installedVersion = execSync(
+        `plutil -extract CFBundleShortVersionString raw -o - '${plistPath}'`,
+        { encoding: "utf8" }
+      ).trim();
+    } catch (e) {
+      throw new Error(`Update verification failed: unable to read version from ${plistPath}: ${e.message}`);
     }
-  } else {
-    consoleLogger.info("Installing update without elevation (directory is writable)");
-    await execCommand(installCommand);
+
+    // `tag` may be prefixed with "v" (e.g. "v0.11.2"); Info.plist stores the bare version.
+    const expected = tag.replace(/^v/, "");
+    if (installedVersion !== expected) {
+      throw new Error(
+        `Update verification failed: expected version ${expected} but installed bundle reports ${installedVersion}`
+      );
+    }
+    consoleLogger.info(`Install verified: ${macOSExecutablePath} is version ${installedVersion}`);
   }
 };
 
@@ -444,18 +499,19 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
           "detected running from dev environment, will not validate/download prepackage"
         );
       } else if (isPrepackageValid) {
-      consoleLogger.info("proceeding to unzip backend prepackage");
-      updaterEventEmitter.emit("settingUp");
-      await unzipBackendAndCleanUp(macOSPrepackageBackend);
-      await hashAndSaveZip(macOSPrepackageBackend);
-      } else {
-        // unlikely scenario
-        consoleLogger.info(
-          "prepackage zip is invalid. proceed to download from backend."
-        );
-        await downloadBackend(getFrontendVersion(), macOSPrepackageBackend);
+        consoleLogger.info("proceeding to unzip backend prepackage");
+        updaterEventEmitter.emit("settingUp");
         await unzipBackendAndCleanUp(macOSPrepackageBackend);
         await hashAndSaveZip(macOSPrepackageBackend);
+      } else {
+        // The prepackage lives inside the signed .app bundle at
+        // Contents/Resources/oobee-portable-mac.zip. If it's invalid, this is a
+        // build/install failure — do NOT curl a replacement into it: that path is
+        // sealed by the code signature, and any write there breaks the signature
+        // and makes macOS refuse to launch the app ("Oobee.app is damaged").
+        consoleLogger.error(
+          `Bundled backend prepackage invalid at ${macOSPrepackageBackend}; skipping (would corrupt signed bundle if overwritten).`
+        );
       }
     }
 
