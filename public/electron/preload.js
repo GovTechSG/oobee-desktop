@@ -148,4 +148,6 @@ contextBridge.exposeInMainWorld("services", {
     getIsWindows: async () => ipcRenderer.invoke("isWindows"),
     getProxySettings: async () => ipcRenderer.invoke("getProxySettings"),
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),
+    getIncludeProxy: async () => ipcRenderer.invoke("getIncludeProxy"),
+    setIncludeProxy: async (includeProxyValue) => ipcRenderer.invoke("setIncludeProxy", includeProxyValue),
   });

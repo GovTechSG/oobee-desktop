@@ -343,6 +343,14 @@ app.on('ready', async () => {
     return userDataManager.setProxySettings(proxyValue)
   })
 
+  ipcMain.handle('getIncludeProxy', () => {
+    return userDataManager.getIncludeProxy()
+  })
+
+  ipcMain.handle('setIncludeProxy', (_event, includeProxyValue) => {
+    return userDataManager.setIncludeProxy(includeProxyValue)
+  })
+
   await mainReady
 
   mainWindow.webContents.send('appStatus', 'ready')

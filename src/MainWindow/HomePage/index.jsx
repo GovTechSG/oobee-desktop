@@ -41,6 +41,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   const [showAboutPhModal, setShowAboutPhModal] = useState(false)
   const [showProxyModal, setShowProxyModal] = useState(false)
   const [proxyValue, setProxyValue] = useState('')
+  const [includeProxyValue, setIncludeProxyValue] = useState('')
   const [url, setUrl] = useState('')
   const [scanButtonIsClicked, setScanButtonIsClicked] = useState(false)
   const [isAbortingScan, setIsAbortingScan] = useState(false)
@@ -56,7 +57,9 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         
         try {
           const currentProxy = await window.services.getProxySettings()
+          const currentIncludeProxy = await window.services.getIncludeProxy()
           setProxyValue(currentProxy || '')
+          setIncludeProxyValue(currentIncludeProxy || '')
           setShowProxyModal(true)
         } catch (error) {
           console.error('Proxy shortcut error:', error)
@@ -72,7 +75,9 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
     e.preventDefault()
     try {
       const trimmedValue = proxyValue.trim()
+      const trimmedIncludeProxy = includeProxyValue.trim()
       await window.services.setProxySettings(trimmedValue)
+      await window.services.setIncludeProxy(trimmedIncludeProxy)
       setShowProxyModal(false)
       
       // Optional: Show confirmation
@@ -444,10 +449,22 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                         type="text"
                         id="proxy-input"
                         className="user-form-input"
-                        placeholder="http://proxy.example.com:8080"
+                        placeholder="socks5://localhost:1080"
                         value={proxyValue}
                         onChange={(e) => setProxyValue(e.target.value)}
                         autoFocus
+                      />
+                    </div>
+                    <div className="user-form-field">
+                      <label className="user-form-label" htmlFor="include-proxy-input">
+                        INCLUDE_PROXY Value (optional)
+                      </label>
+                      <input
+                        type="text"
+                        id="include-proxy-input"
+                        className="user-form-input"
+                        value={includeProxyValue}
+                        onChange={(e) => setIncludeProxyValue(e.target.value)}
                       />
                     </div>
                   </form>
