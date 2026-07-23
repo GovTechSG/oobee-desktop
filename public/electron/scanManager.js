@@ -29,9 +29,15 @@ const scanHistory = {}
 
 let currentChildProcess
 let killChildProcessSignal = false
+let pendingCancelHandler = null
 
 let setKillChildProcessSignal = () => {
   killChildProcessSignal = true
+  if (pendingCancelHandler) {
+    const handler = pendingCancelHandler
+    pendingCancelHandler = null
+    handler()
+  }
 }
 
 const sanitizeLogPath = (rawPath) => {
@@ -194,7 +200,25 @@ const startScan = async (scanDetails, scanEvent) => {
     const resolveOnce = (result) => {
       if (hasResolved) return
       hasResolved = true
+      pendingCancelHandler = null
       resolve(result)
+    }
+
+    const performCancel = async () => {
+      const proc = currentChildProcess
+      if (proc) {
+        try { proc.kill('SIGINT') } catch {}
+        setTimeout(() => {
+          try { proc.kill('SIGKILL') } catch {}
+        }, 10 * 60 * 1000)
+      }
+      currentChildProcess = null
+      killChildProcessSignal = false
+      if (intermediateFolderName) {
+        try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+      }
+      resolveOnce({ cancelled: true })
+      scanEvent.emit('killScan')
     }
 
     const hasGeneratedReportHtml = () => {
@@ -382,6 +406,7 @@ const startScan = async (scanDetails, scanEvent) => {
     })
 
     currentChildProcess = scan
+    pendingCancelHandler = performCancel
 
     scan.stderr.setEncoding('utf8')
     scan.stderr.on('data', function (data) {
