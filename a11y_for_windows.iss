@@ -1,13 +1,13 @@
 ; --- Setup ---
 [Setup]
 AppId={{cc9a344d-66b1-4f2d-844e-0b939cf31959}
-AppName=Oobee Desktop
+AppName=A11y Assist Desktop
 AppVersion=0.10.0
-AppVerName=Oobee Desktop
+AppVerName=A11y Assist Desktop
 AppPublisher=GovTech
-AppPublisherURL=https://github.com/GovTechSG/oobee-desktop
-AppSupportURL=https://github.com/GovTechSG/oobee-desktop
-AppUpdatesURL=https://github.com/GovTechSG/oobee-desktop
+AppPublisherURL=https://github.com/GovTechSG/a11y-assist-desktop
+AppSupportURL=https://github.com/GovTechSG/a11y-assist-desktop
+AppUpdatesURL=https://github.com/GovTechSG/a11y-assist-desktop
 
 ; Never force UAC; Program Files only if launched elevated
 PrivilegesRequired=lowest
@@ -29,14 +29,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 ; --- Files (use \\?\ for long-path-safe copy) ---
 [Files]
-Source: "Oobee-win32-x64\*"; DestDir: "\\?\{app}\Oobee Frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "D:\a\Oobee Backend\*"; DestDir: "\\?\{app}\Oobee Backend"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "A11y Assist-win32-x64\*"; DestDir: "\\?\{app}\A11y Assist Frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "D:\a\A11y Assist Backend\*"; DestDir: "\\?\{app}\A11y Assist Backend"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Source: "Install-WMIC.ps1"; DestDir: "\\?\{app}"; Flags: ignoreversion
 
 ; --- Shortcuts (both reflect "(User)" when not elevated) ---
 [Icons]
-Name: "{autoprograms}\{code:GetShortcutName}"; Filename: "{app}\Oobee Frontend\Oobee.exe"
-Name: "{autodesktop}\{code:GetShortcutName}";  Filename: "{app}\Oobee Frontend\Oobee.exe"
+Name: "{autoprograms}\{code:GetShortcutName}"; Filename: "{app}\A11y Assist Frontend\A11y Assist.exe"
+Name: "{autodesktop}\{code:GetShortcutName}";  Filename: "{app}\A11y Assist Frontend\A11y Assist.exe"
 
 ; --- Optional post-install (guard if needs admin; NO \\?\ here) ---
 [Run]
@@ -45,12 +45,12 @@ Name: "{autodesktop}\{code:GetShortcutName}";  Filename: "{app}\Oobee Frontend\O
 
 ; --- Clean up (use \\?\ so delete handles long paths too) ---
 [UninstallDelete]
-Type: filesandordirs; Name: "\\?\{app}\Oobee Frontend"
-Type: filesandordirs; Name: "\\?\{app}\Oobee Backend"
+Type: filesandordirs; Name: "\\?\{app}\A11y Assist Frontend"
+Type: filesandordirs; Name: "\\?\{app}\A11y Assist Backend"
 
 [InstallDelete]
-Type: filesandordirs; Name: "\\?\{app}\Oobee Frontend"
-Type: filesandordirs; Name: "\\?\{app}\Oobee Backend"
+Type: filesandordirs; Name: "\\?\{app}\A11y Assist Frontend"
+Type: filesandordirs; Name: "\\?\{app}\A11y Assist Backend"
 
 ; --- Code: choose base dir based on elevation ---
 [Code]
@@ -73,9 +73,9 @@ begin
   if (not IsAdmin) and MachineInstallExists() then
   begin
     Choice := MsgBox(
-      'A system-wide installation of Oobee Desktop already exists.'#13#10#13#10 +
+      'A system-wide installation of A11y Assist Desktop already exists.'#13#10#13#10 +
       'Without administrator rights, this setup will install a separate copy for your user only.'#13#10 +
-      'Shortcuts will be named "Oobee Desktop (User)".'#13#10#13#10 +
+      'Shortcuts will be named "A11y Assist Desktop (User)".'#13#10#13#10 +
       'Click "Yes" to proceed with user-only installation (recommended),'#13#10 +
       'or "No" to cancel the installation.',
       mbConfirmation, MB_YESNO);
@@ -94,15 +94,15 @@ end;
 function GetDefaultDir(Param: string): string;
 begin
   if IsAdmin then
-    Result := ExpandConstant('{autopf}\Oobee Desktop')        // Program Files (admin)
+    Result := ExpandConstant('{autopf}\A11y Assist Desktop')        // Program Files (admin)
   else
-    Result := ExpandConstant('{userappdata}\Oobee Desktop');   // AppData\Roaming (per-user)
+    Result := ExpandConstant('{userappdata}\A11y Assist Desktop');   // AppData\Roaming (per-user)
 end;
 
 function GetShortcutName(Param: string): string;
 begin
   if IsAdmin then
-    Result := 'Oobee Desktop'
+    Result := 'A11y Assist Desktop'
   else
-    Result := 'Oobee Desktop (User)';
+    Result := 'A11y Assist Desktop (User)';
 end;

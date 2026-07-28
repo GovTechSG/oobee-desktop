@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import a11yLogo from '../../assets/logo-oobee-full-colour-FPA-110x40.svg'
+import a11yLogo from '../../assets/logo-a11y-assist-full-colour-FPA-110x40.svg'
 // import appIllustration from '../../assets/app-illustration.svg'
 import appIllustration from '../../assets/home-page-illustration.svg'
 import editIcon from '../../assets/edit-pencil-purple.svg'
@@ -380,7 +380,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
               <>
                 <BasicAuthForm handleBasicAuthSubmit={handleBasicAuthSubmit} />
                 <p className="mb-0">
-                  Oobee will solely capture your credentials for this scan and
+                  A11y Assist will solely capture your credentials for this scan and
                   promptly remove them thereafter.
                 </p>
               </>

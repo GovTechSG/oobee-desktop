@@ -17,7 +17,7 @@ jobs:
         shell: pwsh
         run: |
           Start-Process powershell -Verb runAs -ArgumentList 'New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -PropertyType "DWORD" -Value "1"'
-      
+
       - name: Download node.js version from nodejs.org
         run: |
           curl -o ./nodejs-win.zip --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip
@@ -27,13 +27,13 @@ jobs:
       - name: Download and Install Inno Setup
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe" -OutFile "${{github.workspace}}\is.exe" 
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe" -OutFile "${{github.workspace}}\is.exe"
           Start-Process -FilePath "${{github.workspace}}\is.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
           echo "${env:programfiles(x86)}\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          
+
       - name: Install Node Modules and Build for Windows
         run: |
-          $env:Path = "${{github.workspace}}\nodejs-win;${{github.workspace}}\oobee-desktop\node_modules\.bin;$env:Path;";
+          $env:Path = "${{github.workspace}}\nodejs-win;${{github.workspace}}\a11y-assist-desktop\node_modules\.bin;$env:Path;";
           npm install
           npm run make-win
         env:
@@ -43,14 +43,14 @@ jobs:
       - name: Move build to root
         shell: pwsh
         run: |
-          Move-Item  "${{github.workspace}}\out\Oobee-win32-x64" -Destination "${{github.workspace}}\Oobee-win32-x64" -Force
-      
-      - name: Download Oobee Backend
+          Move-Item  "${{github.workspace}}\out\A11y Assist-win32-x64" -Destination "${{github.workspace}}\A11y Assist-win32-x64" -Force
+
+      - name: Download A11y Assist Backend
         shell: pwsh
         run: |
-          $PHbackendUrl = "https://github.com/GovTechSG/oobee/releases/download/${{ vars.BE_TAG }}/oobee-portable-windows.zip"
+          $PHbackendUrl = "https://github.com/GovTechSG/a11y-assist/releases/download/${{ vars.BE_TAG }}/a11y-assist-portable-windows.zip"
           $BEdestinationPath = "${{github.workspace}}\PHLatest.zip"
-          $BEextractPath = "D:\a\Oobee Backend"
+          $BEextractPath = "D:\a\A11y Assist Backend"
           Invoke-WebRequest -Uri $PHbackendUrl -OutFile $BEdestinationPath
           Expand-Archive -Path $BEdestinationPath -DestinationPath $BEextractPath -Force
           Remove-Item -Path $BEdestinationPath
@@ -62,36 +62,36 @@ jobs:
       - name: Move compiled installer to Workspace
         run: |
           New-Item -Path setup -ItemType Directory
-          Move-Item -Path mysetup.exe -Destination setup\Oobee-setup.exe
+          Move-Item -Path mysetup.exe -Destination setup\A11y-Assist-setup.exe
         working-directory: ${{github.workspace}}
 
       - name: Zip Setup file (Windows)
         shell: pwsh
-        run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath oobee-desktop-windows.zip
+        run: Compress-Archive -Path ${{github.workspace}}/setup/* -DestinationPath a11y-assist-desktop-windows.zip
         working-directory: ${{github.workspace}}
-        
+
       - name: Compute SHA256 hash for Windows
         shell: pwsh
         run: |
-          $hash = (Get-FileHash -Algorithm SHA256 oobee-desktop-windows.zip).Hash
-          [System.IO.File]::WriteAllText("oobee-desktop-windows.zip.sha256.txt", $hash)
-      
-      - name: Upload Oobee Windows setup artifact
+          $hash = (Get-FileHash -Algorithm SHA256 a11y-assist-desktop-windows.zip).Hash
+          [System.IO.File]::WriteAllText("a11y-assist-desktop-windows.zip.sha256.txt", $hash)
+
+      - name: Upload A11y Assist Windows setup artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oobee-desktop-windows
+          name: a11y-assist-desktop-windows
           path: |
-            oobee-desktop-windows.zip
-            oobee-desktop-windows.zip.sha256.txt
-        
+            a11y-assist-desktop-windows.zip
+            a11y-assist-desktop-windows.zip.sha256.txt
+
       - name: Release Windows artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            oobee-desktop-windows.zip
-            oobee-desktop-windows.zip.sha256.txt
-            
+            a11y-assist-desktop-windows.zip
+            a11y-assist-desktop-windows.zip.sha256.txt
+
   mac-install-purple:
     runs-on: macos-latest
     env:
@@ -104,7 +104,7 @@ jobs:
       DIST_P12_B64:   ${{ secrets.ORG_DISTRIBUTION_PRIVATEKEY_P12 }}
       DIST_P12_PASS:  ${{ secrets.ORG_DISTRIBUTION_PRIVATEKEY_P12_PASSWORD }}
     environment: macos
-    
+
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -141,7 +141,7 @@ jobs:
             export PATH_TO_NODE="${{github.workspace}}/nodejs-mac-x64/bin"
           fi
           export PATH="$PATH_TO_NODE:$PATH"
-          export PATH="$PWD/oobee-desktop/node_modules/.bin:$PATH"
+          export PATH="$PWD/a11y-assist-desktop/node_modules/.bin:$PATH"
         env:
           CI: ""
         working-directory: ${{github.workspace}}
@@ -211,29 +211,29 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: security delete-keychain build.keychain
-        
+
       - name: Move and rename universal binary zip (Mac)
         run: |
-          mv *.zip "${{github.workspace}}/oobee-desktop-macos.zip"
+          mv *.zip "${{github.workspace}}/a11y-assist-desktop-macos.zip"
         working-directory: ${{github.workspace}}/out/make/zip/darwin/universal
-        
+
       - name: Compute SHA256 hash for Mac
         run: |
-          hash=$(shasum -a 256 oobee-desktop-macos.zip | awk '{ print $1 }')
-          printf "%s" "$hash" > oobee-desktop-macos.zip.sha256.txt
-      
+          hash=$(shasum -a 256 a11y-assist-desktop-macos.zip | awk '{ print $1 }')
+          printf "%s" "$hash" > a11y-assist-desktop-macos.zip.sha256.txt
+
       - name: Upload Mac artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oobee-desktop-macos
+          name: a11y-assist-desktop-macos
           path: |
-            oobee-desktop-macos.zip
-            oobee-desktop-macos.zip.sha256.txt
-          
+            a11y-assist-desktop-macos.zip
+            a11y-assist-desktop-macos.zip.sha256.txt
+
       - name: Release Mac artifact
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            oobee-desktop-macos.zip
-            oobee-desktop-macos.zip.sha256.txt
+            a11y-assist-desktop-macos.zip
+            a11y-assist-desktop-macos.zip.sha256.txt

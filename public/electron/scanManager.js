@@ -153,9 +153,9 @@ const getScanOptions = (details) => {
 
   // Flag for customChecks and wcagAaa
   if (!customChecks && wcagAaa) {
-    options.push('-y', 'disable-oobee,enable-wcag-aaa')
+    options.push('-y', 'disable-a11yassist,enable-wcag-aaa')
   } else if (!customChecks) {
-    options.push('-y', 'disable-oobee')
+    options.push('-y', 'disable-a11yassist')
   } else if (wcagAaa) {
     options.push('-y', 'enable-wcag-aaa')
   } else {
@@ -298,10 +298,10 @@ const startScan = async (scanDetails, scanEvent) => {
           const prefix = 'Logger writing to: '
           const index = message.indexOf(prefix)
           if (index !== -1) {
-            process.env.OOBEE_ERROR_LOG_PATH = message
+            process.env.A11Y_ASSIST_ERROR_LOG_PATH = message
               .substring(index + prefix.length)
               .trim()
-            console.log('Error log path set to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+            console.log('Error log path set to:\n', process.env.A11Y_ASSIST_ERROR_LOG_PATH)
           }
         } catch (error) {
           console.error('Failed to parse log data as JSON:', error)
@@ -313,8 +313,8 @@ const startScan = async (scanDetails, scanEvent) => {
           /An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/
         )
         if (match && match[1]) {
-          process.env.OOBEE_ERROR_LOG_PATH = match[1]
-          console.log('Error log path changed to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+          process.env.A11Y_ASSIST_ERROR_LOG_PATH = match[1]
+          console.log('Error log path changed to:\n', process.env.A11Y_ASSIST_ERROR_LOG_PATH)
         }
         resolveOnce({ success: false })
         return
@@ -372,10 +372,10 @@ const startScan = async (scanDetails, scanEvent) => {
         cwd: resultsPath,
         env: {
           ...process.env,
-          OOBEE_VERBOSE: '1',
-          OOBEE_FAST_CRAWLER: '1',
+          A11Y_ASSIST_VERBOSE: '1',
+          A11Y_ASSIST_FAST_CRAWLER: '1',
           GOOGLE_SAFE_BROWSING: '1',
-          OOBEE_SENTRY_DSN: 'https://9f2001daae75a14b01e65a67eabfa404@o4509047624761344.ingest.us.sentry.io/4510751209160704',
+          A11Y_ASSIST_SENTRY_DSN: 'https://9f2001daae75a14b01e65a67eabfa404@o4509047624761344.ingest.us.sentry.io/4510751209160704',
           CRAWLEE_SYSTEM_INFO_V2: '1',
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
@@ -558,8 +558,8 @@ const mailResults = async (formDetails, scanId) => {
     $mail.subject = "${subject}"
     $mail.body = "Hi there,
     
-Please see the attached accessibility scan results with Oobee (report.html).
-You can download Oobee at the following link: https://go.gov.sg/oobee.
+Please see the attached accessibility scan results with A11y Assist (report.html).
+You can download A11y Assist at the following link: https://go.gov.sg/a11y-assist.
 
 Feel free to reach us at accessibility@tech.gov.sg if you have any questions.
 
@@ -709,7 +709,7 @@ const init = (scanEvent) => {
   ipcMain.handle(
     'getErrorLog',
     async (event, timeOfScanString, timeOfError) => {
-      const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt');
+      const errorLogPath = process.env.A11Y_ASSIST_ERROR_LOG_PATH || path.join(appPath, 'errors.txt');
       const errorLog = fs.readFileSync(errorLogPath, 'utf-8')
       const regex = /{.*?}/gs
       const entries = errorLog.match(regex)
@@ -754,7 +754,7 @@ const init = (scanEvent) => {
   )
 
   ipcMain.handle('openErrorLog', async () => {
-    const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt')
+    const errorLogPath = process.env.A11Y_ASSIST_ERROR_LOG_PATH || path.join(appPath, 'errors.txt')
     if (!fs.existsSync(errorLogPath)) {
       return { success: false, reason: 'not-found' }
     }

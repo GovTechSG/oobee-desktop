@@ -1,12 +1,12 @@
-# Oobee
+# A11y Assist
 
-Oobee (formerly known as Purple A11y) is an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/oobee](https://go.gov.sg/oobee). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
+A11y Assist (formerly known as Oobee / Purple A11y) is an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/a11y-assist](https://go.gov.sg/a11y-assist). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
 
-For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee) instead.
+For software engineers who wish to run A11y Assist as a command line, please refer to [A11y Assist (CLI)](https://github.com/GovTechSG/a11y-assist) instead.
 
 [![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://digitalpublicgoods.net/r/oobee)
 
-<img alt="Oobee Desktop main screen" src="https://github.com/user-attachments/assets/3992115c-d237-4d66-b247-a541a2a49f9e">
+<img alt="A11y Assist Desktop main screen" src="https://github.com/user-attachments/assets/3992115c-d237-4d66-b247-a541a2a49f9e">
 
 ## Technology Stack
 
@@ -15,9 +15,9 @@ For software engineers who wish to run Oobee as a command line, please refer to 
 
 ## Installations
 
-### Download Oobee
+### Download A11y Assist
 
-Oobee is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
+A11y Assist is available as a download for Windows and MacOS. Refer to [Installation Guide](/INSTALLATION.md) for step-by-step instructions.
 
 ### Development, Build and Testing
 
@@ -27,8 +27,8 @@ Oobee is available as a download for Windows and MacOS. Refer to [Installation G
 
 #### Set Engine Version
 
-First open terminal and navigate to the location of clone respository of Oobee.
-Then set environment variable BE_TAG to set version of Oobee CLI Portable to be downloaded (see below).  Replace the version of BE_TAG `0.10.68` with the desired version.
+First open terminal and navigate to the location of clone respository of A11y Assist.
+Then set environment variable BE_TAG to set version of A11y Assist CLI Portable to be downloaded (see below).  Replace the version of BE_TAG `0.10.68` with the desired version.
 
 #### Build Standalone App
 
@@ -41,7 +41,7 @@ npm run make-mac
 ```
 
 This will create a folder in your repository in the _out_ folder.
-Enter and run the `Oobee.app` in the newly created folder in ../out.
+Enter and run the `A11y Assist.app` in the newly created folder in ../out.
 
 ##### For Windows
 
@@ -53,15 +53,15 @@ npm run make-win
 ```
 
 ##### Special information about Mac and Windows built app
-- The Mac dev app includes a zipped Oobee backend when built using `npm run make-mac` process. When Oobee.app is run in the Setting Up screen, it first checks if the bundled `oobee-portable-mac.zip` version of Oobee the version to be unzipped.  If it does not match, it unzips `Oobee.app/Contents/oobee-portable-mac.zip` to the `~/Library/Application Support/Oobee/Oobee Baclemd`.
-- The Windows dev app does not include the Oobee backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `C:\Program Files\Oobee Desktop\Oobee Backend` or `%APPDATA%\Oobee Desktop\Oobee Backend`.
+- The Mac dev app includes a zipped A11y Assist backend when built using `npm run make-mac` process. When A11y Assist.app is run in the Setting Up screen, it first checks if the bundled `a11y-assist-portable-mac.zip` version of A11y Assist the version to be unzipped.  If it does not match, it unzips `A11y Assist.app/Contents/a11y-assist-portable-mac.zip` to the `~/Library/Application Support/A11y Assist/A11y Assist Backend`.
+- The Windows dev app does not include the A11y Assist backend. It assumes the location of A11y Assist (CLI) Portable is already unzipped in `C:\Program Files\A11y Assist Desktop\A11y Assist Backend` or `%APPDATA%\A11y Assist Desktop\A11y Assist Backend`.
 - The Windows installer exe is built using the InnoSetup (automated build pipeline through GitHub Actions).
 
 #### Run and Debug (Development)
 
-The dev command is provided below so that a user can debug the Oobee app with STDOUT logs in the Terminal.
+The dev command is provided below so that a user can debug the A11y Assist app with STDOUT logs in the Terminal.
 
-Run the code below to build Oobee.
+Run the code below to build A11y Assist.
 
 ##### For Mac
 
@@ -78,21 +78,21 @@ npm run build
 ```
 
 ##### Run the Dev App
-Finally to start Oobee enter the code below.
+Finally to start A11y Assist enter the code below.
 
 ```shell
 npm run start
 ```
 
 ##### Special information about Mac and Windows development
-- The Mac dev app does not include the Oobee Portable backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `~/Library/Application Support/Oobee/Oobee Baclemd`.
-- The Windows dev app does not include the Oobee Portable backend. It assumes the location of Oobee (CLI) Portable is already unzipped in `C:\Program Files\Oobee Desktop\Oobee Backend` or `%APPDATA%\Oobee Desktop\Oobee Backend`.
+- The Mac dev app does not include the A11y Assist Portable backend. It assumes the location of A11y Assist (CLI) Portable is already unzipped in `~/Library/Application Support/A11y Assist/A11y Assist Backend`.
+- The Windows dev app does not include the A11y Assist Portable backend. It assumes the location of A11y Assist (CLI) Portable is already unzipped in `C:\Program Files\A11y Assist Desktop\A11y Assist Backend` or `%APPDATA%\A11y Assist Desktop\A11y Assist Backend`.
 
 An application window should be open with the inserted version. You may debug the app through Terminal / PowerShell window.
 
 #### Facing issues?
 
-Open an [issue ticket](https://github.com/GovTechSG/oobee-desktop/issues) for assistance.
+Open an [issue ticket](https://github.com/GovTechSG/a11y-assist-desktop/issues) for assistance.
 
 ---
 
@@ -100,7 +100,7 @@ Open an [issue ticket](https://github.com/GovTechSG/oobee-desktop/issues) for as
 
 Enter a valid URL to scan in the textbox and press the "Scan" button. The default settings will crawl your website and scan 100 pages for accessibility issues.
 
-![Oobee Desktop main page](https://github.com/user-attachments/assets/94d19cf8-88e4-46c3-b5d6-647b7c615a6e)
+![A11y Assist Desktop main page](https://github.com/user-attachments/assets/94d19cf8-88e4-46c3-b5d6-647b7c615a6e)
 
 ## Limiting pages scanned
 
@@ -118,17 +118,17 @@ Click on the "Advanced scan options" button to configure the scan options.
 
 #### Website Crawl
 
-The default scan option for Oobee. Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+The default scan option for A11y Assist. A11y Assist will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Sitemap Crawl
 
-With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and Oobee will crawl and scan all the links (up to page limit) within the domain in the provided URL.
+With sitemap crawl, provide a URL to a sitemap file (e.g. `https.domain.com/sitemap.xml`) and A11y Assist will crawl and scan all the links (up to page limit) within the domain in the provided URL.
 
 #### Custom Flow
 
 Custom flow is used to scan Single-Page Applications (SPAs) or websites. Each page-scan is initiated by the user that is triggered via clicking the _`Scan this page`_ button. Once the specific user flow is completed and scanned, close the browser to automatically generate the Custom Flow Report.
 
-![Screenshot 2024-11-04 at 11 08 36 AM](https://github.com/user-attachments/assets/9055ad9c-5dee-47a2-a01e-4d4d91be88cc)
+![Screenshot 2024-11-04 at 11 08 36 AM](https://github.com/user-attachments/assets/9055ad9c-5dee-47a2-a01e-4d4d91be88cc)
 
 ### Viewport Options
 
@@ -294,16 +294,16 @@ You can also click on the view report button to see the Accessibility Scan Resul
 
 ## Accessibility Scan Results
 
-For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/oobee/blob/master/DETAILS.md).
+For details on which accessibility scan results trigger "Must Fix" / "Good to Fix" findings, you may refer to [Scan Issue Details](https://github.com/GovTechSG/a11y-assist/blob/master/DETAILS.md).
 
 ## System Context Diagram
 
-<img alt="System Context Diagram for Oobee" src="https://github.com/user-attachments/assets/31c7ac61-f242-4c5f-baf3-e2ed120fe1cb">
+<img alt="System Context Diagram for A11y Assist" src="https://github.com/user-attachments/assets/31c7ac61-f242-4c5f-baf3-e2ed120fe1cb">
 
-For Oobee's backed repository and to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee).
+For A11y Assist's backed repository and to run A11y Assist as a command line, please refer to [A11y Assist (CLI)](https://github.com/GovTechSG/a11y-assist).
 
 ## Additional Information on Data
 
-Oobee uses third-party open-source tools that may be downloaded over the Internet during the installation process of Oobee. Users should be aware of the libraries used by examining `package.json`.
+A11y Assist uses third-party open-source tools that may be downloaded over the Internet during the installation process of A11y Assist. Users should be aware of the libraries used by examining `package.json`.
 
-Oobee may send information to the website or URL where the user chooses to initiate a Oobee scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.
+A11y Assist may send information to the website or URL where the user chooses to initiate an A11y Assist scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.

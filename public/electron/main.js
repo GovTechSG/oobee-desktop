@@ -135,7 +135,7 @@ app.on('ready', async () => {
   })
 
   const { data: releaseInfo } = await axiosInstance
-    .get('https://govtechsg.github.io/oobee-desktop/latest-release.json')
+    .get('https://govtechsg.github.io/a11y-assist-desktop/latest-release.json')
     .catch((e) => {
       console.log('Unable to get release info')
       return { data: undefined }

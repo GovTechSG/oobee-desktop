@@ -4,7 +4,7 @@ import arrowRepeat from '../../assets/arrow-repeat-white.svg'
 import boxRightArrow from '../../assets/box-arrow-up-right-purple.svg'
 import labModeOff from '../../assets/lab-icon-off.svg'
 import labModeOn from '../../assets/lab-icon-on.svg'
-import phLogo from '../../assets/logo-oobee-emblem-full-colour.svg'
+import phLogo from '../../assets/logo-a11y-assist-emblem-full-colour.svg'
 import { handleClickLink, versionComparator } from '../../common/constants'
 import { useEffect, useState } from 'react'
 import Button from '../../common/components/Button'
@@ -21,13 +21,13 @@ const UpdateAlert = ({ latestVer, isPrerelease }) => {
           Update available ({latestVer} - latest{' '}
           {isPrerelease ? 'pre-release' : 'stable build'})
         </h4>
-        <p className='mb-0'>To update, restart Oobee.</p>
+        <p className='mb-0'>To update, restart A11y Assist.</p>
       </div>
       <Button
         type='btn-primary'
         className='align-self-center'
         onClick={handleRestartApp}
-        aria-label='Restart Oobee'
+        aria-label='Restart A11y Assist'
       >
         <img src={arrowRepeat} alt='' />
         Restart
@@ -93,21 +93,21 @@ const ExternalLink = ({ url, children, linkClass }) => {
 }
 
 const AppDescription = ({ version, versionLabel }) => {
-  const releaseNotesUrl = `https://github.com/GovTechSG/oobee-desktop/releases/tag/${version}`;
+  const releaseNotesUrl = `https://github.com/GovTechSG/a11y-assist-desktop/releases/tag/${version}`;
   const a11yWebsiteUrl = 'https://go.gov.sg/a11y';
-  const privacyStatementUrl = 'https://go.gov.sg/oobee-privacy-statement';
-  const termsOfUseUrl = 'https://go.gov.sg/oobee-terms-of-use';
-  const reportVulnerabilityUrl = 'https://go.gov.sg/oobee-report-vulnerability';
-  const thirdPartyDesktop = 'https://go.gov.sg/oobee-third-party-licenses';
-  const thirdPartyCLI = 'https://go.gov.sg/oobee-cli-third-party-licenses';
-  const thirdPartyReport = 'https://go.gov.sg/oobee-report-third-party-licenses';
+  const privacyStatementUrl = 'https://go.gov.sg/a11y-assist-privacy-statement';
+  const termsOfUseUrl = 'https://go.gov.sg/a11y-assist-terms-of-use';
+  const reportVulnerabilityUrl = 'https://go.gov.sg/a11y-assist-report-vulnerability';
+  const thirdPartyDesktop = 'https://go.gov.sg/a11y-assist-third-party-licenses';
+  const thirdPartyCLI = 'https://go.gov.sg/a11y-assist-cli-third-party-licenses';
+  const thirdPartyReport = 'https://go.gov.sg/a11y-assist-report-third-party-licenses';
 
   return (
     <div className='mb-5'>
       <div className='d-flex gap-3'>
-        <img src={phLogo} alt='Oobee logo' />
+        <img src={phLogo} alt='A11y Assist logo' />
         <div>
-          <p className='m-0 bold-text'>Oobee Desktop</p>
+          <p className='m-0 bold-text'>A11y Assist Desktop</p>
           <p className='m-0 d-inline-block me-3'>
             Version {version} {versionLabel && `(${versionLabel})`}
           </p>
@@ -128,7 +128,7 @@ const AppDescription = ({ version, versionLabel }) => {
         Third-party Licenses:
       </p>
       <div className='d-flex gap-3'>
-          <ExternalLink url={thirdPartyDesktop}>Oobee Desktop</ExternalLink>
+          <ExternalLink url={thirdPartyDesktop}>A11y Assist Desktop</ExternalLink>
           <ExternalLink url={thirdPartyCLI}>CLI</ExternalLink>
           <ExternalLink url={thirdPartyReport}>Report</ExternalLink>
       </div>
@@ -186,7 +186,7 @@ const AboutModal = ({
         </>
       }
       modalSizeClass='modal-lg modal-dialog-centered'
-      modalTitle='About Oobee Desktop'
+      modalTitle='About A11y Assist Desktop'
       setShowModal={setShowModal}
     />
   )

@@ -104,7 +104,7 @@ const execCommandStrict = async (command) => {
 //
 // Uses spawn with an argv array so the AppleScript expression is passed as a
 // single argument — no outer bash quoting. That matters because our install
-// command contains single-quoted paths ('/Applications/Oobee.app'), which cannot
+// command contains single-quoted paths ('/Applications/A11y Assist.app'), which cannot
 // be nested inside bash `-e '...'` single quotes. The previous implementation
 // wrapped with sh -c "osascript -e '...single-quoted paths...'", which bash
 // silently mis-parsed, so osascript received a scrambled script and no admin
@@ -166,7 +166,7 @@ const hashPrepackage = async (prepackagePath) => {
 const unzipBackendAndCleanUp = async (zipPath) => {
   let unzipCommand = `rm -rf '${backendPath}' && mkdir -p '${backendPath}' && tar -xf '${zipPath}' -C '${backendPath}' &&
     cd '${backendPath}' &&
-    './a11y_shell.sh' echo "Initialise"
+    './a11y_assist_shell.sh' echo "Initialise"
     `;
 
   return execCommand(unzipCommand);
@@ -203,7 +203,7 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
 const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
 
   const downloadUrl = tag
-    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-windows.zip`
+    ? `https://github.com/GovTechSG/a11y-assist-desktop/releases/download/${tag}/a11y-assist-desktop-windows.zip`
     : frontendReleaseUrl;
 
   const shellScript = `
@@ -212,7 +212,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
     If (!(Test-Path -Path "${resultsPath}")) {
       New-Item -ItemType Directory -Path "${resultsPath}"
     }
-    $webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\oobee-desktop-windows.zip")
+    $webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\a11y-assist-desktop-windows.zip")
   } catch {
     Write-Host "Error: Unable to download frontend"
     throw "Unable to download frontend"
@@ -220,7 +220,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
   }
 
   try {
-    Expand-Archive -Path "${resultsPath}\\oobee-desktop-windows.zip" -DestinationPath "${resultsPath}\\oobee-desktop-windows" -Force
+    Expand-Archive -Path "${resultsPath}\\a11y-assist-desktop-windows.zip" -DestinationPath "${resultsPath}\\a11y-assist-desktop-windows" -Force
   } catch {
     Write-Host "Error: Unable to unzip frontend"
     throw "Unable to unzip frontend"
@@ -258,16 +258,16 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
  */
 const downloadAndUnzipFrontendMac = async (tag = undefined) => {
   const downloadUrl = tag
-    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-macos.zip`
+    ? `https://github.com/GovTechSG/a11y-assist-desktop/releases/download/${tag}/a11y-assist-desktop-macos.zip`
     : frontendReleaseUrl;
 
   const parentDir = path.join(macOSExecutablePath, "..");
 
-  const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip'`;
+  const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/a11y-assist-desktop-mac.zip'`;
 
   // Use a temporary name that won't trigger macOS security warnings
-  const tempAppName = `.Oobee.tmp.${Date.now()}.app`;
-  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}' && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
+  const tempAppName = `.A11yAssist.tmp.${Date.now()}.app`;
+  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}' && ditto -xk '${resultsPath}/a11y-assist-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/a11y-assist-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/A11y Assist.app'`;
 
   await execCommand(downloadCommand);
 
@@ -345,7 +345,7 @@ const spawnScriptToLaunchInstaller = () => {
 
 
 const downloadBackend = async (tag, zipPath) => {
-  const downloadUrl = `https://github.com/GovTechSG/oobee/releases/download/${tag}/oobee-portable-mac.zip`;
+  const downloadUrl = `https://github.com/GovTechSG/a11y-assist/releases/download/${tag}/a11y-assist-portable-mac.zip`;
   const command = `curl '${downloadUrl}' -o '${zipPath}' -L && rm -rf '${backendPath}' && mkdir '${backendPath}'`;
 
   return execCommand(command);
@@ -505,10 +505,10 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
         await hashAndSaveZip(macOSPrepackageBackend);
       } else {
         // The prepackage lives inside the signed .app bundle at
-        // Contents/Resources/oobee-portable-mac.zip. If it's invalid, this is a
+        // Contents/Resources/a11y-assist-portable-mac.zip. If it's invalid, this is a
         // build/install failure — do NOT curl a replacement into it: that path is
         // sealed by the code signature, and any write there breaks the signature
-        // and makes macOS refuse to launch the app ("Oobee.app is damaged").
+        // and makes macOS refuse to launch the app ("A11y Assist.app is damaged").
         consoleLogger.error(
           `Bundled backend prepackage invalid at ${macOSPrepackageBackend}; skipping (would corrupt signed bundle if overwritten).`
         );

@@ -58,7 +58,7 @@ export const getDefaultAdvancedOptions = () => {
   }
 }
 
-// exit codes returned by Oobee cli when there is an error with the URL provided
+// exit codes returned by A11y Assist cli when there is an error with the URL provided
 export const cliErrorCodes = new Set([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
 export const cliErrorTypes = {
   invalidUrl: 11,
@@ -85,7 +85,7 @@ export const urlCheckStatuses = {
     code: 13,
     message: 'Provided URL cannot be accessed. Server responded with an error status code.',
   },
-  systemError: { code: 14, message: 'Something went wrong when verifying the URL. Please try again in a few minutes. If this issue persists, please contact the Oobee team.'},
+  systemError: { code: 14, message: 'Something went wrong when verifying the URL. Please try again in a few minutes. If this issue persists, please contact the A11y Assist team.'},
   notASitemap: { code: 15, message: 'Invalid sitemap URL format. Please enter a valid sitemap URL ending with .XML or .TXT e.g. https://www.example.com/sitemap.xml.' },
   unauthorised: { code: 16, message: 'Login required. Please enter your credentials and try again.' },
   // browserError means engine could not find a browser to run the scan
@@ -98,12 +98,12 @@ export const urlCheckStatuses = {
   notALocalFile: { code: 19, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
   notAPdf: { code: 20, message: 'URL/file format is incorrect. Please upload a PDF file.' },
   notASupportedDocument: { code: 21, message: 'Uploaded file format is incorrect. Please upload a HTML, PDF, XML or TXT file.' },
-  connectionRefused: { code: 22, message: 'Connection refused. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
-  timedOut: { code: 23, message: 'Request timed out. Please try again in a few minutes. If this issue persists, please contact the Oobee team.' },
+  connectionRefused: { code: 22, message: 'Connection refused. Please try again in a few minutes. If this issue persists, please contact the A11y Assist team.' },
+  timedOut: { code: 23, message: 'Request timed out. Please try again in a few minutes. If this issue persists, please contact the A11y Assist team.' },
   blockedByClient: {
     code: 24,
     message:
-      'Something went wrong when verifying the URL. If this issue persists, please contact the Oobee team.',
+      'Something went wrong when verifying the URL. If this issue persists, please contact the A11y Assist team.',
   },
 };
 

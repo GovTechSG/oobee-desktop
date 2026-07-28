@@ -8,44 +8,44 @@ const { execSync } = require("child_process");
 const appPath = (() => {
   if (os.platform() === "win32") {
     try {
-      // Prefer relative path to Frontend if provided and contains "Oobee Backend"
+      // Prefer relative path to Frontend if provided and contains "A11y Assist Backend"
       const windowsAppParentPath = path.join(process.cwd(), "..");
       if (
         windowsAppParentPath &&
-        fs.existsSync(path.join(windowsAppParentPath, "Oobee Backend"))
+        fs.existsSync(path.join(windowsAppParentPath, "A11y Assist Backend"))
       ) {
         return windowsAppParentPath;
       }
     } catch (error) {
       // Do nothing
     }
- 
+
     // Fallback: Check common installation directories
-    return fs.existsSync(path.join(process.env.APPDATA, "Oobee Desktop"))
-      ? path.join(process.env.APPDATA, "Oobee Desktop")
-      : path.join(process.env.PROGRAMFILES, "Oobee Desktop");
+    return fs.existsSync(path.join(process.env.APPDATA, "A11y Assist Desktop"))
+      ? path.join(process.env.APPDATA, "A11y Assist Desktop")
+      : path.join(process.env.PROGRAMFILES, "A11y Assist Desktop");
   } else {
     // macOS
     return path.join(
       os.homedir(),
       "Library",
       "Application Support",
-      "Oobee"
+      "A11y Assist"
     );
 }})();
 
 const releaseUrl =
-  "https://api.github.com/repos/GovTechSG/oobee/releases/latest";
+  "https://api.github.com/repos/GovTechSG/a11y-assist/releases/latest";
 
-const allReleasesUrl = "https://api.github.com/repos/GovTechSG/oobee/releases";
+const allReleasesUrl = "https://api.github.com/repos/GovTechSG/a11y-assist/releases";
 
 const frontendReleaseUrl =
   os.platform() === "win32"
-  ? "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-windows.zip"
-  : "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-macos.zip";
+  ? "https://github.com/GovTechSG/a11y-assist-desktop/releases/latest/download/a11y-assist-desktop-windows.zip"
+  : "https://github.com/GovTechSG/a11y-assist-desktop/releases/latest/download/a11y-assist-desktop-macos.zip";
 
-const backendPath = path.join(appPath, "Oobee Backend");
-const frontendPath = path.join(appPath, "Oobee Frontend");
+const backendPath = path.join(appPath, "A11y Assist Backend");
+const frontendPath = path.join(appPath, "A11y Assist Frontend");
 
 const getMacOSExecutablePath = () => {
   let executablePath = require("path").dirname(
@@ -64,20 +64,20 @@ const getMacOSExecutablePath = () => {
 };
 const macOSExecutablePath = getMacOSExecutablePath();
 
-const macOSPrepackageBackend = path.join(process.resourcesPath, "oobee-portable-mac.zip");
+const macOSPrepackageBackend = path.join(process.resourcesPath, "a11y-assist-portable-mac.zip");
 
 const resultsPath =
   os.platform() === "win32"
-    ? path.join(process.env.APPDATA, "Oobee")
+    ? path.join(process.env.APPDATA, "A11y Assist")
     : appPath;
 
 const installerExePath = path.join(
   resultsPath,
-  "oobee-desktop-windows",
-  "Oobee-setup.exe"
+  "a11y-assist-desktop-windows",
+  "A11y-Assist-setup.exe"
 );
 
-const enginePath = path.join(backendPath, "oobee");
+const enginePath = path.join(backendPath, "a11y-assist");
 
 const getEngineVersion = () => {
   const enginePackageFile = fs.readFileSync(path.join(enginePath, "package.json"), 'utf8');
@@ -108,7 +108,7 @@ const appVersion = require(path.join(
 
 const preloadPath = path.join(__dirname, "preload.js");
 
-const defaultExportDir = path.join(os.homedir(), "Documents", "Oobee");
+const defaultExportDir = path.join(os.homedir(), "Documents", "A11y Assist");
 
 const indexPath = path.join(__dirname, "..", "..", "build", "index.html");
 
@@ -116,7 +116,7 @@ const getPathVariable = () => {
   if (os.platform() === "win32") {
     const directories = [
       "nodejs-win",
-      "oobee\\node_modules\\.bin",
+      "a11y-assist\\node_modules\\.bin",
       "jre\\bin",
       "verapdf",
     ];
@@ -126,7 +126,7 @@ const getPathVariable = () => {
   } else {
     const directories = [
       `${os.arch() === "arm64" ? "nodejs-mac-arm64" : "nodejs-mac-x64"}/bin`,
-      "oobee/node_modules/.bin",
+      "a11y-assist/node_modules/.bin",
       "jre/bin",
       "verapdf"
     ];
@@ -150,7 +150,7 @@ const userDataFilePath =
     ? path.join(resultsPath, "userData.txt")
     : path.join(appPath, "userData.txt");
 
-const artifactInstallerPath = path.join(appPath, "Oobee-setup.exe");
+const artifactInstallerPath = path.join(appPath, "A11y-Assist-setup.exe");
 
 const browserTypes = {
   chrome: "chrome",
@@ -222,26 +222,26 @@ const getDefaultEdgeDataDir = () => {
 
 const isWindows = os.platform() === "win32";
 const forbiddenCharactersInDirPath = ['<', '>', ':', '\"', '/', '\\', '|', '?', '*'];
-  
-const maxLengthForDirName = 80; 
+
+const maxLengthForDirName = 80;
 
 const versionComparator = (ver1, ver2) => {
-  // return 1 if ver1 >= ver2, else return -1 
-  const splitVer1 = ver1.split('.'); 
-  const splitVer2 = ver2.split('.'); 
-  let idx = 0; 
+  // return 1 if ver1 >= ver2, else return -1
+  const splitVer1 = ver1.split('.');
+  const splitVer2 = ver2.split('.');
+  let idx = 0;
   while (splitVer1[idx] && splitVer2[idx]) {
     const int1 = parseInt(splitVer1[idx]);
     const int2 = parseInt(splitVer2[idx]);
     if (int1 > int2) {
-      return 1; 
+      return 1;
     } else if (int1 < int2) {
       return -1;
     }
     idx++;
   }
 
-  if (!splitVer1[idx] && splitVer2[idx]) return -1; 
+  if (!splitVer1[idx] && splitVer2[idx]) return -1;
 
   return 1;
 };

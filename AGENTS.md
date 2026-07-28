@@ -113,8 +113,8 @@ This document defines the update mechanism behavior in:
 
 1. **PowerShell Check**: Verifies PowerShell is available (line 321)
 2. **Download**: Uses PowerShell `System.Net.WebClient` to download installer package
-3. **Extract**: Uses `Expand-Archive` to unzip to `%APPDATA%\Oobee\oobee-desktop-windows\`
-4. **Launch Installer**: Spawns `Oobee-setup.exe` as detached process
+3. **Extract**: Uses `Expand-Archive` to unzip to `%APPDATA%\A11y Assist\a11y-assist-desktop-windows\`
+4. **Launch Installer**: Spawns `A11y-Assist-setup.exe` as detached process
 5. **Exit**: App exits, installer handles replacement
 
 **Key Points:**
@@ -126,8 +126,8 @@ This document defines the update mechanism behavior in:
 **PowerShell Script:**
 ```powershell
 $webClient = New-Object System.Net.WebClient
-$webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\oobee-desktop-windows.zip")
-Expand-Archive -Path "${resultsPath}\\oobee-desktop-windows.zip" -DestinationPath "${resultsPath}\\oobee-desktop-windows" -Force
+$webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\a11y-assist-desktop-windows.zip")
+Expand-Archive -Path "${resultsPath}\\a11y-assist-desktop-windows.zip" -DestinationPath "${resultsPath}\\a11y-assist-desktop-windows" -Force
 ```
 
 ### macOS Update Flow
@@ -161,7 +161,7 @@ Expand-Archive -Path "${resultsPath}\\oobee-desktop-windows.zip" -DestinationPat
 
 **Security Consideration:**
 ```javascript
-const tempAppName = `.Oobee.tmp.${Date.now()}.app`;
+const tempAppName = `.A11yAssist.tmp.${Date.now()}.app`;
 ```
 
 - Uses hidden file (dot prefix) to avoid macOS security scans
@@ -199,7 +199,7 @@ spawn('open', ['-n', execPath], {
 ### macOS Privilege Check Output
 ```
 ✓ parent directory is writable: /Users/user/Downloads
-✓ app bundle is writable: /Users/user/Downloads/Oobee.app
+✓ app bundle is writable: /Users/user/Downloads/A11y Assist.app
 Installing update without elevation (directory is writable)
 ```
 

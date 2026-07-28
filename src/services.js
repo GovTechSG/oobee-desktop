@@ -113,7 +113,7 @@ const getDataForForm = async () => {
 }
 
 const getFeedbackFormUrl = async () => {
-  return 'https://go.gov.sg/contact-oobee';
+  return 'https://go.gov.sg/contact-a11y-assist';
 }
 
 const isValidEmail = (email) => {

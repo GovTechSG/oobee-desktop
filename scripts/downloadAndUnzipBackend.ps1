@@ -1,24 +1,24 @@
 $backendTag = $args[0];
 
-$purpleA11yDirectory = 'C:\Program Files\Oobee Desktop';
-$purpleA11yBackendDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend';
-$purpleA11yBackendPHDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend\oobee';
-$backendReleaseUrl = "https://github.com/GovTechSG/oobee/releases/download/$backendTag/oobee-portable-windows.zip";
-$backendZipPath = 'C:\Program Files\Oobee Desktop\oobee-portable-windows.zip';
-$backendUnzipPath = 'C:\Program Files\Oobee Desktop\Oobee Backend';
+$a11yAssistDirectory = 'C:\Program Files\A11y Assist Desktop';
+$a11yAssistBackendDirectory = 'C:\Program Files\A11y Assist Desktop\A11y Assist Backend';
+$a11yAssistBackendEngineDirectory = 'C:\Program Files\A11y Assist Desktop\A11y Assist Backend\a11y-assist';
+$backendReleaseUrl = "https://github.com/GovTechSG/a11y-assist/releases/download/$backendTag/a11y-assist-portable-windows.zip";
+$backendZipPath = 'C:\Program Files\A11y Assist Desktop\a11y-assist-portable-windows.zip';
+$backendUnzipPath = 'C:\Program Files\A11y Assist Desktop\A11y Assist Backend';
 
-$command = 
-@" 
-if (-not (Test-Path -Path '$purpleA11yDirectory' -PathType Container)) {
-    New-Item -ItemType Directory -Path '$purpleA11yDirectory' | Out-Null
+$command =
+@"
+if (-not (Test-Path -Path '$a11yAssistDirectory' -PathType Container)) {
+    New-Item -ItemType Directory -Path '$a11yAssistDirectory' | Out-Null
 }
 
-if (-not (Test-Path -Path '$purpleA11yBackendDirectory' -PathType Container)) {
-    New-Item -ItemType Directory -Path '$purpleA11yBackendDirectory' | Out-Null
+if (-not (Test-Path -Path '$a11yAssistBackendDirectory' -PathType Container)) {
+    New-Item -ItemType Directory -Path '$a11yAssistBackendDirectory' | Out-Null
 }
 
-if (-not (Test-Path -Path '$purpleA11yBackendPHDirectory' -PathType Container)) {
-    New-Item -ItemType Directory -Path '$purpleA11yBackendPHDirectory' | Out-Null
+if (-not (Test-Path -Path '$a11yAssistBackendEngineDirectory' -PathType Container)) {
+    New-Item -ItemType Directory -Path '$a11yAssistBackendEngineDirectory' | Out-Null
 }
 
 Write-Host 'Downloading zip file to $backendZipPath'
@@ -32,4 +32,4 @@ if (Test-Path -Path '$backendZipPath' -PathType Leaf) {
 "@
 
 
-Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList "-Command", $command 
+Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList "-Command", $command

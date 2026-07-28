@@ -1,41 +1,41 @@
 # Installation Guide
 
-Oobee (formerly known as Purple A11y) is provided as a portable distribution which minimises installation steps required for Windows and Mac.
+A11y Assist (formerly known as Oobee / Purple A11y) is provided as a portable distribution which minimises installation steps required for Windows and Mac.
 
-## About Oobee
+## About A11y Assist
 
-Oobee is a customisable, automated accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services.
+A11y Assist is a customisable, automated accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services.
 
-To install the **user-friendly desktop application** for Oobee, you may continue following the installation guide on this page. For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee/blob/master/INSTALLATION.md) instead.
+To install the **user-friendly desktop application** for A11y Assist, you may continue following the installation guide on this page. For software engineers who wish to run A11y Assist as a command line, please refer to [A11y Assist (CLI)](https://github.com/GovTechSG/a11y-assist/blob/master/INSTALLATION.md) instead.
 
 ## System Requirements
 
-* Oobee can run on MacOS version 15 Sequoia or above, and a [supported](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client) version of Windows 10 (64-bit) or Windows 11.
+* A11y Assist can run on MacOS version 15 Sequoia or above, and a [supported](https://learn.microsoft.com/en-us/windows/release-health/supported-versions-windows-client) version of Windows 10 (64-bit) or Windows 11.
 * Google Chrome browser is [installed](https://www.google.com/chrome).
-* One-time Internet access is needed to download and install Oobee.
-* You are recommended to be logged on to an admin user to run Oobee.
-* Note that Apple has discontinued support for developing Intel-based apps in [future macOS versions](https://support.apple.com/en-us/102527).  Oobee will discontinue support on Intel-based Mac when that happens.
+* One-time Internet access is needed to download and install A11y Assist.
+* You are recommended to be logged on to an admin user to run A11y Assist.
+* Note that Apple has discontinued support for developing Intel-based apps in [future macOS versions](https://support.apple.com/en-us/102527).  A11y Assist will discontinue support on Intel-based Mac when that happens.
 
 ## Windows
 
 <details>
     <summary>Click here for Windows setup instructions </summary>
 
-### Download Oobee (Windows)
+### Download A11y Assist (Windows)
 
-* Download [oobee-desktop-windows.zip](https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-windows.zip)
+* Download [a11y-assist-desktop-windows.zip](https://github.com/GovTechSG/a11y-assist-desktop/releases/latest/download/a11y-assist-desktop-windows.zip)
 * Double-click the downloaded zip file. Extract the contents of the zip file with a right-click and choosing “Extract All” in the context menu.
 
-### Run Oobee (Windows)
+### Run A11y Assist (Windows)
 
-* Double-click the extracted Oobee-setup.exe file.
+* Double-click the extracted A11y-Assist-setup.exe file.
 * If you see "Windows protected your PC" prompt as shown below, click "More info" and "Run anyway".
-    
+
     <img width="787" alt="Windows protected your PC prompt" src="https://github.com/GovTechSG/oobee-desktop/assets/2021525/6ec34301-26ce-41a5-9648-53d36e9198af">
 
 * Follow the on-screen instructions to complete the setup process.
-* Run Oobee from the Windows start menu.
-* Oobee will start setting up. This process may take up to 5 minutes.
+* Run A11y Assist from the Windows start menu.
+* A11y Assist will start setting up. This process may take up to 5 minutes.
 
  * If a Windows Firewall prompt appears, if you have administrator rights, click "Allow" or "Allow access". Click "Cancel" if you do not have administrator rights.
 
@@ -48,16 +48,16 @@ To install the **user-friendly desktop application** for Oobee, you may continue
 <details>
     <summary>Click here for MacOS setup instructions </summary>
 
-### Download Oobee (MacOS)
+### Download A11y Assist (MacOS)
 
-* Download [oobee-desktop-macos.zip](https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-macos.zip).
-* If Oobee app does not appear in your Downloads folder, double-click the Oobee file.
+* Download [a11y-assist-desktop-macos.zip](https://github.com/GovTechSG/a11y-assist-desktop/releases/latest/download/a11y-assist-desktop-macos.zip).
+* If A11y Assist app does not appear in your Downloads folder, double-click the A11y Assist file.
 
-> Tip: To extract files in Mac, double-click on `oobee-desktop-macos.zip` file, which is usually saved to your Downloads folder. A new app `Oobee` with the Oobee icon will appear.  Drag or move `Oobee` app to your Applications folder for easy access.
+> Tip: To extract files in Mac, double-click on `a11y-assist-desktop-macos.zip` file, which is usually saved to your Downloads folder. A new app `A11y Assist` with the A11y Assist icon will appear.  Drag or move `A11y Assist` app to your Applications folder for easy access.
 
-### Run Oobee (MacOS)
+### Run A11y Assist (MacOS)
 
-* Double-click Oobee then click "Open" in the pop-up menu.
-* Oobee will start setting up. This process may take up to 5 minutes.
+* Double-click A11y Assist then click "Open" in the pop-up menu.
+* A11y Assist will start setting up. This process may take up to 5 minutes.
 
 </details>
