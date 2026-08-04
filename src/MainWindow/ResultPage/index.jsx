@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Button from "../../common/components/Button";
 import "./ResultPage.scss";
 import services from "../../services";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { handleClickLink } from "../../common/constants";
 import ButtonSvgIcon from "../../common/components/ButtonSvgIcon";
 import { ReactComponent as MailIcon } from "../../assets/mail-purple.svg";

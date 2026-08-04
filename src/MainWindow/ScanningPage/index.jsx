@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import "./ScanningPage.scss";
 import ScanningComponent from "../../common/components/ScanningComponent";
 import pagesSvg from "../../assets/first-timer-3.svg";
-import { useLocation } from "react-router-dom";
 import Button from "../../common/components/Button";
 import ToolTip from "../../common/components/ToolTip";
 import Modal from "../../common/components/Modal";
