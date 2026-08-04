@@ -1,7 +1,6 @@
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
-const { globSync } = require("glob");
 const { silentLogger } = require("./logs.js");
 const { execSync } = require("child_process");
 
