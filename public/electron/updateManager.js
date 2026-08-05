@@ -10,8 +10,6 @@ const {
   appPath,
   backendPath,
   resultsPath,
-  frontendReleaseUrl,
-  installerExePath,
   macOSExecutablePath,
   versionComparator,
   macOSPrepackageBackend,
@@ -202,11 +200,18 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
  * Spawns a PowerShell process to download and unzip the frontend
  * @returns {Promise<void>} void if the frontend was downloaded and unzipped successfully
  */
-const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
+const downloadAndUnzipFrontendWindows = async (tag, baseUrl = undefined, windowsZipName = undefined, windowsInstallerName = undefined) => {
+  // Remote asset name from latest-release.json — lets a future release rename
+  // the zip (e.g. new repo with a different asset naming scheme).
+  const remoteZipName = windowsZipName || "oobee-desktop-windows.zip";
+  const installerName = windowsInstallerName || "Oobee-setup.exe";
 
-  const downloadUrl = tag
-    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-windows.zip`
-    : frontendReleaseUrl;
+  const downloadUrl = `${baseUrl || "https://github.com/GovTechSG/oobee-desktop"}/releases/download/${tag}/${remoteZipName}`;
+
+  // Local paths are internal — keep stable names so we don't churn folder layout.
+  const localZipPath = `${resultsPath}\\oobee-desktop-windows.zip`;
+  const extractDir = `${resultsPath}\\oobee-desktop-windows`;
+  const installerPath = path.join(extractDir, installerName);
 
   const shellScript = `
   $webClient = New-Object System.Net.WebClient
@@ -214,7 +219,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
     If (!(Test-Path -Path "${resultsPath}")) {
       New-Item -ItemType Directory -Path "${resultsPath}"
     }
-    $webClient.DownloadFile("${downloadUrl}", "${resultsPath}\\oobee-desktop-windows.zip")
+    $webClient.DownloadFile("${downloadUrl}", "${localZipPath}")
   } catch {
     Write-Host "Error: Unable to download frontend"
     throw "Unable to download frontend"
@@ -222,7 +227,7 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
   }
 
   try {
-    Expand-Archive -Path "${resultsPath}\\oobee-desktop-windows.zip" -DestinationPath "${resultsPath}\\oobee-desktop-windows" -Force
+    Expand-Archive -Path "${localZipPath}" -DestinationPath "${extractDir}" -Force
   } catch {
     Write-Host "Error: Unable to unzip frontend"
     throw "Unable to unzip frontend"
@@ -247,7 +252,9 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
     ps.on("exit", (code) => {
       currentChildProcess = null;
       if (code === 0) {
-        resolve();
+        // Return the resolved installer path so the caller launches the
+        // correct exe when `windowsInstallerName` overrides the default.
+        resolve(installerPath);
       } else {
         reject(new Error(code.toString()));
       }
@@ -258,14 +265,26 @@ const downloadAndUnzipFrontendWindows = async (tag = undefined) => {
 /**
  * Spawns a Shell Command process to download and unzip the frontend
  */
-const downloadAndUnzipFrontendMac = async (tag = undefined) => {
-  const downloadUrl = tag
-    ? `https://github.com/GovTechSG/oobee-desktop/releases/download/${tag}/oobee-desktop-macos.zip`
-    : frontendReleaseUrl;
+const downloadAndUnzipFrontendMac = async (tag, baseUrl = undefined, macAppName = undefined, macZipName = undefined) => {
+  // Remote asset name from latest-release.json so a future release can rename
+  // the zip asset (e.g. when moving to a new repo with different naming).
+  const remoteZipName = macZipName || "oobee-desktop-macos.zip";
+  const downloadUrl = `${baseUrl || "https://github.com/GovTechSG/oobee-desktop"}/releases/download/${tag}/${remoteZipName}`;
 
   const parentDir = path.join(macOSExecutablePath, "..");
 
-  const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip'`;
+  // Path of the freshly-extracted .app. `macAppName` comes from latest-release.json
+  // so a future release can rename the bundle (e.g. "Oobee Scanner.app") without a
+  // client rebuild — the zip's top-level directory just has to match this name.
+  // Spaces are safe because every shell interpolation below is single-quoted.
+  const newAppName = macAppName || "Oobee.app";
+  const newAppPath = path.join(parentDir, newAppName);
+
+  // `curl -fL`: `-f` makes curl exit non-zero on HTTP 4xx/5xx instead of writing
+  // the error page as the "zip" and moving on (which would fail cryptically at
+  // ditto). Local filename stays stable — it's an internal temp path.
+  const localZipPath = `${resultsPath}/oobee-desktop-mac.zip`;
+  const downloadCommand = `mkdir -p '${resultsPath}' && curl -fL '${downloadUrl}' -o '${localZipPath}'`;
 
   // Use a temporary name that won't trigger macOS security warnings.
   //
@@ -276,8 +295,12 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
   //   - `mv` is guarded by an existence check on the source
   //   - `rm` on the zip uses -f so a missing file isn't fatal
   //   - `rm -rf` on the temp app is already tolerant of a missing target
+  //   - `xattr` is wrapped in `(... || true)` because curl-downloaded files
+  //     typically don't carry com.apple.quarantine, so `xattr -rd` would exit
+  //     non-zero with "Attribute not found" and break the whole && chain —
+  //     making a successful install look like a failure.
   const tempAppName = `.Oobee.tmp.${Date.now()}.app`;
-  const installCommand = `{ [ ! -e '${macOSExecutablePath}' ] || mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}'; } && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm -f '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
+  const installCommand = `{ [ ! -e '${macOSExecutablePath}' ] || mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}'; } && ditto -xk '${localZipPath}' '${parentDir}' && rm -f '${localZipPath}' && rm -rf '${parentDir}/${tempAppName}' && (xattr -rd com.apple.quarantine '${newAppPath}' 2>/dev/null || true)`;
 
   await execCommand(downloadCommand);
 
@@ -306,12 +329,15 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
   // before the caller treats this as success. Without this, a silent failure
   // (swallowed error, cancelled auth prompt, MDM block returning 0, or a stale
   // bundle left behind at the same path) would restart on the old version.
-  if (!fs.existsSync(macOSExecutablePath)) {
-    throw new Error(`Update verification failed: ${macOSExecutablePath} not found after install`);
+  // We check `newAppPath`, not `macOSExecutablePath`, because if the release
+  // renamed the bundle these are different paths — and the just-extracted
+  // bundle only exists at the new name.
+  if (!fs.existsSync(newAppPath)) {
+    throw new Error(`Update verification failed: ${newAppPath} not found after install`);
   }
 
   if (tag) {
-    const plistPath = path.join(macOSExecutablePath, "Contents", "Info.plist");
+    const plistPath = path.join(newAppPath, "Contents", "Info.plist");
     let installedVersion;
     try {
       installedVersion = execSync(
@@ -329,21 +355,36 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
         `Update verification failed: expected version ${expected} but installed bundle reports ${installedVersion}`
       );
     }
-    consoleLogger.info(`Install verified: ${macOSExecutablePath} is version ${installedVersion}`);
+    consoleLogger.info(`Install verified: ${newAppPath} is version ${installedVersion}`);
   }
+
+  return newAppPath;
 };
 
 /**
  * Spawn a process to launch the InnoSetup installer executable, which contains the frontend and backend
  * upon confirmation from the user, the installer will be launched & Electron will exit
- * @returns {Promise<boolean>} true if the installer executable was launched successfully, false otherwise
+ * @param {string} installerPath Absolute path to the InnoSetup installer.
+ * @returns {boolean} true if the installer executable was launched successfully, false otherwise
  */
-const spawnScriptToLaunchInstaller = () => {
+const spawnScriptToLaunchInstaller = (installerPath) => {
+  // Verify the installer actually exists on disk before we hand off to Electron
+  // exit. spawn() on Windows emits ENOENT as an *async* 'error' event — it does
+  // NOT throw synchronously — so a missing exe would previously slip past the
+  // surrounding try/catch, return true, and Electron would exit silently with
+  // no installer running.
+  if (!fs.existsSync(installerPath)) {
+    consoleLogger.error(`Installer not found at ${installerPath}`);
+    return false;
+  }
   try {
-    // Launch the installer executable directly without waiting for it to finish
-    const child = spawn(installerExePath, [], {
+    const child = spawn(installerPath, [], {
       detached: true,
-      stdio: "ignore"
+      stdio: "ignore",
+    });
+    // Async ENOENT / permission errors surface here, not via try/catch.
+    child.on("error", (e) => {
+      consoleLogger.error(`Installer spawn error: ${e.message}`);
     });
     child.unref();
     return true;
@@ -382,13 +423,20 @@ const hashAndSaveZip = async (zipPath) => {
   fs.writeFileSync(hashPath, currHash);
 };
 
-const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
+const run = async (updaterEventEmitter, latestRelease, latestPreRelease, options = {}) => {
+  const {
+    baseUrl,
+    macAppName,
+    macZipName,
+    windowsZipName,
+    windowsInstallerName,
+  } = options;
 
   // If Windows and powershell not available, skip update
   if (os.platform() === "win32" && !checkPowerShellAvailable()) return;
 
   consoleLogger.info(
-    `[updateManager] run - latestRelease: ${latestRelease}; latestPreRelease: ${latestPreRelease}`
+    `[updateManager] run - latestRelease: ${latestRelease}; latestPreRelease: ${latestPreRelease}; baseUrl: ${baseUrl}; macAppName: ${macAppName}; macZipName: ${macZipName}; windowsZipName: ${windowsZipName}; windowsInstallerName: ${windowsInstallerName}`
   );
 
   updaterEventEmitter.emit("checking");
@@ -427,7 +475,15 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
       updaterEventEmitter.emit("updatingFrontend");
       try {
         consoleLogger.info("downloading frontend");
-        await downloadAndUnzipFrontendWindows(toUpdateFrontendVer);
+        // Capture the resolved installer path so we launch the correct exe even
+        // when `windowsInstallerName` in latest-release.json overrides the
+        // hardcoded `Oobee-setup.exe` default.
+        const resolvedInstallerPath = await downloadAndUnzipFrontendWindows(
+          toUpdateFrontendVer,
+          baseUrl,
+          windowsZipName,
+          windowsInstallerName,
+        );
         consoleLogger.info("successfully downloaded and unzipped frontend");
 
         const launchInstallerPrompt = new Promise((resolve) => {
@@ -438,10 +494,13 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
 
         if (proceedInstall) {
           const isInstallerScriptLaunched =
-            await spawnScriptToLaunchInstaller();
+            spawnScriptToLaunchInstaller(resolvedInstallerPath);
           if (isInstallerScriptLaunched) {
             writeUserDetailsToFile({ firstLaunchOnUpdate: true });
             updaterEventEmitter.emit("installerLaunched");
+          } else {
+            // Surface a launch failure to the UI instead of exiting silently.
+            updaterEventEmitter.emit("frontendDownloadFailed");
           }
         }
       } catch (e) {
@@ -452,6 +511,11 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
 
   } else {
     let restartRequired = false;
+    // The relaunch target. Defaults to the currently-running bundle path,
+    // but the mac update flow reassigns this to `parentDir/${macAppName}` so a
+    // rename in a future release (e.g. "Oobee.app" -> "Oobee Scanner.app")
+    // relaunches the newly-extracted bundle rather than the vanished old path.
+    let newAppPath = macOSExecutablePath;
     consoleLogger.info("mac detected");
     // user is on mac
     if (proceedUpdate) {
@@ -461,7 +525,7 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
       // If unsuccessful, the app will be launched with existing frontend
       try {
         consoleLogger.info("downloading frontend");
-        await downloadAndUnzipFrontendMac(toUpdateFrontendVer);
+        newAppPath = await downloadAndUnzipFrontendMac(toUpdateFrontendVer, baseUrl, macAppName, macZipName);
         consoleLogger.info("successfully downloaded and unzipped frontend");
 
         writeUserDetailsToFile({ firstLaunchOnUpdate: true });
@@ -473,7 +537,7 @@ const run = async (updaterEventEmitter, latestRelease, latestPreRelease) => {
     }
 
     if (restartRequired) {
-      updaterEventEmitter.emit("restartTriggered");
+      updaterEventEmitter.emit("restartTriggered", newAppPath);
     }
 
     // If backend already exists, check whether the engine version matches the app version.

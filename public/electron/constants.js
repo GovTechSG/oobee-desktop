@@ -38,11 +38,6 @@ const releaseUrl =
 
 const allReleasesUrl = "https://api.github.com/repos/GovTechSG/oobee/releases";
 
-const frontendReleaseUrl =
-  os.platform() === "win32"
-  ? "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-windows.zip"
-  : "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-macos.zip";
-
 const backendPath = path.join(appPath, "Oobee Backend");
 const frontendPath = path.join(appPath, "Oobee Frontend");
 
@@ -69,12 +64,6 @@ const resultsPath =
   os.platform() === "win32"
     ? path.join(process.env.APPDATA, "Oobee")
     : appPath;
-
-const installerExePath = path.join(
-  resultsPath,
-  "oobee-desktop-windows",
-  "Oobee-setup.exe"
-);
 
 const enginePath = path.join(backendPath, "oobee");
 
@@ -148,8 +137,6 @@ const userDataFilePath =
   os.platform() === "win32"
     ? path.join(resultsPath, "userData.txt")
     : path.join(appPath, "userData.txt");
-
-const artifactInstallerPath = path.join(appPath, "Oobee-setup.exe");
 
 const browserTypes = {
   chrome: "chrome",
@@ -225,9 +212,15 @@ const forbiddenCharactersInDirPath = ['<', '>', ':', '\"', '/', '\\', '|', '?', 
 const maxLengthForDirName = 80; 
 
 const versionComparator = (ver1, ver2) => {
-  // return 1 if ver1 >= ver2, else return -1 
-  const splitVer1 = ver1.split('.'); 
-  const splitVer2 = ver2.split('.'); 
+  // return 1 if ver1 >= ver2, else return -1. Return 0 if either arg is not a
+  // usable version string — callers use `=== 1` / `=== -1`, so 0 naturally
+  // reads as "no upgrade" and prevents a malformed release catalog from
+  // crashing the app with a TypeError on .split().
+  if (typeof ver1 !== 'string' || typeof ver2 !== 'string') {
+    return 0;
+  }
+  const splitVer1 = ver1.split('.');
+  const splitVer2 = ver2.split('.');
   let idx = 0; 
   while (splitVer1[idx] && splitVer2[idx]) {
     const int1 = parseInt(splitVer1[idx]);
@@ -266,9 +259,6 @@ module.exports = {
   resultsPath,
   userDataFilePath,
   browserTypes,
-  artifactInstallerPath,
-  frontendReleaseUrl,
-  installerExePath,
   macOSExecutablePath,
   defaultExportDir,
   isWindows,

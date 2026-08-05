@@ -174,12 +174,54 @@ app.on('ready', async () => {
     }),
   })
 
-  const { data: releaseInfo } = await axiosInstance
-    .get('https://govtechsg.github.io/oobee-desktop/latest-release.json')
-    .catch((e) => {
-      console.log('Unable to get release info')
-      return { data: undefined }
-    })
+  // Bootstrap URL for the release catalog. The catalog itself carries a
+  // `releaseInfo` field pointing to its own canonical URL; if that differs from
+  // the bootstrap URL, we re-fetch from the new location. This lets us migrate
+  // the release-catalog host by updating just the JSON at the old URL, without
+  // shipping a new client build.
+  const BOOTSTRAP_RELEASE_INFO_URL =
+    'https://govtechsg.github.io/oobee-desktop/latest-release.json'
+
+  // Reject anything that isn't a plain JSON object. If the server returns
+  // malformed JSON, axios can hand back the raw string as `r.data` (truthy)
+  // — treating that as a valid catalog led to `versionComparator(undefined, undefined)`
+  // crashing the app. Bad-shape catalogs are logged and treated as "no catalog",
+  // so the app still launches; the updater just skips this run.
+  const isValidReleaseCatalog = (data) =>
+    data !== null && typeof data === 'object' && !Array.isArray(data)
+
+  const fetchReleaseData = (url) =>
+    axiosInstance
+      .get(url)
+      .then((r) => {
+        if (!isValidReleaseCatalog(r.data)) {
+          console.log(`Release catalog at ${url} is not a JSON object; skipping updates`)
+          return undefined
+        }
+        return r.data
+      })
+      .catch((e) => {
+        console.log(`Unable to get release info from ${url}: ${e && e.message ? e.message : e}`)
+        return undefined
+      })
+
+  let releaseInfo = await fetchReleaseData(BOOTSTRAP_RELEASE_INFO_URL)
+  // Announcements are authored at the bootstrap location (docs branch of the
+  // current repo) — capture the value here BEFORE we potentially overwrite
+  // releaseInfo with the redirected catalog, which may live in a different
+  // repo and shouldn't get to control what shows in the announcement modal.
+  const bootstrapAnnouncement =
+    releaseInfo && typeof releaseInfo.alwaysShowAnnouncement === 'string'
+      ? releaseInfo.alwaysShowAnnouncement
+      : ''
+  if (
+    releaseInfo &&
+    releaseInfo.releaseInfo &&
+    releaseInfo.releaseInfo !== BOOTSTRAP_RELEASE_INFO_URL
+  ) {
+    const redirected = await fetchReleaseData(releaseInfo.releaseInfo)
+    if (redirected) releaseInfo = redirected
+  }
 
   const {
     latestRelease,
@@ -188,6 +230,14 @@ app.on('ready', async () => {
     latestPreReleaseNotes,
     allReleaseTags,
     allPreReleaseTags,
+    baseUrl,
+    macAppName,
+    macZipName,
+    windowsZipName,
+    windowsInstallerName,
+    // Note: `alwaysShowAnnouncement` is NOT destructured here — it's sourced
+    // from `bootstrapAnnouncement` above so a redirected release catalog in
+    // another repo can't override the current repo's announcement.
   } = releaseInfo ? releaseInfo : {}
 
   // create settings file if it does not exist
@@ -269,10 +319,13 @@ app.on('ready', async () => {
     app.exit()
   })
 
-  updateEvent.on('restartTriggered', () => {
-    // Explicitly specify the path to relaunch to ensure we launch the NEW updated app
-    // This is critical when the app is installed in non-standard locations like Downloads
-    const execPath = constants.macOSExecutablePath;
+  updateEvent.on('restartTriggered', (newAppPath) => {
+    // Explicitly specify the path to relaunch to ensure we launch the NEW updated app.
+    // This is critical when the app is installed in non-standard locations like Downloads,
+    // and also when a release renames the .app bundle — `newAppPath` reflects the newly
+    // extracted bundle (from `macAppName` in latest-release.json), which may differ from
+    // the currently-running `macOSExecutablePath`.
+    const execPath = newAppPath || constants.macOSExecutablePath;
     consoleLogger.info(`Relaunching app from: ${execPath}`);
     
     // Use macOS 'open' command to relaunch the .app bundle
@@ -293,7 +346,13 @@ app.on('ready', async () => {
     launchWindow.webContents.send('launchStatus', 'frontendDownloadFailed')
   })
 
-  await updateManager.run(updateEvent, latestRelease, latestPreRelease)
+  await updateManager.run(updateEvent, latestRelease, latestPreRelease, {
+    baseUrl,
+    macAppName,
+    macZipName,
+    windowsZipName,
+    windowsInstallerName,
+  })
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.close();
@@ -408,6 +467,7 @@ app.on('ready', async () => {
   mainWindow.webContents.send('appStatus', 'ready')
 
   const markdownToHTML = (md) => {
+    if (typeof md !== 'string' || md.length === 0) return ''
     return marked.parse(md)
   }
 
@@ -423,6 +483,11 @@ app.on('ready', async () => {
 
     const newestFormattedNotes = markdownToHTML(newestNotes)
     const latestRelNotes = markdownToHTML(latestReleaseNotes)
+    // Optional announcement authored by the release team in latest-release.json.
+    // Sourced from the bootstrap URL (not the redirected catalog) so control
+    // stays with the current repo. markdownToHTML returns '' for missing/empty
+    // input, so the renderer just checks truthiness to decide whether to show.
+    const announcementHTML = markdownToHTML(bootstrapAnnouncement)
 
     mainWindow.webContents.send('versionInfo', {
       appVersion: constants.appVersion,
@@ -432,6 +497,11 @@ app.on('ready', async () => {
       latestRelNotes,
       allReleaseTags,
       allPreReleaseTags,
+      alwaysShowAnnouncement: announcementHTML,
+      // baseUrl comes from the (possibly redirected) release catalog so the
+      // renderer can build repo-specific links (e.g. "See previous versions")
+      // without hardcoding the org/repo path.
+      baseUrl,
     })
   } else {
     mainWindow.webContents.send('versionInfo', {
