@@ -38,11 +38,6 @@ const releaseUrl =
 
 const allReleasesUrl = "https://api.github.com/repos/GovTechSG/oobee/releases";
 
-const frontendReleaseUrl =
-  os.platform() === "win32"
-  ? "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-windows.zip"
-  : "https://github.com/GovTechSG/oobee-desktop/releases/latest/download/oobee-desktop-macos.zip";
-
 const backendPath = path.join(appPath, "Oobee Backend");
 const frontendPath = path.join(appPath, "Oobee Frontend");
 
@@ -69,12 +64,6 @@ const resultsPath =
   os.platform() === "win32"
     ? path.join(process.env.APPDATA, "Oobee")
     : appPath;
-
-const installerExePath = path.join(
-  resultsPath,
-  "oobee-desktop-windows",
-  "Oobee-setup.exe"
-);
 
 const enginePath = path.join(backendPath, "oobee");
 
@@ -148,8 +137,6 @@ const userDataFilePath =
   os.platform() === "win32"
     ? path.join(resultsPath, "userData.txt")
     : path.join(appPath, "userData.txt");
-
-const artifactInstallerPath = path.join(appPath, "Oobee-setup.exe");
 
 const browserTypes = {
   chrome: "chrome",
@@ -266,9 +253,6 @@ module.exports = {
   resultsPath,
   userDataFilePath,
   browserTypes,
-  artifactInstallerPath,
-  frontendReleaseUrl,
-  installerExePath,
   macOSExecutablePath,
   defaultExportDir,
   isWindows,

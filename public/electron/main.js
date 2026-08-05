@@ -210,6 +210,9 @@ app.on('ready', async () => {
     allPreReleaseTags,
     baseUrl,
     macAppName,
+    macZipName,
+    windowsZipName,
+    windowsInstallerName,
   } = releaseInfo ? releaseInfo : {}
 
   // create settings file if it does not exist
@@ -321,6 +324,9 @@ app.on('ready', async () => {
   await updateManager.run(updateEvent, latestRelease, latestPreRelease, {
     baseUrl,
     macAppName,
+    macZipName,
+    windowsZipName,
+    windowsInstallerName,
   })
 
   if (launchWindow && !launchWindow.isDestroyed()) {
