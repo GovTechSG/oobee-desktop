@@ -86,13 +86,13 @@ Sentry.init({
 let launchWindow
 let mainWindow
 
-// We can't rely on an fs write probe from this process, because Electron's
-// kauth credentials are snapshotted at launch — Admin By Request's JIT admin
-// grant doesn't propagate into an already-running process, so the probe keeps
-// failing even after the user has been elevated. Query DirectoryService via
-// three complementary tools and treat the user as elevated if any of them
-// reports admin-group membership — different ABR configurations reflect the
-// grant through different lookup paths.
+// We can't rely on an fs write probe from this process for the admin-group
+// question, because Electron's kauth credentials are snapshotted at launch —
+// Admin By Request's JIT admin grant doesn't propagate into an already-running
+// process, so the probe keeps failing even after the user has been elevated.
+// Query DirectoryService via three complementary tools and treat the user as
+// elevated if any of them reports admin-group membership — different ABR
+// configurations reflect the grant through different lookup paths.
 function isCurrentUserInAdminGroup() {
   const username = os.userInfo().username
   const dseditgroup = captureCmd('/usr/sbin/dseditgroup', ['-o', 'checkmember', '-m', username, 'admin'])
@@ -108,8 +108,31 @@ function isCurrentUserInAdminGroup() {
   return dseditgroupSaysMember || idGnSaysMember || dsclSaysMember
 }
 
+// POSIX write permission on the .app bundle and its parent directory is
+// resolved from filesystem ownership/ACLs, not from the process's cached
+// group credentials, so an fs write probe IS reliable for this question
+// (unlike the admin-group question above). If both are writable, the
+// unprivileged install path in updateManager will succeed without any
+// admin prompt — regardless of whether the user is in the admin group.
+function isAppBundleWritable() {
+  try {
+    const bundlePath = constants.macOSExecutablePath
+    if (!bundlePath) return false
+    const parentDir = path.join(bundlePath, '..')
+    fs.accessSync(parentDir, fs.constants.W_OK)
+    fs.accessSync(bundlePath, fs.constants.W_OK)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 function computeNeedsElevation() {
   if (process.platform !== 'darwin') return false
+  // If the install location is user-writable (e.g. ~/Applications or any
+  // non-/Applications path the user owns), no admin rights are needed to
+  // replace the bundle — skip the ABR check entirely.
+  if (isAppBundleWritable()) return false
   return !isCurrentUserInAdminGroup()
 }
 
