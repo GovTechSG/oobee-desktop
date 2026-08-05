@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld("services", {
       return filePath;
     },
     getIsWindows: async () => ipcRenderer.invoke("isWindows"),
+    checkNeedsElevation: async () => ipcRenderer.invoke("checkNeedsElevation"),
     getProxySettings: async () => ipcRenderer.invoke("getProxySettings"),
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),
     getIncludeProxy: async () => ipcRenderer.invoke("getIncludeProxy"),

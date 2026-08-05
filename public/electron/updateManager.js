@@ -109,13 +109,15 @@ const execCommandStrict = async (command) => {
 // wrapped with sh -c "osascript -e '...single-quoted paths...'", which bash
 // silently mis-parsed, so osascript received a scrambled script and no admin
 // prompt ever appeared.
-const execCommandElevated = async (command) => {
+const execCommandElevated = async (command, prompt = "Updater wants to install new version of accessibility scanner") => {
   // Escape for AppleScript's "..." string literal. Single quotes need no
   // escaping since the surrounding delimiters are double quotes.
-  const appleScriptEscaped = command
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
-  const appleScript = `do shell script "${appleScriptEscaped}" with administrator privileges`;
+  const escapeForAppleScript = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const appleScriptEscaped = escapeForAppleScript(command);
+  // `with prompt "..."` replaces the default "osascript wants to make changes"
+  // line in the macOS authentication dialog with our own message.
+  const promptEscaped = escapeForAppleScript(prompt);
+  const appleScript = `do shell script "${appleScriptEscaped}" with prompt "${promptEscaped}" with administrator privileges`;
 
   return new Promise((resolve, reject) => {
     const proc = spawn("osascript", ["-e", appleScript], { cwd: appPath });
@@ -265,9 +267,17 @@ const downloadAndUnzipFrontendMac = async (tag = undefined) => {
 
   const downloadCommand = `mkdir -p '${resultsPath}' && curl -L '${downloadUrl}' -o '${resultsPath}/oobee-desktop-mac.zip'`;
 
-  // Use a temporary name that won't trigger macOS security warnings
+  // Use a temporary name that won't trigger macOS security warnings.
+  //
+  // The command must be idempotent for retry: if the unprivileged attempt
+  // partially mutates state (e.g. the `mv` completes but a later step fails
+  // because ABR elevation ends mid-flow), the elevated retry runs the same
+  // string and would otherwise fail at `mv` because its source is gone. So:
+  //   - `mv` is guarded by an existence check on the source
+  //   - `rm` on the zip uses -f so a missing file isn't fatal
+  //   - `rm -rf` on the temp app is already tolerant of a missing target
   const tempAppName = `.Oobee.tmp.${Date.now()}.app`;
-  const installCommand = `mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}' && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
+  const installCommand = `{ [ ! -e '${macOSExecutablePath}' ] || mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}'; } && ditto -xk '${resultsPath}/oobee-desktop-mac.zip' '${parentDir}' && rm -f '${resultsPath}/oobee-desktop-mac.zip' && rm -rf '${parentDir}/${tempAppName}' && xattr -rd com.apple.quarantine '${parentDir}/Oobee.app'`;
 
   await execCommand(downloadCommand);
 

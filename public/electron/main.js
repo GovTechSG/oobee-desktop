@@ -54,6 +54,19 @@ marked.use({
 })
 const fs = require('fs')
 const path = require('path')
+const { execFileSync, spawnSync } = require('child_process')
+
+// Runs a command and captures status/stdout/stderr without throwing on
+// non-zero exit — needed because `dseditgroup -o checkmember` legitimately
+// exits non-zero to signal "not a member".
+function captureCmd(bin, args) {
+  const r = spawnSync(bin, args, { encoding: 'utf8' })
+  return {
+    status: r.status,
+    stdout: (r.stdout || '').trim(),
+    stderr: (r.stderr || '').trim(),
+  }
+}
 
 const app = electronApp
 
@@ -73,10 +86,37 @@ Sentry.init({
 let launchWindow
 let mainWindow
 
+// We can't rely on an fs write probe from this process, because Electron's
+// kauth credentials are snapshotted at launch — Admin By Request's JIT admin
+// grant doesn't propagate into an already-running process, so the probe keeps
+// failing even after the user has been elevated. Query DirectoryService via
+// three complementary tools and treat the user as elevated if any of them
+// reports admin-group membership — different ABR configurations reflect the
+// grant through different lookup paths.
+function isCurrentUserInAdminGroup() {
+  const username = os.userInfo().username
+  const dseditgroup = captureCmd('/usr/sbin/dseditgroup', ['-o', 'checkmember', '-m', username, 'admin'])
+  const idGn = captureCmd('/usr/bin/id', ['-Gn', username])
+  const dscl = captureCmd('/usr/bin/dscl', ['.', '-read', '/Groups/admin', 'GroupMembership'])
+
+  // dseditgroup always prints "yes X is a member" / "no X is NOT a member" on
+  // stdout regardless of exit code, so parse stdout for portability.
+  const dseditgroupSaysMember = /^yes\b/i.test(dseditgroup.stdout)
+  const idGnSaysMember = idGn.stdout.split(/\s+/).includes('admin')
+  const dsclSaysMember = new RegExp(`\\b${username}\\b`).test(dscl.stdout)
+
+  return dseditgroupSaysMember || idGnSaysMember || dsclSaysMember
+}
+
+function computeNeedsElevation() {
+  if (process.platform !== 'darwin') return false
+  return !isCurrentUserInAdminGroup()
+}
+
 function createLaunchWindow() {
   launchWindow = new BrowserWindow({
-    width: 430,
-    height: 400,
+    width: 480,
+    height: 480,
     frame: false,
     webPreferences: {
       preload: constants.preloadPath,
@@ -163,6 +203,14 @@ app.on('ready', async () => {
   await launchWindowReady
   launchWindow.webContents.send('appStatus', 'launch')
 
+  // Register the elevation-check IPC handler BEFORE updateManager.run so that
+  // the renderer's polling loop (which starts as soon as the "Update available"
+  // screen renders) can reach it. updateManager.run awaits the user's Update /
+  // Later response, so any handler registered after it does not exist for the
+  // duration of the prompt — every invoke() rejects, and the setInterval
+  // callback swallows the rejection silently.
+  ipcMain.handle('checkNeedsElevation', () => computeNeedsElevation())
+
   // this is used for listening to messages that updateManager sends
   const updateEvent = new EventEmitter()
 
@@ -175,7 +223,11 @@ app.on('ready', async () => {
   })
 
   updateEvent.on('promptFrontendUpdate', (userResponse, versionInfo) => {
-    launchWindow.webContents.send('launchStatus', { status: 'promptFrontendUpdate', ...versionInfo })
+    launchWindow.webContents.send('launchStatus', {
+      status: 'promptFrontendUpdate',
+      ...versionInfo,
+      adminByRequestPresent: computeNeedsElevation(),
+    })
     ipcMain.once('proceedUpdate', (_event, response) => {
       userResponse(response)
     })
