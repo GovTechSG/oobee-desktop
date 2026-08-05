@@ -33,9 +33,16 @@ jobs:
         ALL_RELEASE_TAGS=$(echo "$ALL_RELEASES" | jq -r '[.[] | select(.prerelease | not) | .tag_name | "\"\(.)\""] | join(",")')
         ALL_PRE_RELEASE_TAGS=$(echo "$ALL_RELEASES" | jq -r '[.[] | select(.prerelease) | .tag_name | "\"\(.)\""] | join(",")')
         
-        # Create the JSON file in the 'docs' folder
+        # Create the JSON file in the 'docs' folder.
+        # `releaseInfo` is the canonical URL of this JSON file. The updater
+        # re-fetches from this URL if it differs from where the client bootstrapped,
+        # so the repo/host can be migrated by updating just this field.
+        # `baseUrl` is the GitHub repo root the updater uses to build download URLs.
         mkdir -p docs
         echo "{
+          \"releaseInfo\": \"https://govtechsg.github.io/oobee-desktop/latest-release.json\",
+          \"baseUrl\": \"https://github.com/GovTechSG/oobee-desktop\",
+          \"macAppName\": \"Oobee.app\",
           \"latestRelease\": \"$LATEST_RELEASE_TAG\",
           \"latestPreRelease\": \"$LATEST_PRE_RELEASE_TAG\",
           \"allReleaseTags\": [$ALL_RELEASE_TAGS],

@@ -174,12 +174,32 @@ app.on('ready', async () => {
     }),
   })
 
-  const { data: releaseInfo } = await axiosInstance
-    .get('https://govtechsg.github.io/oobee-desktop/latest-release.json')
-    .catch((e) => {
-      console.log('Unable to get release info')
-      return { data: undefined }
-    })
+  // Bootstrap URL for the release catalog. The catalog itself carries a
+  // `releaseInfo` field pointing to its own canonical URL; if that differs from
+  // the bootstrap URL, we re-fetch from the new location. This lets us migrate
+  // the release-catalog host by updating just the JSON at the old URL, without
+  // shipping a new client build.
+  const BOOTSTRAP_RELEASE_INFO_URL =
+    'https://govtechsg.github.io/oobee-desktop/latest-release.json'
+
+  const fetchReleaseData = (url) =>
+    axiosInstance
+      .get(url)
+      .then((r) => r.data)
+      .catch(() => {
+        console.log(`Unable to get release info from ${url}`)
+        return undefined
+      })
+
+  let releaseInfo = await fetchReleaseData(BOOTSTRAP_RELEASE_INFO_URL)
+  if (
+    releaseInfo &&
+    releaseInfo.releaseInfo &&
+    releaseInfo.releaseInfo !== BOOTSTRAP_RELEASE_INFO_URL
+  ) {
+    const redirected = await fetchReleaseData(releaseInfo.releaseInfo)
+    if (redirected) releaseInfo = redirected
+  }
 
   const {
     latestRelease,
@@ -188,6 +208,8 @@ app.on('ready', async () => {
     latestPreReleaseNotes,
     allReleaseTags,
     allPreReleaseTags,
+    baseUrl,
+    macAppName,
   } = releaseInfo ? releaseInfo : {}
 
   // create settings file if it does not exist
@@ -269,10 +291,13 @@ app.on('ready', async () => {
     app.exit()
   })
 
-  updateEvent.on('restartTriggered', () => {
-    // Explicitly specify the path to relaunch to ensure we launch the NEW updated app
-    // This is critical when the app is installed in non-standard locations like Downloads
-    const execPath = constants.macOSExecutablePath;
+  updateEvent.on('restartTriggered', (newAppPath) => {
+    // Explicitly specify the path to relaunch to ensure we launch the NEW updated app.
+    // This is critical when the app is installed in non-standard locations like Downloads,
+    // and also when a release renames the .app bundle — `newAppPath` reflects the newly
+    // extracted bundle (from `macAppName` in latest-release.json), which may differ from
+    // the currently-running `macOSExecutablePath`.
+    const execPath = newAppPath || constants.macOSExecutablePath;
     consoleLogger.info(`Relaunching app from: ${execPath}`);
     
     // Use macOS 'open' command to relaunch the .app bundle
@@ -293,7 +318,10 @@ app.on('ready', async () => {
     launchWindow.webContents.send('launchStatus', 'frontendDownloadFailed')
   })
 
-  await updateManager.run(updateEvent, latestRelease, latestPreRelease)
+  await updateManager.run(updateEvent, latestRelease, latestPreRelease, {
+    baseUrl,
+    macAppName,
+  })
 
   if (launchWindow && !launchWindow.isDestroyed()) {
     launchWindow.close();
