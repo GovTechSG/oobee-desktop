@@ -212,9 +212,15 @@ const forbiddenCharactersInDirPath = ['<', '>', ':', '\"', '/', '\\', '|', '?', 
 const maxLengthForDirName = 80; 
 
 const versionComparator = (ver1, ver2) => {
-  // return 1 if ver1 >= ver2, else return -1 
-  const splitVer1 = ver1.split('.'); 
-  const splitVer2 = ver2.split('.'); 
+  // return 1 if ver1 >= ver2, else return -1. Return 0 if either arg is not a
+  // usable version string — callers use `=== 1` / `=== -1`, so 0 naturally
+  // reads as "no upgrade" and prevents a malformed release catalog from
+  // crashing the app with a TypeError on .split().
+  if (typeof ver1 !== 'string' || typeof ver2 !== 'string') {
+    return 0;
+  }
+  const splitVer1 = ver1.split('.');
+  const splitVer2 = ver2.split('.');
   let idx = 0; 
   while (splitVer1[idx] && splitVer2[idx]) {
     const int1 = parseInt(splitVer1[idx]);

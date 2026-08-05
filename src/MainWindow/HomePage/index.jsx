@@ -38,6 +38,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   const [showEditDataModal, setShowEditDataModal] = useState(false)
   const [showNoChromeErrorModal, setShowNoChromeErrorModal] = useState(false)
   const [showWhatsNewModal, setShowWhatsNewModal] = useState(false)
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false)
   const [showAboutPhModal, setShowAboutPhModal] = useState(false)
   const [showProxyModal, setShowProxyModal] = useState(false)
   const [proxyValue, setProxyValue] = useState('')
@@ -190,6 +191,17 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
     const whatsNewModalTimeout = getUserData()
     return () => clearTimeout(whatsNewModalTimeout)
   }, [])
+
+  // Show the announcement modal whenever the release catalog contains a
+  // non-empty `alwaysShowAnnouncement` field. Independent of the update
+  // "What's New" modal — dismissing it just closes the modal for the
+  // session, next launch shows it again as long as the field is still set.
+  useEffect(() => {
+    const announcement = appVersionInfo && appVersionInfo.alwaysShowAnnouncement
+    if (typeof announcement === 'string' && announcement.length > 0) {
+      setShowAnnouncementModal(true)
+    }
+  }, [appVersionInfo && appVersionInfo.alwaysShowAnnouncement])
 
   const editUserData = (info) => {
     setUserData((initData) => ({ ...initData, ...info }))
@@ -417,6 +429,18 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             setShowModal={setShowWhatsNewModal}
             version={appVersionInfo.appVersion}
             releaseNotes={getReleaseNotesOnUpdate(appVersionInfo)}
+            baseUrl={appVersionInfo.baseUrl}
+          />
+        )}
+        {showAnnouncementModal && appVersionInfo.alwaysShowAnnouncement && (
+          <WhatsNewModal
+            modalId="announcement-modal"
+            title="Announcement"
+            showModal={showAnnouncementModal}
+            setShowModal={setShowAnnouncementModal}
+            version={appVersionInfo.appVersion}
+            releaseNotes={appVersionInfo.alwaysShowAnnouncement}
+            rawHtml
           />
         )}
         {showAboutPhModal && (

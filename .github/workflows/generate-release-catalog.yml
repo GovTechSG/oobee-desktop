@@ -32,7 +32,13 @@ jobs:
         # Extract all release and pre-release tags as comma-separated strings
         ALL_RELEASE_TAGS=$(echo "$ALL_RELEASES" | jq -r '[.[] | select(.prerelease | not) | .tag_name | "\"\(.)\""] | join(",")')
         ALL_PRE_RELEASE_TAGS=$(echo "$ALL_RELEASES" | jq -r '[.[] | select(.prerelease) | .tag_name | "\"\(.)\""] | join(",")')
-        
+
+        # Preserve any manually-edited announcement across auto-generated
+        # releases: read the previous file's value, default to "" if missing
+        # or if the file doesn't exist yet.
+        PREVIOUS_ANNOUNCEMENT=$(jq -r '.alwaysShowAnnouncement // ""' docs/latest-release.json 2>/dev/null || echo "")
+        ANNOUNCEMENT_JSON=$(printf '%s' "$PREVIOUS_ANNOUNCEMENT" | jq -R -s @json)
+
         # Create the JSON file in the 'docs' folder.
         # `releaseInfo` is the canonical URL of this JSON file. The updater
         # re-fetches from this URL if it differs from where the client bootstrapped,
@@ -46,6 +52,7 @@ jobs:
           \"macZipName\": \"oobee-desktop-macos.zip\",
           \"windowsZipName\": \"oobee-desktop-windows.zip\",
           \"windowsInstallerName\": \"Oobee-setup.exe\",
+          \"alwaysShowAnnouncement\": $ANNOUNCEMENT_JSON,
           \"latestRelease\": \"$LATEST_RELEASE_TAG\",
           \"latestPreRelease\": \"$LATEST_PRE_RELEASE_TAG\",
           \"allReleaseTags\": [$ALL_RELEASE_TAGS],
