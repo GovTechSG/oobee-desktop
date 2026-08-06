@@ -79,12 +79,35 @@ const waitForExit = (proc, timeoutMs = 30000) => {
   })
 }
 
+const isWindows = os.platform() === 'win32'
+
 /**
- * Gracefully request the child process to shut down and wait for it to exit.
- * Sends SIGINT first, then force-kills after a timeout.
- * On Windows, SIGINT via kill() calls TerminateProcess immediately, so
- * we also disconnect the IPC channel which causes the child's stdin to close
- * and triggers its 'disconnect' event, giving it a chance to clean up.
+ * Retry fs.removeSync with delays for Windows file lock issues.
+ * Chrome/Edge release file handles asynchronously after being terminated.
+ */
+const retryRemove = async (targetPath, label, maxAttempts = 30, delayMs = 10000) => {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      fs.removeSync(targetPath)
+      console.log(`[scanManager] Removed ${label}`)
+      return true
+    } catch (err) {
+      if (attempt < maxAttempts - 1) {
+        console.warn(`[scanManager] ${label} attempt ${attempt + 1}/${maxAttempts}: ${err.message} — retrying in ${delayMs / 1000}s`)
+        await new Promise(r => setTimeout(r, delayMs))
+      } else {
+        console.error(`[scanManager] Failed to remove ${label} after ${maxAttempts} attempts`)
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * Gracefully stop the child process and wait for it to exit.
+ * On macOS/Linux, SIGINT triggers oobee's cleanup handler.
+ * On Windows, SIGINT calls TerminateProcess (no cleanup handler runs),
+ * so we kill the entire process tree via taskkill.
  */
 const gracefullyStopChild = async (proc) => {
   if (!proc || proc.exitCode !== null) {
@@ -94,9 +117,8 @@ const gracefullyStopChild = async (proc) => {
 
   console.log(`[scanManager] gracefullyStopChild: killing PID ${proc.pid}`)
 
-  // On Windows, kill the entire process tree (node + chrome subprocesses).
-  // ChildProcess.kill() only kills the node process, leaving Chrome orphaned.
-  if (os.platform() === 'win32') {
+  if (isWindows) {
+    // Kill the entire process tree (node + chrome subprocesses).
     try {
       spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
     } catch (e) {
@@ -106,11 +128,9 @@ const gracefullyStopChild = async (proc) => {
     try { proc.kill('SIGINT') } catch {}
   }
 
-  // Wait up to 30s for the child to exit.
   await waitForExit(proc, 30000)
   console.log(`[scanManager] after waitForExit: exitCode=${proc.exitCode}`)
 
-  // Force-kill if still alive.
   if (proc.exitCode === null) {
     console.log('[scanManager] process still alive, sending SIGKILL')
     try { proc.kill('SIGKILL') } catch {}
@@ -118,12 +138,18 @@ const gracefullyStopChild = async (proc) => {
   }
 
   console.log(`[scanManager] gracefullyStopChild done, final exitCode=${proc.exitCode}`)
+
+  // On Windows, wait for Chrome to release file handles before cleanup.
+  if (isWindows) {
+    await new Promise(r => setTimeout(r, 5000))
+  }
 }
 
 /**
- * Remove residual Chrome/Edge/Chromium profile directories created by oobee.
- * These are named `oobee-{randomToken}` and `oobee-{randomToken}_pool*`
- * inside the browser's User Data directory.
+ * Windows-only: Remove residual browser profile directories that oobee
+ * couldn't clean up (because SIGINT killed it without running handlers).
+ * Removes `oobee-{randomToken}` and `oobee-{randomToken}_pool*` from
+ * Chrome and Edge User Data directories.
  */
 const cleanUpBrowserProfiles = async (randomToken) => {
   if (!randomToken) return
@@ -135,36 +161,16 @@ const cleanUpBrowserProfiles = async (randomToken) => {
 
   for (const dataDir of dataDirs) {
     const profileDir = path.join(dataDir, `oobee-${randomToken}`)
-
-    // Remove the main profile directory.
     if (fs.existsSync(profileDir)) {
-      // On Windows, Chrome may still be releasing file locks.
-      // Retry a few times with delays.
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          fs.removeSync(profileDir)
-          break
-        } catch {
-          await new Promise(r => setTimeout(r, 3000))
-        }
-      }
+      await retryRemove(profileDir, 'browser profile')
     }
 
     // Remove _pool* sibling directories created by browser pool re-launches.
     try {
-      const entries = fs.readdirSync(dataDir)
       const prefix = `oobee-${randomToken}_pool`
-      for (const entry of entries) {
+      for (const entry of fs.readdirSync(dataDir)) {
         if (entry.startsWith(prefix)) {
-          const poolDir = path.join(dataDir, entry)
-          for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-              fs.removeSync(poolDir)
-              break
-            } catch {
-              await new Promise(r => setTimeout(r, 3000))
-            }
-          }
+          await retryRemove(path.join(dataDir, entry), 'pool dir')
         }
       }
     } catch {}
@@ -333,13 +339,17 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log('[scanManager] performCancel: no process to kill')
       }
 
-      // Clean up browser profile directories that oobee may not have cleaned.
-      if (intermediateFolderName) {
-        console.log(`[scanManager] cleaning up browser profiles for: ${intermediateFolderName}`)
+      // On Windows, SIGINT kills the process without running oobee's cleanup.
+      // Clean up residual browser profiles and crawlee files ourselves.
+      if (intermediateFolderName && isWindows) {
+        console.log('[scanManager] Windows cleanup starting')
         try { await cleanUpBrowserProfiles(intermediateFolderName) } catch (e) {
           console.log(`[scanManager] cleanUpBrowserProfiles error: ${e.message}`)
         }
         try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+        try { await cleanUpExportDirCrawleeFiles(intermediateFolderName) } catch (e) {
+          console.log(`[scanManager] cleanUpExportDirCrawleeFiles error: ${e.message}`)
+        }
       }
       console.log('[scanManager] performCancel complete')
     }
@@ -549,9 +559,10 @@ const startScan = async (scanDetails, scanEvent) => {
 
         await gracefullyStopChild(scan)
 
-        if (intermediateFolderName) {
+        if (intermediateFolderName && isWindows) {
           try { await cleanUpBrowserProfiles(intermediateFolderName) } catch {}
           try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+          try { await cleanUpExportDirCrawleeFiles(intermediateFolderName) } catch {}
         }
         return
       }
@@ -758,11 +769,36 @@ const cleanUpIntermediateFolders = async (
   setDefaultFolders = false
 ) => {
   const pathToDelete = path.join(resultsPath, folderName)
-  await fs.pathExists(pathToDelete).then((exists) => {
-    if (exists) {
-      fs.removeSync(pathToDelete)
+  if (!await fs.pathExists(pathToDelete)) return
+  await retryRemove(pathToDelete, 'intermediate folder')
+}
+
+/**
+ * Remove crawlee intermediate subfolders (crawlee, crawlee_rq, tmp-items)
+ * from the export directory results folder after a cancelled scan.
+ * The results folder itself is preserved (user may want partial artifacts).
+ */
+const cleanUpExportDirCrawleeFiles = async (folderName) => {
+  const userData = readUserDataFromFile()
+  if (!userData || !userData.exportDir) return
+
+  const exportResultsDir = path.join(userData.exportDir, folderName)
+  if (!await fs.pathExists(exportResultsDir)) return
+
+  for (const dirName of ['crawlee', 'crawlee_rq', 'tmp-items']) {
+    const dirPath = path.join(exportResultsDir, dirName)
+    if (fs.existsSync(dirPath)) {
+      await retryRemove(dirPath, `export ${dirName}`)
     }
-  })
+  }
+
+  // Remove the export results folder if it's now empty.
+  try {
+    if (fs.readdirSync(exportResultsDir).length === 0) {
+      fs.removeSync(exportResultsDir)
+      console.log('[scanManager] Removed empty export folder')
+    }
+  } catch {}
 }
 
 const moveCustomFlowResultsToExportDir = (
