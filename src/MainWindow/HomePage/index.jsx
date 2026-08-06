@@ -302,6 +302,8 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       setCompletedScanId(scanResponse.scanId)
       if (scanDetails.scanType === 'Custom flow') {
         navigate('/custom_flow', { state: { scanDetails } })
+      } else if (scanDetails.scanType === 'LLM analysis') {
+        navigate('/llm_chat', { state: { scanId: scanResponse.scanId } })
       } else {
         navigate('/result')
       }
