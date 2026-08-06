@@ -433,7 +433,11 @@ app.on('ready', async () => {
   })
 
   scanEvent.on('killScan', () => {
-    mainWindow.webContents.send('killScan')
+    // Delay to ensure the renderer has re-mounted and registered its listener
+    // after navigating back from the scanning page.
+    setTimeout(() => {
+      mainWindow.webContents.send('killScan')
+    }, 500)
   })
 
   ipcMain.on('openLink', (_event, url) => {

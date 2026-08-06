@@ -32,6 +32,7 @@ let killChildProcessSignal = false
 let pendingCancelHandler = null
 
 let setKillChildProcessSignal = () => {
+  console.log(`[scanManager] setKillChildProcessSignal: pendingCancelHandler=${!!pendingCancelHandler}, currentChildProcess=${!!currentChildProcess}`)
   killChildProcessSignal = true
   if (pendingCancelHandler) {
     const handler = pendingCancelHandler
@@ -57,6 +58,116 @@ const killChildProcess = () => {
     setTimeout(() => {
       try { proc.kill('SIGKILL') } catch {}
     }, 120000)
+  }
+}
+
+/**
+ * Wait for a child process to exit, with a timeout.
+ * Resolves when the process exits or the timeout fires.
+ */
+const waitForExit = (proc, timeoutMs = 30000) => {
+  return new Promise((resolve) => {
+    let settled = false
+    const onDone = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    proc.on('close', onDone)
+    proc.on('exit', onDone)
+    setTimeout(onDone, timeoutMs)
+  })
+}
+
+/**
+ * Gracefully request the child process to shut down and wait for it to exit.
+ * Sends SIGINT first, then force-kills after a timeout.
+ * On Windows, SIGINT via kill() calls TerminateProcess immediately, so
+ * we also disconnect the IPC channel which causes the child's stdin to close
+ * and triggers its 'disconnect' event, giving it a chance to clean up.
+ */
+const gracefullyStopChild = async (proc) => {
+  if (!proc || proc.exitCode !== null) {
+    console.log('[scanManager] gracefullyStopChild: process already exited or null')
+    return
+  }
+
+  console.log(`[scanManager] gracefullyStopChild: killing PID ${proc.pid}`)
+
+  // On Windows, kill the entire process tree (node + chrome subprocesses).
+  // ChildProcess.kill() only kills the node process, leaving Chrome orphaned.
+  if (os.platform() === 'win32') {
+    try {
+      spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
+    } catch (e) {
+      console.log(`[scanManager] taskkill failed: ${e.message}`)
+    }
+  } else {
+    try { proc.kill('SIGINT') } catch {}
+  }
+
+  // Wait up to 30s for the child to exit.
+  await waitForExit(proc, 30000)
+  console.log(`[scanManager] after waitForExit: exitCode=${proc.exitCode}`)
+
+  // Force-kill if still alive.
+  if (proc.exitCode === null) {
+    console.log('[scanManager] process still alive, sending SIGKILL')
+    try { proc.kill('SIGKILL') } catch {}
+    await waitForExit(proc, 5000)
+  }
+
+  console.log(`[scanManager] gracefullyStopChild done, final exitCode=${proc.exitCode}`)
+}
+
+/**
+ * Remove residual Chrome/Edge/Chromium profile directories created by oobee.
+ * These are named `oobee-{randomToken}` and `oobee-{randomToken}_pool*`
+ * inside the browser's User Data directory.
+ */
+const cleanUpBrowserProfiles = async (randomToken) => {
+  if (!randomToken) return
+
+  const dataDirs = [
+    getDefaultChromeDataDir(),
+    getDefaultEdgeDataDir(),
+  ].filter(Boolean)
+
+  for (const dataDir of dataDirs) {
+    const profileDir = path.join(dataDir, `oobee-${randomToken}`)
+
+    // Remove the main profile directory.
+    if (fs.existsSync(profileDir)) {
+      // On Windows, Chrome may still be releasing file locks.
+      // Retry a few times with delays.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          fs.removeSync(profileDir)
+          break
+        } catch {
+          await new Promise(r => setTimeout(r, 3000))
+        }
+      }
+    }
+
+    // Remove _pool* sibling directories created by browser pool re-launches.
+    try {
+      const entries = fs.readdirSync(dataDir)
+      const prefix = `oobee-${randomToken}_pool`
+      for (const entry of entries) {
+        if (entry.startsWith(prefix)) {
+          const poolDir = path.join(dataDir, entry)
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              fs.removeSync(poolDir)
+              break
+            } catch {
+              await new Promise(r => setTimeout(r, 3000))
+            }
+          }
+        }
+      }
+    } catch {}
   }
 }
 
@@ -205,20 +316,32 @@ const startScan = async (scanDetails, scanEvent) => {
     }
 
     const performCancel = async () => {
+      console.log('[scanManager] performCancel called')
       const proc = currentChildProcess
-      if (proc) {
-        try { proc.kill('SIGINT') } catch {}
-        setTimeout(() => {
-          try { proc.kill('SIGKILL') } catch {}
-        }, 10 * 60 * 1000)
-      }
       currentChildProcess = null
       killChildProcessSignal = false
-      if (intermediateFolderName) {
-        try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
-      }
+
+      // Resolve immediately so the 'close' handler doesn't race
+      // and produce a false "no pages scanned" error.
       resolveOnce({ cancelled: true })
       scanEvent.emit('killScan')
+      console.log('[scanManager] resolved with cancelled, killScan emitted')
+
+      if (proc) {
+        await gracefullyStopChild(proc)
+      } else {
+        console.log('[scanManager] performCancel: no process to kill')
+      }
+
+      // Clean up browser profile directories that oobee may not have cleaned.
+      if (intermediateFolderName) {
+        console.log(`[scanManager] cleaning up browser profiles for: ${intermediateFolderName}`)
+        try { await cleanUpBrowserProfiles(intermediateFolderName) } catch (e) {
+          console.log(`[scanManager] cleanUpBrowserProfiles error: ${e.message}`)
+        }
+        try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+      }
+      console.log('[scanManager] performCancel complete')
     }
 
     const hasGeneratedReportHtml = () => {
@@ -416,17 +539,20 @@ const startScan = async (scanDetails, scanEvent) => {
     scan.stdout.setEncoding('utf8')
     scan.stdout.on('data', async (data) => {
       if (killChildProcessSignal) {
-        scan.kill('SIGINT')
-        setTimeout(() => {
-          try { scan.kill('SIGKILL') } catch {}
-        }, 180000)
         currentChildProcess = null
         killChildProcessSignal = false
-        if (intermediateFolderName) {
-          await cleanUpIntermediateFolders(intermediateFolderName)
-        }
+
+        // Resolve immediately so the 'close' handler doesn't race
+        // and produce a false "no pages scanned" error.
         resolveOnce({ cancelled: true })
         scanEvent.emit('killScan')
+
+        await gracefullyStopChild(scan)
+
+        if (intermediateFolderName) {
+          try { await cleanUpBrowserProfiles(intermediateFolderName) } catch {}
+          try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+        }
         return
       }
 
@@ -669,6 +795,7 @@ const init = (scanEvent) => {
   })
 
   ipcMain.handle('abortScan', async (_event) => {
+    console.log('[scanManager] abortScan IPC received')
     setKillChildProcessSignal()
   })
 
