@@ -37,7 +37,7 @@ jobs:
         # releases: read the previous file's value, default to "" if missing
         # or if the file doesn't exist yet.
         PREVIOUS_ANNOUNCEMENT=$(jq -r '.alwaysShowAnnouncement // ""' docs/latest-release.json 2>/dev/null || echo "")
-        ANNOUNCEMENT_JSON=$(printf '%s' "$PREVIOUS_ANNOUNCEMENT" | jq -R -s @json)
+        ANNOUNCEMENT_JSON=$(printf '%s' "$PREVIOUS_ANNOUNCEMENT" | jq -R -s -r @json)
 
         # Create the JSON file in the 'docs' folder.
         # `releaseInfo` is the canonical URL of this JSON file. The updater
