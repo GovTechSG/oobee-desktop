@@ -780,9 +780,10 @@ const cleanUpIntermediateFolders = async (
 }
 
 /**
- * Remove crawlee intermediate subfolders (crawlee, crawlee_rq, tmp-items)
- * from the export directory results folder after a cancelled scan.
- * The results folder itself is preserved (user may want partial artifacts).
+ * Remove crawlee intermediate subfolders (datasets, request_queues,
+ * key_value_stores, tmp-items) from the export directory results folder
+ * after a cancelled scan. The results folder itself is preserved (user
+ * may want partial artifacts).
  */
 const cleanUpExportDirCrawleeFiles = async (folderName) => {
   const userData = readUserDataFromFile()
@@ -791,7 +792,7 @@ const cleanUpExportDirCrawleeFiles = async (folderName) => {
   const exportResultsDir = path.join(userData.exportDir, folderName)
   if (!await fs.pathExists(exportResultsDir)) return
 
-  for (const dirName of ['crawlee', 'crawlee_rq', 'tmp-items']) {
+  for (const dirName of ['datasets', 'request_queues', 'key_value_stores', 'tmp-items']) {
     const dirPath = path.join(exportResultsDir, dirName)
     if (fs.existsSync(dirPath)) {
       await retryRemove(dirPath, `export ${dirName}`)
