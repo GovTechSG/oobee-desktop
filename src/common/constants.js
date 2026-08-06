@@ -9,6 +9,7 @@ export const scanTypes = {
   'Website crawler': 'website',
   'Custom flow': 'custom',
   'Local file': 'localfile',
+  'LLM analysis': 'llm-analysis',
 }
 
 export const viewportTypes = {

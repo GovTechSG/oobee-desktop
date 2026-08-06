@@ -38,6 +38,7 @@ const https = require('https')
 const EventEmitter = require('events')
 const constants = require('./constants')
 const scanManager = require('./scanManager')
+const llmAnalysis = require('./llmAnalysis')
 const updateManager = require('./updateManager')
 const userDataManager = require('./userDataManager.js')
 const { consoleLogger } = require('./logs')
@@ -438,6 +439,11 @@ app.on('ready', async () => {
     setTimeout(() => {
       mainWindow.webContents.send('killScan')
     }, 500)
+  })
+
+  llmAnalysis.init({
+    mainWindow,
+    getResultsFolderPath: scanManager.getResultsFolderPath,
   })
 
   ipcMain.on('openLink', (_event, url) => {
