@@ -1,0 +1,642 @@
+const { ipcMain } = require('electron')
+const fs = require('fs-extra')
+const path = require('path')
+const zlib = require('zlib')
+const axios = require('axios')
+const { loadLLMConfig } = require('./llm-config')
+const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
+
+const MAX_DOM_CHARS = 30_000
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+const MAX_TOOL_ITEMS = 20
+const MAX_INDEX_KB = 30
+const ANTHROPIC_VERSION = '2023-06-01'
+
+const sessions = new Map() // sessionId -> { storagePath, cfg, artifacts, summary, systemPrompt, messages, abort }
+
+const log = (...args) => console.log('[llmAnalysis]', ...args)
+const warn = (...args) => console.warn('[llmAnalysis]', ...args)
+
+function readGzB64(filePath) {
+  const b64 = fs.readFileSync(filePath, 'utf8')
+  return JSON.parse(zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8'))
+}
+
+function tryReadGzB64(storagePath, name) {
+  const p = path.join(storagePath, name)
+  if (!fs.existsSync(p)) return null
+  try {
+    return readGzB64(p)
+  } catch (e) {
+    warn(`failed to decode ${name}: ${e.message}`)
+    return null
+  }
+}
+
+function loadArtifacts(storagePath) {
+  log(`loading artifacts from ${storagePath}`)
+  try {
+    log('storagePath listing:', fs.readdirSync(storagePath).slice(0, 40))
+  } catch (_) {
+    // best-effort log
+  }
+  const scanData = tryReadGzB64(storagePath, 'scanData.json.gz.b64')
+  // Load scanIssuesSummary eagerly — it has per-category rule arrays we need
+  // for the summary card + system-prompt findings index. scanItemsSummary only
+  // has aggregate counts, not per-rule detail.
+  const scanIssuesSummary = tryReadGzB64(storagePath, 'scanIssuesSummary.json.gz.b64')
+  return {
+    scanData,
+    scanIssuesSummary,
+    getScanItems: () => tryReadGzB64(storagePath, 'scanItems.json.gz.b64'),
+    getPagesSummary: () => tryReadGzB64(storagePath, 'scanPagesSummary.json.gz.b64'),
+    getPagesDetail: () => tryReadGzB64(storagePath, 'scanPagesDetail.json.gz.b64'),
+    getManifest: () => {
+      const p = path.join(storagePath, 'pageDOMs', 'domManifest.json')
+      if (!fs.existsSync(p)) return { pages: [] }
+      try {
+        return fs.readJsonSync(p)
+      } catch (e) {
+        warn(`failed to read domManifest.json: ${e.message}`)
+        return { pages: [] }
+      }
+    },
+  }
+}
+
+// scanIssuesSummary shape: { mustFix: [rule, ...], goodToFix: [...], needsReview: [...] }
+// scanItems shape:         { mustFix: { rules: [rule, ...], totalItems, ... }, ... }
+// Each `rule` has { rule, description, axeImpact, conformance, totalItems, htmlGroups, pagesAffected }.
+function issuesSummaryRules(sis, cat) {
+  const arr = sis?.[cat]
+  return Array.isArray(arr) ? arr : []
+}
+
+function scanItemsRules(items, cat) {
+  const catObj = items?.[cat]
+  if (!catObj) return []
+  return Array.isArray(catObj.rules) ? catObj.rules : []
+}
+
+function parsePct(s) {
+  if (typeof s === 'number') return s
+  if (typeof s === 'string') {
+    const n = Number(s)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function pick(obj, keys) {
+  const out = {}
+  for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k]
+  return out
+}
+
+function computeSummary(artifacts) {
+  const sd = artifacts.scanData || {}
+  const sis = artifacts.scanIssuesSummary || {}
+  try {
+    log('scanData keys:', Object.keys(sd))
+    log('scanIssuesSummary keys:', Object.keys(sis))
+  } catch (_) {
+    // best-effort log
+  }
+
+  // Per-category rule arrays live at the top level of scanIssuesSummary.
+  const mustFixRules = issuesSummaryRules(sis, 'mustFix')
+  const goodToFixRules = issuesSummaryRules(sis, 'goodToFix')
+  const needsReviewRules = issuesSummaryRules(sis, 'needsReview')
+
+  const sumTotalItems = (rules) =>
+    rules.reduce((n, r) => n + (Number(r?.totalItems) || 0), 0)
+
+  const mustFixCount = { rules: mustFixRules.length, occurrences: sumTotalItems(mustFixRules) }
+  const goodToFixCount = { rules: goodToFixRules.length, occurrences: sumTotalItems(goodToFixRules) }
+  const needsReviewCount = {
+    rules: needsReviewRules.length,
+    occurrences: sumTotalItems(needsReviewRules),
+  }
+
+  const topRules = [...mustFixRules]
+    .sort((a, b) => (b?.totalItems ?? 0) - (a?.totalItems ?? 0))
+    .slice(0, 5)
+    .map((r) => ({
+      rule: r?.rule ?? r?.ruleId ?? '',
+      description: r?.description ?? '',
+      totalItems: r?.totalItems ?? 0,
+      axeImpact: r?.axeImpact ?? '',
+      conformance: r?.conformance ?? r?.wcagConformance ?? [],
+    }))
+
+  const topPages = Array.isArray(sd.topFiveMostIssues)
+    ? sd.topFiveMostIssues.map((p) => ({
+        url: p.url,
+        pageTitle: p.pageTitle,
+        totalIssues:
+          p.totalIssues ??
+          p.totalOccurrencesFailedIncludingNeedsReview ??
+          p.totalOccurrencesFailed ??
+          0,
+      }))
+    : []
+
+  // scanData.wcagPassPercentage is an object of string percentages, not a number.
+  // Prefer the AA+AAA combined score when present so users see the full picture.
+  const wcagObj = sd.wcagPassPercentage
+  const wcagPassPercentage =
+    (wcagObj && typeof wcagObj === 'object'
+      ? parsePct(wcagObj.passPercentageAAandAAA) ?? parsePct(wcagObj.passPercentageAA)
+      : parsePct(wcagObj)) ?? null
+
+  // Compact findings index for the system prompt (rules + descriptions + counts).
+  // Cap total serialized size at ~MAX_INDEX_KB so we don't blow the context.
+  const compactRule = (r) =>
+    pick(r, ['rule', 'ruleId', 'description', 'totalItems', 'axeImpact', 'conformance'])
+  const findingsIndex = {
+    mustFix: [...mustFixRules].sort((a, b) => (b.totalItems ?? 0) - (a.totalItems ?? 0)).map(compactRule),
+    goodToFix: [...goodToFixRules].sort((a, b) => (b.totalItems ?? 0) - (a.totalItems ?? 0)).map(compactRule),
+    needsReview: [...needsReviewRules]
+      .sort((a, b) => (b.totalItems ?? 0) - (a.totalItems ?? 0))
+      .map(compactRule),
+  }
+  // Truncate if too large.
+  if (JSON.stringify(findingsIndex).length > MAX_INDEX_KB * 1024) {
+    for (const cat of Object.keys(findingsIndex)) {
+      findingsIndex[cat] = findingsIndex[cat].map((r) =>
+        pick(r, ['rule', 'ruleId', 'description', 'totalItems'])
+      )
+    }
+    if (JSON.stringify(findingsIndex).length > MAX_INDEX_KB * 1024) {
+      for (const cat of Object.keys(findingsIndex)) {
+        findingsIndex[cat] = findingsIndex[cat].slice(0, 30)
+      }
+    }
+  }
+
+  return {
+    siteName: sd.siteName,
+    urlScanned: sd.urlScanned || sd.url,
+    startTime: sd.startTime,
+    viewport: sd.viewport,
+    oobeeAppVersion: sd.oobeeAppVersion,
+    wcagPassPercentage,
+    totalPagesScanned: sd.totalPagesScanned ?? 0,
+    totalPagesNotScanned: sd.totalPagesNotScanned ?? 0,
+    mustFixRules: mustFixCount.rules,
+    mustFixOccurrences: mustFixCount.occurrences,
+    goodToFixRules: goodToFixCount.rules,
+    goodToFixOccurrences: goodToFixCount.occurrences,
+    needsReviewRules: needsReviewCount.rules,
+    needsReviewOccurrences: needsReviewCount.occurrences,
+    topRules,
+    topPages,
+    findingsIndex,
+  }
+}
+
+function runTool(session, name, input) {
+  const { artifacts } = session
+  input = input || {}
+  switch (name) {
+    case 'list_findings': {
+      const sis = artifacts.scanIssuesSummary || {}
+      const cats = input.category
+        ? [input.category]
+        : ['mustFix', 'goodToFix', 'needsReview']
+      const limit = Math.min(input.limit ?? 20, 100)
+      const offset = input.offset ?? 0
+      const out = []
+      for (const cat of cats) {
+        for (const r of issuesSummaryRules(sis, cat)) {
+          if (input.ruleId && (r.rule ?? r.ruleId) !== input.ruleId) continue
+          out.push({
+            category: cat,
+            rule: r.rule ?? r.ruleId,
+            description: r.description,
+            totalItems: r.totalItems,
+            axeImpact: r.axeImpact,
+            conformance: r.conformance ?? r.wcagConformance,
+          })
+        }
+      }
+      return {
+        total: out.length,
+        offset,
+        limit,
+        findings: out.slice(offset, offset + limit),
+      }
+    }
+    case 'get_finding_detail': {
+      const items = artifacts.getScanItems() || {}
+      const rules = scanItemsRules(items, input.category)
+      const match = rules.find((r) => (r.rule ?? r.ruleId) === input.ruleId)
+      if (!match) return { error: `Rule not found: ${input.category}/${input.ruleId}` }
+      const limit = Math.min(input.limit ?? MAX_TOOL_ITEMS, 50)
+      // Each rule has `pagesAffected: [{url, pageTitle, items: [{html, message, xpath, ...}]}]`.
+      // Flatten to a single list of occurrences, keeping page context.
+      const pagesAffected = Array.isArray(match.pagesAffected) ? match.pagesAffected : []
+      const occurrences = []
+      for (const p of pagesAffected) {
+        for (const it of p.items || []) {
+          occurrences.push({
+            url: p.url,
+            pageTitle: p.pageTitle,
+            html: it.html,
+            message: it.message,
+            xpath: it.xpath,
+          })
+        }
+      }
+      return {
+        rule: match.rule ?? match.ruleId,
+        category: input.category,
+        description: match.description,
+        axeImpact: match.axeImpact,
+        conformance: match.conformance ?? match.wcagConformance,
+        helpUrl: match.helpUrl,
+        totalItems: match.totalItems ?? occurrences.length,
+        occurrences: occurrences.slice(0, limit),
+        truncated: occurrences.length > limit,
+      }
+    }
+    case 'list_pages': {
+      const ps = artifacts.getPagesSummary() || {}
+      const arr = Array.isArray(ps.pagesAffected) ? ps.pagesAffected : []
+      const limit = Math.min(input.limit ?? 50, 200)
+      const offset = input.offset ?? 0
+      return {
+        total: arr.length,
+        offset,
+        limit,
+        pages: arr.slice(offset, offset + limit).map((p) => ({
+          url: p.url,
+          pageTitle: p.pageTitle,
+          totalOccurrencesFailedIncludingNeedsReview:
+            p.totalOccurrencesFailedIncludingNeedsReview ?? p.totalOccurrencesFailed,
+          totalOccurrencesMustFix: p.totalOccurrencesMustFix,
+          totalOccurrencesGoodToFix: p.totalOccurrencesGoodToFix,
+          totalOccurrencesNeedsReview: p.totalOccurrencesNeedsReview,
+          typesOfIssuesCount: p.typesOfIssuesCount,
+        })),
+      }
+    }
+    case 'get_page_detail': {
+      const pd = artifacts.getPagesDetail() || {}
+      const affected = Array.isArray(pd.pagesAffected) ? pd.pagesAffected : []
+      const notAffected = Array.isArray(pd.pagesNotAffected) ? pd.pagesNotAffected : []
+      const match =
+        affected.find((p) => p.url === input.pageUrl) ??
+        notAffected.find((p) => p.url === input.pageUrl)
+      if (!match) return { error: `Page not found: ${input.pageUrl}` }
+      return match
+    }
+    case 'list_page_captures': {
+      const manifest = artifacts.getManifest()
+      return {
+        pages: (manifest.pages || []).map((p) => ({
+          url: p.url,
+          hash: p.hash,
+          hasDesktopDom: !!p.desktopDom,
+          hasMobileDom: !!p.mobileDom,
+          hasDesktopScreenshot: !!p.desktopScreenshot,
+          hasMobileScreenshot: !!p.mobileScreenshot,
+        })),
+      }
+    }
+    case 'get_page_dom': {
+      const manifest = artifacts.getManifest()
+      const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
+      if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
+      const viewport = input.viewport === 'mobile' ? 'mobile' : 'desktop'
+      const rel = viewport === 'mobile' ? entry.mobileDom : entry.desktopDom
+      if (!rel) return { error: `No ${viewport} DOM captured for ${input.pageUrl}` }
+      const abs = path.join(session.storagePath, rel)
+      if (!fs.existsSync(abs)) return { error: `DOM file missing: ${rel}` }
+      const html = fs.readFileSync(abs, 'utf8')
+      const truncated = html.length > MAX_DOM_CHARS
+      return {
+        pageUrl: input.pageUrl,
+        viewport,
+        html: truncated ? html.slice(0, MAX_DOM_CHARS) : html,
+        truncated,
+        totalChars: html.length,
+      }
+    }
+    case 'get_page_screenshot': {
+      const manifest = artifacts.getManifest()
+      const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
+      if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
+      const viewport = input.viewport === 'mobile' ? 'mobile' : 'desktop'
+      const rel = viewport === 'mobile' ? entry.mobileScreenshot : entry.desktopScreenshot
+      if (!rel) return { error: `No ${viewport} screenshot captured for ${input.pageUrl}` }
+      const abs = path.join(session.storagePath, rel)
+      if (!fs.existsSync(abs)) return { error: `Screenshot file missing: ${rel}` }
+      const buf = fs.readFileSync(abs)
+      if (buf.length > MAX_SCREENSHOT_BYTES) {
+        return {
+          error: `Screenshot too large (${buf.length} bytes). Ask about a smaller region or the DOM instead.`,
+        }
+      }
+      return {
+        __imageContent: {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: buf.toString('base64'),
+          },
+        },
+        pageUrl: input.pageUrl,
+        viewport,
+      }
+    }
+    default:
+      return { error: `Unknown tool: ${name}` }
+  }
+}
+
+// ---- Anthropic SSE streaming with tool-use loop ----
+
+async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
+  const { cfg, systemPrompt, messages } = session
+  const abort = new AbortController()
+  session.abort = abort
+
+  const body = {
+    model: cfg.model,
+    max_tokens: 4000,
+    system: [
+      {
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' },
+      },
+    ],
+    messages,
+    tools: TOOL_SCHEMAS,
+    stream: true,
+  }
+
+  const resp = await axios.post(`${cfg.baseURL}/messages`, body, {
+    signal: abort.signal,
+    responseType: 'stream',
+    timeout: 0,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': cfg.apiKey,
+      authorization: `Bearer ${cfg.apiKey}`,
+      'anthropic-version': ANTHROPIC_VERSION,
+      accept: 'text/event-stream',
+      ...cfg.headers,
+    },
+    validateStatus: () => true,
+  })
+
+  if (resp.status >= 400) {
+    let errText = ''
+    for await (const chunk of resp.data) errText += chunk.toString('utf8')
+    throw new Error(`Anthropic ${resp.status}: ${errText.slice(0, 500)}`)
+  }
+
+  const blocks = [] // accumulated content blocks for the assistant message
+  let stopReason = null
+  const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
+
+  let sseBuffer = ''
+  for await (const chunk of resp.data) {
+    sseBuffer += chunk.toString('utf8')
+    let sep
+    // eslint-disable-next-line no-cond-assign
+    while ((sep = sseBuffer.indexOf('\n\n')) !== -1) {
+      const event = sseBuffer.slice(0, sep)
+      sseBuffer = sseBuffer.slice(sep + 2)
+      // Each event has "event: X\ndata: {...}"
+      const dataLine = event.split('\n').find((l) => l.startsWith('data:'))
+      if (!dataLine) continue
+      let payload
+      try {
+        payload = JSON.parse(dataLine.slice(5).trim())
+      } catch (_) {
+        continue
+      }
+      switch (payload.type) {
+        case 'content_block_start': {
+          const idx = payload.index
+          const cb = payload.content_block
+          if (cb.type === 'text') {
+            blocks[idx] = { type: 'text', text: '' }
+          } else if (cb.type === 'tool_use') {
+            blocks[idx] = {
+              type: 'tool_use',
+              id: cb.id,
+              name: cb.name,
+              input: {},
+              _inputJson: '',
+            }
+            send('llmChat:toolCall', { sessionId, name: cb.name, id: cb.id, status: 'start' })
+          }
+          break
+        }
+        case 'content_block_delta': {
+          const idx = payload.index
+          const delta = payload.delta
+          if (!blocks[idx]) break
+          if (delta.type === 'text_delta') {
+            blocks[idx].text += delta.text
+            send('llmChat:chunk', { sessionId, text: delta.text })
+          } else if (delta.type === 'input_json_delta') {
+            blocks[idx]._inputJson = (blocks[idx]._inputJson || '') + (delta.partial_json || '')
+          }
+          break
+        }
+        case 'content_block_stop': {
+          const idx = payload.index
+          const b = blocks[idx]
+          if (b?.type === 'tool_use' && b._inputJson) {
+            try {
+              b.input = JSON.parse(b._inputJson)
+            } catch (_) {
+              b.input = {}
+            }
+            delete b._inputJson
+            send('llmChat:toolCall', {
+              sessionId,
+              name: b.name,
+              id: b.id,
+              input: b.input,
+              status: 'ready',
+            })
+          }
+          break
+        }
+        case 'message_delta': {
+          if (payload.delta?.stop_reason) stopReason = payload.delta.stop_reason
+          break
+        }
+        case 'message_stop':
+          break
+        default:
+          break
+      }
+    }
+  }
+
+  // Strip any internal fields, drop empties.
+  const cleanBlocks = blocks
+    .filter(Boolean)
+    .map((b) => {
+      if (b.type === 'tool_use') {
+        const { _inputJson, ...rest } = b
+        return rest
+      }
+      return b
+    })
+
+  return { blocks: cleanBlocks, stopReason }
+}
+
+async function runChatLoop({ session, mainWindow, sessionId }) {
+  const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
+  for (let hop = 0; hop < 10; hop++) {
+    const { blocks, stopReason } = await streamAnthropicTurn({ session, mainWindow, sessionId })
+    session.messages.push({ role: 'assistant', content: blocks })
+    if (stopReason !== 'tool_use') return
+
+    const toolUses = blocks.filter((b) => b.type === 'tool_use')
+    const toolResults = []
+    for (const tu of toolUses) {
+      let content
+      try {
+        const raw = runTool(session, tu.name, tu.input)
+        // Screenshot returns a special marker with an image block.
+        if (raw && raw.__imageContent) {
+          content = [
+            raw.__imageContent,
+            {
+              type: 'text',
+              text: JSON.stringify(
+                { pageUrl: raw.pageUrl, viewport: raw.viewport, note: 'image attached above' },
+                null,
+                0
+              ),
+            },
+          ]
+          send('llmChat:toolCall', {
+            sessionId,
+            id: tu.id,
+            name: tu.name,
+            status: 'done',
+            summary: `screenshot: ${raw.pageUrl} (${raw.viewport})`,
+          })
+        } else {
+          const text = JSON.stringify(raw, null, 0)
+          content = text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text
+          send('llmChat:toolCall', {
+            sessionId,
+            id: tu.id,
+            name: tu.name,
+            status: 'done',
+            summary: `${tu.name} returned ${content.length} bytes`,
+          })
+        }
+      } catch (e) {
+        content = JSON.stringify({ error: e.message })
+        send('llmChat:toolCall', {
+          sessionId,
+          id: tu.id,
+          name: tu.name,
+          status: 'error',
+          summary: e.message,
+        })
+      }
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: tu.id,
+        content,
+      })
+    }
+    session.messages.push({ role: 'user', content: toolResults })
+  }
+  warn('tool-use loop exceeded 10 hops; stopping')
+}
+
+// ---- IPC handlers ----
+
+function init({ mainWindow, getResultsFolderPath }) {
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId }) => {
+    try {
+      if (!sessionId) throw new Error('Missing sessionId')
+      if (!scanId) throw new Error('Missing scanId')
+      const storagePath = getResultsFolderPath(scanId)
+      if (!storagePath || !fs.existsSync(storagePath)) {
+        return { ok: false, error: `Scan folder not found for scanId=${scanId}` }
+      }
+      const artifacts = loadArtifacts(storagePath)
+      if (!artifacts.scanData) {
+        return {
+          ok: false,
+          error:
+            'Scan JSON output not found. Confirm the scan ran with -g yes (LLM analysis mode enables this automatically).',
+        }
+      }
+      const summary = computeSummary(artifacts)
+      const systemPrompt = buildSystemPrompt({ summary })
+      sessions.set(sessionId, {
+        scanId,
+        storagePath,
+        artifacts,
+        summary,
+        systemPrompt,
+        cfg: null, // lazy — only load when the user actually sends a message
+        messages: [],
+        abort: null,
+      })
+      log(`session ${sessionId} started for scanId=${scanId}`)
+      return { ok: true, summary }
+    } catch (e) {
+      warn(`start failed: ${e.message}`)
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.on('llmChat:send', async (_event, { sessionId, userMessage }) => {
+    const session = sessions.get(sessionId)
+    if (!session) {
+      mainWindow.webContents.send('llmChat:error', {
+        sessionId,
+        message: 'Session not found. Please reload the chat.',
+      })
+      return
+    }
+    try {
+      if (!session.cfg) {
+        session.cfg = loadLLMConfig()
+        if (session.cfg.provider !== 'anthropic') {
+          throw new Error(
+            'Tool use is only supported for Anthropic providers in this version. Set ANTHROPIC_API_KEY or configure ~/.claude/settings.json.'
+          )
+        }
+        log(`session ${sessionId} using model ${session.cfg.model} at ${session.cfg.baseURL}`)
+      }
+      session.messages.push({ role: 'user', content: userMessage })
+      await runChatLoop({ session, mainWindow, sessionId })
+      mainWindow.webContents.send('llmChat:done', { sessionId })
+    } catch (e) {
+      warn(`chat error: ${e.message}`)
+      mainWindow.webContents.send('llmChat:error', { sessionId, message: e.message })
+    } finally {
+      session.abort = null
+    }
+  })
+
+  ipcMain.on('llmChat:abort', (_event, sessionId) => {
+    const session = sessions.get(sessionId)
+    if (session?.abort) {
+      log(`aborting session ${sessionId}`)
+      session.abort.abort()
+    }
+  })
+}
+
+module.exports = { init }
