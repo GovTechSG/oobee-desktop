@@ -154,4 +154,30 @@ contextBridge.exposeInMainWorld("services", {
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),
     getIncludeProxy: async () => ipcRenderer.invoke("getIncludeProxy"),
     setIncludeProxy: async (includeProxyValue) => ipcRenderer.invoke("setIncludeProxy", includeProxyValue),
+    llmChatStart: async ({ sessionId, scanId }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId }),
+    llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
+    llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
+    onLlmChatChunk: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:chunk");
+      ipcRenderer.on("llmChat:chunk", (_e, data) => callback(data));
+    },
+    onLlmChatToolCall: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:toolCall");
+      ipcRenderer.on("llmChat:toolCall", (_e, data) => callback(data));
+    },
+    onLlmChatDone: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:done");
+      ipcRenderer.on("llmChat:done", (_e, data) => callback(data));
+    },
+    onLlmChatError: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:error");
+      ipcRenderer.on("llmChat:error", (_e, data) => callback(data));
+    },
+    removeLlmChatListeners: () => {
+      ipcRenderer.removeAllListeners("llmChat:chunk");
+      ipcRenderer.removeAllListeners("llmChat:toolCall");
+      ipcRenderer.removeAllListeners("llmChat:done");
+      ipcRenderer.removeAllListeners("llmChat:error");
+    },
   });
