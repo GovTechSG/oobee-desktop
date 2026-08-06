@@ -244,6 +244,7 @@ const getScanOptions = (details) => {
     metadata,
     customChecks,
     wcagAaa,
+    generateJsonFiles,
   } = details
   const options = [
     '-c',
@@ -317,6 +318,10 @@ const getScanOptions = (details) => {
   } else {
     // Default Case
     options.push('-y', 'default')
+  }
+
+  if (generateJsonFiles === 'yes') {
+    options.push('-g', 'yes')
   }
 
   return options
@@ -562,6 +567,8 @@ const startScan = async (scanDetails, scanEvent) => {
           PATH: getPathVariable(),
           ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
           ...(getIncludeProxy() && { INCLUDE_PROXY: getIncludeProxy() }),
+          ...(scanDetails.saveDom && { OOBEE_SAVE_DOM: '1' }),
+          ...(scanDetails.savePageScreenshot && { OOBEE_SAVE_PAGE_SCREENSHOT: '1' }),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
@@ -902,4 +909,5 @@ const init = (scanEvent) => {
 module.exports = {
   init,
   killChildProcess,
+  getResultsFolderPath,
 }

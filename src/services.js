@@ -37,10 +37,15 @@ const startScan = async (scanDetails) => {
 
   currentScanUrl = scanUrl
   currentScanType = selectedScanType
+
+  // LLM analysis is a single-page website crawl whose JSON output feeds the chat UI.
+  const isLLMAnalysis = selectedScanType === 'LLM analysis'
+  const resolvedScanType = isLLMAnalysis ? 'website' : scanTypes[selectedScanType]
+
   const scanArgs = {
-    scanType: scanTypes[selectedScanType],
+    scanType: resolvedScanType,
     url: scanUrl,
-    headlessMode: scanTypes[selectedScanType] !== 'custom',
+    headlessMode: resolvedScanType !== 'custom',
     browser: browser,
     maxConcurrency: maxConcurrency,
     customChecks: customChecks,
@@ -52,8 +57,14 @@ const startScan = async (scanDetails) => {
     metadata: JSON.stringify(scanMetadata),
   }
 
-  if (scanTypes[selectedScanType] !== 'custom') {
-    scanArgs.maxPages = pageLimit
+  if (resolvedScanType !== 'custom') {
+    scanArgs.maxPages = isLLMAnalysis ? 1 : pageLimit
+  }
+
+  if (isLLMAnalysis) {
+    scanArgs.generateJsonFiles = 'yes'
+    scanArgs.saveDom = true
+    scanArgs.savePageScreenshot = true
   }
 
   if (viewport === viewportTypes.mobile) {

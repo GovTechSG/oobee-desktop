@@ -235,7 +235,8 @@ const AdvancedScanOptions = ({
 
           {!isFileOptionChecked &&
             (advancedOptions.scanType === 'Intelligent crawler' ||
-              advancedOptions.scanType === 'Website crawler') && (
+              advancedOptions.scanType === 'Website crawler' ||
+              advancedOptions.scanType === 'LLM analysis') && (
               <div
                 id="subdomain-toggle-group"
                 class="advanced-options-toggle-group"
@@ -258,7 +259,8 @@ const AdvancedScanOptions = ({
 
           {!isFileOptionChecked &&
             (advancedOptions.scanType === 'Intelligent crawler' ||
-              advancedOptions.scanType === 'Website crawler') && (
+              advancedOptions.scanType === 'Website crawler' ||
+              advancedOptions.scanType === 'LLM analysis') && (
               <div
                 id="follow-robots-toggle-group"
                 class="advanced-options-toggle-group"
