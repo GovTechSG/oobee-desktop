@@ -339,14 +339,18 @@ const startScan = async (scanDetails, scanEvent) => {
         console.log('[scanManager] performCancel: no process to kill')
       }
 
-      // On Windows, SIGINT kills the process without running oobee's cleanup.
-      // Clean up residual browser profiles and crawlee files ourselves.
-      if (intermediateFolderName && isWindows) {
-        console.log('[scanManager] Windows cleanup starting')
-        try { await cleanUpBrowserProfiles(intermediateFolderName) } catch (e) {
-          console.log(`[scanManager] cleanUpBrowserProfiles error: ${e.message}`)
+      if (intermediateFolderName) {
+        // On Windows, SIGINT kills the process without running oobee's cleanup.
+        // Clean up residual browser profiles and intermediate folders ourselves.
+        if (isWindows) {
+          console.log('[scanManager] Windows cleanup starting')
+          try { await cleanUpBrowserProfiles(intermediateFolderName) } catch (e) {
+            console.log(`[scanManager] cleanUpBrowserProfiles error: ${e.message}`)
+          }
+          try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
         }
-        try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+
+        // Clean crawlee files from export directory on all platforms.
         try { await cleanUpExportDirCrawleeFiles(intermediateFolderName) } catch (e) {
           console.log(`[scanManager] cleanUpExportDirCrawleeFiles error: ${e.message}`)
         }
@@ -559,9 +563,11 @@ const startScan = async (scanDetails, scanEvent) => {
 
         await gracefullyStopChild(scan)
 
-        if (intermediateFolderName && isWindows) {
-          try { await cleanUpBrowserProfiles(intermediateFolderName) } catch {}
-          try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+        if (intermediateFolderName) {
+          if (isWindows) {
+            try { await cleanUpBrowserProfiles(intermediateFolderName) } catch {}
+            try { await cleanUpIntermediateFolders(intermediateFolderName) } catch {}
+          }
           try { await cleanUpExportDirCrawleeFiles(intermediateFolderName) } catch {}
         }
         return
