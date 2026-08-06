@@ -8,6 +8,7 @@ import OnboardingComponent from "./Onboarding/OnboardingComponent";
 import ConnectionNotification from "./ConnectionNotification";
 import "./MainWindow.css";
 import CustomFlowPage from "./CustomFlow";
+import ChatPage from "./ChatPage";
 
 const MainWindow = ({ appVersionInfo }) => {
   const [completedScanId, setCompletedScanId] = useState(null);
@@ -49,6 +50,7 @@ const MainWindow = ({ appVersionInfo }) => {
               element={<ResultPage completedScanId={completedScanId} />}
             />
             <Route path="/error" element={<ErrorPage />} />
+            <Route path="/llm_chat" element={<ChatPage />} />
           </Routes>
         </Router>
       </>

@@ -20,6 +20,7 @@ const SCAN_TYPE = {
   WEBSITE: 'Website crawler',
   CUSTOM_FLOW: 'Custom flow',
   LOCAL_FILE: 'Local file',
+  LLM_ANALYSIS: 'LLM analysis',
 }
 
 const getAllowedFileTypes = (scanType) => {
@@ -27,7 +28,8 @@ const getAllowedFileTypes = (scanType) => {
     scanType === SCAN_TYPE.INTELLIGENT ||
     scanType === SCAN_TYPE.WEBSITE ||
     scanType === SCAN_TYPE.CUSTOM_FLOW ||
-    scanType === SCAN_TYPE.LOCAL_FILE
+    scanType === SCAN_TYPE.LOCAL_FILE ||
+    scanType === SCAN_TYPE.LLM_ANALYSIS
   ) {
     return ['.html', '.htm', '.shtml', '.xhtml', '.pdf']
   } else if (scanType === SCAN_TYPE.SITEMAP) {
@@ -348,6 +350,7 @@ const InitScanForm = ({
           )}
 
           {displayScanType !== SCAN_TYPE.CUSTOM_FLOW &&
+            displayScanType !== SCAN_TYPE.LLM_ANALYSIS &&
             !(isFileOptionChecked && displayScanType === SCAN_TYPE.LOCAL_FILE) && (
               <div>
                 <Button
