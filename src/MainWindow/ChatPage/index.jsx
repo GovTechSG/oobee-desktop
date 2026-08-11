@@ -492,7 +492,7 @@ const ChatPage = () => {
       msgLower.includes('background image') ||
       msgLower.includes('background gradient')
     const cssHint = isCssDependent
-      ? 'This is a CSS-dependent rule. Before answering, call `get_page_css` with the URL above to inspect the inline <style> blocks and see which external stylesheets are referenced. If the failing rule is not present in the inline styles, say so plainly and name the likely external stylesheet — do not guess the colour values.'
+      ? 'This is a CSS-dependent rule. Before answering, call `get_page_computed_styles` with pageUrl set to the URL above and selector set to the XPath/selector shown (axe reports CSS selectors under the "xpath" field). That returns the actually-applied browser styles — the definitive answer for colour and contrast. If it errors because the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1, fall back to `get_page_css` for the inline `<style>` blocks and say plainly if the failing rule lives in an external stylesheet that was not captured.'
       : null
     const parts = [
       `About occurrence #${index + 1} of the **${rule}** rule:`,

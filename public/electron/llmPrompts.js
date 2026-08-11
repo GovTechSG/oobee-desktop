@@ -127,7 +127,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'list_page_captures',
     description:
-      'List which scanned pages have DOM and screenshot captures available (desktop / mobile).',
+      'List which scanned pages have DOM, screenshot, and computed-style captures available (desktop / mobile). Useful as a pre-flight before get_page_dom / get_page_css / get_page_computed_styles.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -140,6 +140,25 @@ const TOOL_SCHEMAS = [
       properties: {
         pageUrl: { type: 'string' },
         viewport: { type: 'string', enum: ['desktop', 'mobile'], default: 'desktop' },
+      },
+    },
+  },
+  {
+    name: 'get_page_computed_styles',
+    description:
+      'Return the browser-computed styles (color, background-color, background-image, font-size, opacity, outline, border, etc.) for elements on a scanned page. Use this for color-contrast, focus-visible, and any rule where you need the actually-applied CSS values rather than just the inline styles. Requires a selector — pass the same selector the finding\'s xpath field contains (axe reports CSS selectors under the "xpath" name). If the file is missing, the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1 — fall back to get_page_css. Do NOT call this without a selector; the whole file can be thousands of elements.',
+    input_schema: {
+      type: 'object',
+      required: ['pageUrl', 'selector'],
+      properties: {
+        pageUrl: { type: 'string' },
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector for the element you want computed styles for. Accepts axe-target formats like ".warning2-text", "#foo", ".parent > .child".',
+        },
+        viewport: { type: 'string', enum: ['desktop', 'mobile'], default: 'desktop' },
+        limit: { type: 'integer', default: 5 },
       },
     },
   },
