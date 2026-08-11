@@ -154,10 +154,23 @@ contextBridge.exposeInMainWorld("services", {
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),
     getIncludeProxy: async () => ipcRenderer.invoke("getIncludeProxy"),
     setIncludeProxy: async (includeProxyValue) => ipcRenderer.invoke("setIncludeProxy", includeProxyValue),
-    llmChatStart: async ({ sessionId, scanId }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId }),
+    llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
+    llmFindingDetail: async ({ sessionId, category, ruleId }) =>
+      ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
+    llmChatStart: async ({ sessionId, scanId, provider }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
+    llmModelStatus: async () => ipcRenderer.invoke("llmModel:status"),
+    llmModelDownload: async () => ipcRenderer.invoke("llmModel:download"),
+    llmModelDownloadAbort: () => ipcRenderer.send("llmModel:downloadAbort"),
+    onLlmModelDownloadProgress: (callback) => {
+      ipcRenderer.removeAllListeners("llmModel:downloadProgress");
+      ipcRenderer.on("llmModel:downloadProgress", (_e, data) => callback(data));
+    },
+    removeLlmModelDownloadListeners: () => {
+      ipcRenderer.removeAllListeners("llmModel:downloadProgress");
+    },
     onLlmChatChunk: (callback) => {
       ipcRenderer.removeAllListeners("llmChat:chunk");
       ipcRenderer.on("llmChat:chunk", (_e, data) => callback(data));
