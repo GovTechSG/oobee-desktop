@@ -9,6 +9,8 @@ function buildSystemPrompt({ summary }) {
     totalPagesScanned = 0,
     totalPagesNotScanned = 0,
     wcagPassPercentage = null,
+    wcagChecksPassed = null,
+    wcagChecksTotal = null,
     mustFixRules = 0,
     mustFixOccurrences = 0,
     goodToFixRules = 0,
@@ -52,7 +54,13 @@ When you propose a fix, cite the specific WCAG success criterion (e.g. "WCAG 2.1
 ### Scan overview
 - URL: ${urlScanned || '—'}
 - Pages scanned: ${totalPagesScanned} (${totalPagesNotScanned} skipped)
-- WCAG pass %: ${typeof wcagPassPercentage === 'number' ? `${wcagPassPercentage.toFixed(1)}%` : 'unknown'}
+- WCAG AA automated score: ${
+    Number.isFinite(wcagChecksPassed) && Number.isFinite(wcagChecksTotal)
+      ? `${wcagChecksPassed} / ${wcagChecksTotal} checks passed`
+      : typeof wcagPassPercentage === 'number'
+        ? `${wcagPassPercentage.toFixed(1)}% pass`
+        : 'unknown'
+  }
 - Must-fix: ${mustFixRules} rules / ${mustFixOccurrences} occurrences
 - Good-to-fix: ${goodToFixRules} rules / ${goodToFixOccurrences} occurrences
 - Needs review: ${needsReviewRules} rules / ${needsReviewOccurrences} occurrences
