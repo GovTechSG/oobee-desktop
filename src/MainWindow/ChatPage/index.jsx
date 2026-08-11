@@ -12,6 +12,13 @@ import './ChatPage.scss'
 const normalizeLLMMarkdown = (text) => {
   if (!text) return ''
   let out = text
+  // Small models over-escape markdown: they emit `\*\*text\*\*` thinking the
+  // backslashes make the asterisks "safe", but CommonMark treats `\*` as a
+  // hard-literal asterisk — so the pair renders as visible `**text**`. When
+  // we see a paired-up run of escaped asterisks with printable content
+  // between them (no line breaks), strip the escapes so the emphasis works.
+  out = out.replace(/\\\*\\\*([^\n]+?)\\\*\\\*/g, '**$1**')
+  out = out.replace(/\\\*([^\n\\*]+?)\\\*/g, '*$1*')
   // Insert a space between a word char and an adjacent `**`, on either side of
   // the emphasis, so the delimiter run becomes valid left/right-flanking.
   out = out.replace(/(\w)(\*\*)(?=\S)/g, '$1 $2')
