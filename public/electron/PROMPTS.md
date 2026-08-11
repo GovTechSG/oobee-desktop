@@ -162,17 +162,35 @@ branch). Each element is stored with:
 
 The tool takes a required `selector` argument (the same value axe
 reports under the finding's `xpath` field — despite the name, axe
-targets are CSS selectors, not xpaths). Matching handles the common
-axe formats:
+targets are CSS selectors, not xpaths). We can't run a real CSS
+engine against the flat captured element list, so the tool matches
+on the **leaf simple selector** — the last token after descendant /
+child / sibling combinators (`>`, ` `, `+`, `~`), respecting
+bracket / paren depth so `a[href$=" > x"]` is not split. The leaf is
+parsed into `{ tag, id, classes, attrs }` (pseudo-classes and
+`:nth-of-type(...)` are stripped) and matched against each stored
+element:
 
-- `#foo` → matches record whose `id === "foo"`
-- `.bar` → matches any record whose `classes` contains `"bar"`
-- `.parent > .child` → takes the trailing `.child` and matches on that
-- Anything else → substring match against the captured selector path
+- `tag` → `el.tag` (`*` matches anything)
+- `#id` → `el.id`
+- `.class` (repeatable, e.g. `.a.b`) → `el.classes`
+- `[attr]` / `[attr=v]` / `[attr^=v]` / `[attr$=v]` / `[attr*=v]` /
+  `[attr~=v]` / `[attr|=v]` → attributes parsed from
+  `el.outerHtmlPrefix` (the first 200 chars of `outerHTML` captured
+  at scan time, which contain the opening tag and its attributes)
+
+This covers axe's full selector output including attribute-based
+targets like `span > a[href$="#foo"]` and `input[type="submit"]`, not
+just `#id` / `.class`. Combinator ancestry is intentionally *not*
+enforced — the leaf is usually specific enough, and the stored
+selector path only carries tag/id/`nth-of-type` (no classes or
+attributes), so ancestry verification wouldn't help.
 
 If nothing matches, the tool returns a small orientation payload
-(`totalElements`, `idSample`, `classSample`) so the model can revise
-the selector rather than concluding "no data available".
+(`totalElements`, `idSample`, `classSample`, plus a `tagSample` of up
+to 10 elements sharing the queried tag with their stored selector +
+`outerHtmlPrefix`) so the model can revise the selector rather than
+concluding "no data available".
 
 Fallback path: when the scan was run without
 `OOBEE_SAVE_COMPUTED_STYLES=1`, the tool errors with an explicit
@@ -203,12 +221,51 @@ declaration.
 
 The per-occurrence prompt (`askAboutOccurrence` in
 [`ChatPage/index.jsx`](../../src/MainWindow/ChatPage/index.jsx)) appends
-a nudge asking the model to call `get_page_css` first whenever the rule
-name suggests a CSS-dependent failure (`color-contrast`, `contrast`,
-`focus-visible`, `focus-order`) or the failure message contains phrases
-that require CSS inspection (`could not be determined`,
-`background image`, `background gradient`). Without the nudge, small
-models default to answering from the per-occurrence context alone.
+a nudge asking the model to call `get_page_computed_styles` (or fall
+back to `get_page_css`) first whenever the rule name suggests a
+CSS-dependent failure (`color-contrast`, `contrast`, `focus-visible`,
+`focus-order`) or the failure message contains phrases that require
+CSS inspection (`could not be determined`, `background image`,
+`background gradient`). Without the nudge, small models default to
+answering from the per-occurrence context alone.
+
+### Why DOM-context-dependent rules get a parallel nudge
+
+The same category of failure occurs on the other side of the split:
+rules where the *right fix* depends on what else is on the page, not
+on the failing element in isolation. `aria-input-field-name` on a
+`.carousel-inner` might already have a heading elsewhere on the page
+that could be pointed at via `aria-labelledby`; `duplicate-id` needs
+the whole DOM to know which other element shares the id;
+`heading-order` and `landmark-*` are inherently comparative.
+
+Without a nudge, Gemma answers from the element snippet + screenshot
+alone and produces textbook "add `aria-label='...'`" advice —
+technically correct but blind to the fact that a better label already
+exists on the page. `askAboutOccurrence` appends a `domHint` whenever
+the rule name or failure message signals a DOM-context-dependent
+failure. Detection covers:
+
+- `aria-*` (excluding contrast which is CSS-dependent)
+- `label`, `button-name`, `link-name`, `input-button-name`,
+  `input-image-alt`, `image-alt`
+- `heading-order`, `empty-heading`, `page-has-heading-one`
+- `landmark-*`, `region`, `bypass`, `skip-link`
+- `duplicate-id`, `duplicate-id-active`, `duplicate-id-aria`
+- `frame-title`, `document-title`, `html-has-lang`, `html-lang-valid`
+- messages containing `aria-labelledby`, `aria-describedby`,
+  `references elements that do not exist`, `accessible name`,
+  `unique id`
+
+The hint tells the model to call `get_page_dom` and specifically
+search for: (a) an existing element whose id would be a plausible
+`aria-labelledby` / `aria-describedby` target, (b) duplicate ids or
+sibling landmarks relevant to the rule, (c) nearby visible text that
+could serve as the accessible name — and to cite the specific
+existing id or heading rather than inventing a generic label.
+
+`cssHint` and `domHint` are mutually exclusive by construction (the
+DOM detector requires `!isCssDependent`).
 
 ## Per-occurrence "Ask about this" prompt
 
@@ -238,6 +295,8 @@ About occurrence #N of the **{rule}** rule:
 - A screenshot of the element is attached to this message. [only if present]
 
 Why does this specific occurrence matter, and what would fix it?
+[cssHint — only for CSS-dependent rules; see "Why get_page_computed_styles is preferred"]
+[domHint — only for DOM-context-dependent rules; see "Why DOM-context-dependent rules get a parallel nudge"]
 When citing WCAG, use ONLY the references listed above (WCAG X.Y.Z, WCAG A.B.C).
 Do not invent or substitute other WCAG success criteria.
 ```
