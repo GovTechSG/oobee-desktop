@@ -15,6 +15,7 @@ const EventEmitter = require('events')
 const constants = require('./constants')
 const scanManager = require('./scanManager')
 const llmAnalysis = require('./llmAnalysis')
+const llmModelManager = require('./llmModelManager')
 const updateManager = require('./updateManager')
 const userDataManager = require('./userDataManager.js')
 const { consoleLogger } = require('./logs')
@@ -440,6 +441,7 @@ app.on('ready', async () => {
     mainWindow,
     getResultsFolderPath: scanManager.getResultsFolderPath,
   })
+  llmModelManager.init({ mainWindow })
 
   ipcMain.on('openLink', (_event, url) => {
     // Anything reachable through preload's contextBridge is renderer-controlled,
