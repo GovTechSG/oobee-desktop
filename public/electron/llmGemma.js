@@ -100,6 +100,63 @@ async function ensureChatSession(session) {
   return session.gemma
 }
 
+// Gemma 4's chat template uses channel delimiters (`<channel|>reasoning`,
+// `<channel|>final`, plus `<|tool_response>` / `</s>` etc.) to bracket
+// thinking-mode reasoning and structured segments. node-llama-cpp normally
+// consumes these via the Jinja template baked into the GGUF, but the unsloth
+// Q4_K_XL build ships with some control tokens mis-classified (the load log
+// emits `'<|tool_response>' was not control-type; this is probably a bug in
+// the model. its type will be overridden`) — a few of them slip past and
+// land in the visible chunk stream as `<channel|>`, `<|message|>`, etc.
+//
+// Strip them with a small stateful filter: keep an unbounded tail buffer of
+// the *shortest string that could still be the start of a template token*
+// (a run of `<` `|` `/` letters etc.), flush the rest immediately, and drop
+// any full token that matches. This avoids cutting through a token when it
+// straddles two chunks.
+const GEMMA_TEMPLATE_TOKEN_RE = new RegExp(
+  [
+    '<channel\\|>[a-zA-Z_]*',      // <channel|>final, <channel|>reasoning, …
+    '<\\|channel\\|>[a-zA-Z_]*',   // Harmony-style variant just in case
+    '<\\|message\\|>',
+    '<\\|start\\|>',
+    '<\\|end\\|>',
+    '<\\|tool_response\\|?>',
+    '</?tool_response\\|?>',
+    '<start_of_turn>',
+    '<end_of_turn>',
+    '<\\|im_start\\|>[a-zA-Z_]*',
+    '<\\|im_end\\|>',
+    '</?s>',
+    '<eos>',
+  ].join('|'),
+  'g',
+)
+// Any suffix ending mid-token — we hold back this much and re-inspect on the
+// next chunk. Bounded to 32 chars to keep the buffer small.
+const GEMMA_TEMPLATE_PARTIAL_RE = /<[^>]{0,31}$/
+function createTemplateTokenFilter() {
+  let carry = ''
+  return {
+    push(text) {
+      let combined = carry + text
+      combined = combined.replace(GEMMA_TEMPLATE_TOKEN_RE, '')
+      const partial = combined.match(GEMMA_TEMPLATE_PARTIAL_RE)
+      if (partial) {
+        carry = partial[0]
+        return combined.slice(0, combined.length - carry.length)
+      }
+      carry = ''
+      return combined
+    },
+    flush() {
+      const out = carry.replace(GEMMA_TEMPLATE_TOKEN_RE, '')
+      carry = ''
+      return out
+    },
+  }
+}
+
 // Convert an Anthropic-style tool_use JSON Schema to the subset that
 // node-llama-cpp's GBNF grammar builder accepts. The schemas in llmPrompts.js
 // are simple enough — no $refs, no oneOf, no format constraints — so they pass
@@ -252,6 +309,7 @@ async function streamGemmaChat({
 
   const abort = new AbortController()
   session.abort = abort
+  const filter = createTemplateTokenFilter()
 
   // Gemma 4 recommended sampling per the model card:
   // temperature=1.0, topP=0.95, topK=64
@@ -263,8 +321,13 @@ async function streamGemmaChat({
       topP: 0.95,
       topK: 64,
       maxTokens: 4000,
-      onTextChunk: (text) => send('llmChat:chunk', { sessionId, text }),
+      onTextChunk: (text) => {
+        const cleaned = filter.push(text)
+        if (cleaned) send('llmChat:chunk', { sessionId, text: cleaned })
+      },
     })
+    const tail = filter.flush()
+    if (tail) send('llmChat:chunk', { sessionId, text: tail })
   } catch (e) {
     if (abort.signal.aborted) {
       log(`session ${sessionId} aborted mid-response`)
