@@ -462,6 +462,62 @@ function runTool(session, name, input) {
         totalChars: html.length,
       }
     }
+    case 'get_page_css': {
+      // Extract inline <style> block bodies and external stylesheet URLs from
+      // the captured DOM. External CSS isn't captured by the scan, so this
+      // tool's job is dual: (a) hand over the inline CSS the model can
+      // actually reason about, (b) name the external files so the model can
+      // be honest about what it can't see, rather than guessing colours.
+      const manifest = artifacts.getManifest()
+      const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
+      if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
+      const viewport = input.viewport === 'mobile' ? 'mobile' : 'desktop'
+      const rel = viewport === 'mobile' ? entry.mobileDom : entry.desktopDom
+      if (!rel) return { error: `No ${viewport} DOM captured for ${input.pageUrl}` }
+      const abs = path.join(session.storagePath, rel)
+      if (!fs.existsSync(abs)) return { error: `DOM file missing: ${rel}` }
+      const html = fs.readFileSync(abs, 'utf8')
+
+      const inlineStyleBlocks = []
+      const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/gi
+      let m
+      while ((m = styleRe.exec(html)) !== null) inlineStyleBlocks.push(m[1])
+      const inlineBytes = inlineStyleBlocks.reduce((n, s) => n + s.length, 0)
+
+      const externalStylesheetUrls = []
+      const linkRe = /<link\b[^>]*>/gi
+      while ((m = linkRe.exec(html)) !== null) {
+        const tag = m[0]
+        if (!/rel\s*=\s*["'][^"']*stylesheet[^"']*["']/i.test(tag)) continue
+        const href = tag.match(/href\s*=\s*["']([^"']+)["']/i)
+        if (href) externalStylesheetUrls.push(href[1])
+      }
+
+      const MAX_CSS_BYTES = 40_000
+      let truncated = false
+      const clippedBlocks = []
+      let running = 0
+      for (const s of inlineStyleBlocks) {
+        if (running + s.length > MAX_CSS_BYTES) {
+          clippedBlocks.push(s.slice(0, Math.max(0, MAX_CSS_BYTES - running)))
+          truncated = true
+          break
+        }
+        clippedBlocks.push(s)
+        running += s.length
+      }
+
+      return {
+        pageUrl: input.pageUrl,
+        viewport,
+        inlineStyleBlocks: clippedBlocks,
+        inlineStyleBlocksBytes: inlineBytes,
+        externalStylesheetUrls,
+        hasExternalStylesheets: externalStylesheetUrls.length > 0,
+        truncated,
+        note: 'External stylesheet contents are NOT captured by the scan. If the failing CSS rule is not visible in inlineStyleBlocks, it lives in one of the externalStylesheetUrls and cannot be inspected. Say so plainly instead of guessing.',
+      }
+    }
     case 'get_page_screenshot': {
       const manifest = artifacts.getManifest()
       const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)

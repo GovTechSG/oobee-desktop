@@ -144,6 +144,19 @@ const TOOL_SCHEMAS = [
     },
   },
   {
+    name: 'get_page_css',
+    description:
+      'Return the inline <style> block contents and the list of external stylesheet URLs referenced by a scanned page. Use this for CSS-dependent rules like color-contrast or focus-visible. External stylesheet content is NOT captured by the scan — if the failing rule is not present in the inline styles, tell the user the styles live in an external file that was not captured, and name the likely files from externalStylesheetUrls.',
+    input_schema: {
+      type: 'object',
+      required: ['pageUrl'],
+      properties: {
+        pageUrl: { type: 'string' },
+        viewport: { type: 'string', enum: ['desktop', 'mobile'], default: 'desktop' },
+      },
+    },
+  },
+  {
     name: 'get_page_screenshot',
     description:
       'Return the full-page screenshot of a scanned page as an image. Use this to reason about visual issues (color contrast, layout, focus order).',
