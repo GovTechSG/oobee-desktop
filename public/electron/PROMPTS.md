@@ -105,7 +105,7 @@ Built by `buildSystemPrompt({ summary })` in
 
 ## Tool schemas
 
-Eight tools, all defined in `TOOL_SCHEMAS` in
+Nine tools, all defined in `TOOL_SCHEMAS` in
 [`llmPrompts.js`](./llmPrompts.js). Design principles:
 
 - **Slim previews, drill-down on demand.** `list_findings` returns
@@ -135,8 +135,49 @@ Eight tools, all defined in `TOOL_SCHEMAS` in
 | `get_page_detail` | all findings on one page | model needs to answer "what's wrong with page X" |
 | `list_page_captures` | which pages have DOM / screenshot artifacts | pre-flight before requesting a DOM or screenshot |
 | `get_page_dom` | ~30 KB of captured HTML | model needs to reason about actual document markup |
-| `get_page_css` | inline `<style>` block bodies + list of external stylesheet URLs | model is answering a CSS-dependent rule (color-contrast, focus-visible) |
+| `get_page_css` | inline `<style>` block bodies + list of external stylesheet URLs | model is answering a CSS-dependent rule and no computed styles are captured (fallback) |
+| `get_page_computed_styles` | selector-filtered `getComputedStyle` output for matching elements (colour, background, font, outline, border, …) | model is answering a CSS-dependent rule (color-contrast, focus-visible) and computed styles are available |
 | `get_page_screenshot` | full-page screenshot (Claude sees image, Gemma gets a pointer) | model needs visual context |
+
+### Why `get_page_computed_styles` is the preferred tool for CSS rules
+
+Colour, contrast, focus visibility, font size — these are decided by the
+final *computed* style the browser resolves, after the cascade merges
+inline styles, `<style>` blocks, and any external stylesheets. Neither
+`get_page_dom` nor `get_page_css` can see external stylesheets, so both
+are lossy for the rules that most need CSS insight.
+
+`get_page_computed_styles` reads a JSON file the oobee crawler writes
+when scanned with `OOBEE_SAVE_COMPUTED_STYLES=1` (see
+`pageCapture.ts` in the oobee repo — `feat/computed-styles-capture`
+branch). Each element is stored with:
+
+- a stable CSS selector (id-anchored when possible, `:nth-of-type` chain
+  otherwise) so the tool can be queried by axe-style selectors,
+- its tag / id / classes for auxiliary matching,
+- a curated ~22-property `getComputedStyle` snapshot: `color`,
+  `background-color`, `background-image`, `opacity`, `font-*`,
+  `outline-*`, `border-*`, `visibility`, `display`, `pointer-events`,
+  `cursor`.
+
+The tool takes a required `selector` argument (the same value axe
+reports under the finding's `xpath` field — despite the name, axe
+targets are CSS selectors, not xpaths). Matching handles the common
+axe formats:
+
+- `#foo` → matches record whose `id === "foo"`
+- `.bar` → matches any record whose `classes` contains `"bar"`
+- `.parent > .child` → takes the trailing `.child` and matches on that
+- Anything else → substring match against the captured selector path
+
+If nothing matches, the tool returns a small orientation payload
+(`totalElements`, `idSample`, `classSample`) so the model can revise
+the selector rather than concluding "no data available".
+
+Fallback path: when the scan was run without
+`OOBEE_SAVE_COMPUTED_STYLES=1`, the tool errors with an explicit
+"fall back to `get_page_css`" instruction so the model shifts to
+inline-CSS + external-URLs mode instead of giving up.
 
 ### Why `get_page_css` exists separately from `get_page_dom`
 
