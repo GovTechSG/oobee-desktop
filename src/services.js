@@ -65,6 +65,7 @@ const startScan = async (scanDetails) => {
     scanArgs.generateJsonFiles = 'yes'
     scanArgs.saveDom = true
     scanArgs.savePageScreenshot = true
+    scanArgs.saveComputedStyles = true
   }
 
   if (viewport === viewportTypes.mobile) {
