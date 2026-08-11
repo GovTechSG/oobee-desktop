@@ -5,6 +5,7 @@ const zlib = require('zlib')
 const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
+const { streamGemmaChat, disposeSession: disposeGemmaSession } = require('./llmGemma')
 
 const MAX_DOM_CHARS = 30_000
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
@@ -140,6 +141,28 @@ function parsePct(s) {
   return null
 }
 
+// Axe/oobee report WCAG conformance as raw axe tags (`wcag211`, `wcag412`,
+// plus level tags like `wcag2a` / `wcag21aa`). LLMs consistently hallucinate
+// against these — Gemma invented WCAG 2.4.4 and 1.1.1 when shown `wcag211,
+// wcag412` for oobee-accessible-label. Expand numeric tags into human WCAG SC
+// references (`WCAG 2.1.1`) and drop level tags so downstream prompts/tool
+// results only expose things the model can cite verbatim.
+const WCAG_LEVEL_TAG_RE = /^wcag(2|21|22)(a|aa|aaa)$/
+const WCAG_SC_TAG_RE = /^wcag(\d)(\d)(\d+)$/
+function formatWcagConformance(tags) {
+  if (!Array.isArray(tags)) return []
+  const out = []
+  for (const raw of tags) {
+    if (typeof raw !== 'string') continue
+    const t = raw.trim().toLowerCase()
+    if (!t || WCAG_LEVEL_TAG_RE.test(t)) continue
+    const m = t.match(WCAG_SC_TAG_RE)
+    if (m) out.push(`WCAG ${m[1]}.${m[2]}.${m[3]}`)
+    else out.push(raw)
+  }
+  return out
+}
+
 function pick(obj, keys) {
   const out = {}
   for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k]
@@ -180,7 +203,7 @@ function computeSummary(artifacts) {
         description: r?.description ?? '',
         totalItems: r?.totalItems ?? 0,
         axeImpact: r?.axeImpact ?? '',
-        conformance: r?.conformance ?? r?.wcagConformance ?? [],
+        conformance: formatWcagConformance(r?.conformance ?? r?.wcagConformance ?? []),
       }))
 
   const topRulesByCategory = {
@@ -209,10 +232,24 @@ function computeSummary(artifacts) {
       ? parsePct(wcagObj.passPercentageAAandAAA) ?? parsePct(wcagObj.passPercentageAA)
       : parsePct(wcagObj)) ?? null
 
+  // Raw AA check counts — same shape oobee's summary EJS renders (X of Y
+  // automated checks). Denominator is typically ~20.
+  const wcagChecksTotal =
+    wcagObj && typeof wcagObj === 'object' ? Number(wcagObj.totalWcagChecksAA) : NaN
+  const wcagViolations =
+    wcagObj && typeof wcagObj === 'object' ? Number(wcagObj.totalWcagViolationsAA) : NaN
+  const wcagChecksPassed =
+    Number.isFinite(wcagChecksTotal) && Number.isFinite(wcagViolations)
+      ? Math.max(0, wcagChecksTotal - wcagViolations)
+      : null
+
   // Compact findings index for the system prompt (rules + descriptions + counts).
   // Cap total serialized size at ~MAX_INDEX_KB so we don't blow the context.
-  const compactRule = (r) =>
-    pick(r, ['rule', 'ruleId', 'description', 'totalItems', 'axeImpact', 'conformance'])
+  const compactRule = (r) => {
+    const base = pick(r, ['rule', 'ruleId', 'description', 'totalItems', 'axeImpact', 'conformance'])
+    if (base.conformance !== undefined) base.conformance = formatWcagConformance(base.conformance)
+    return base
+  }
   const findingsIndex = {
     mustFix: [...mustFixRules].sort((a, b) => (b.totalItems ?? 0) - (a.totalItems ?? 0)).map(compactRule),
     goodToFix: [...goodToFixRules].sort((a, b) => (b.totalItems ?? 0) - (a.totalItems ?? 0)).map(compactRule),
@@ -241,6 +278,8 @@ function computeSummary(artifacts) {
     viewport: sd.viewport,
     oobeeAppVersion: sd.oobeeAppVersion,
     wcagPassPercentage,
+    wcagChecksPassed,
+    wcagChecksTotal: Number.isFinite(wcagChecksTotal) ? wcagChecksTotal : null,
     totalPagesScanned: sd.totalPagesScanned ?? 0,
     totalPagesNotScanned: sd.totalPagesNotScanned ?? 0,
     mustFixRules: mustFixCount.rules,
@@ -258,6 +297,12 @@ function computeSummary(artifacts) {
 function runTool(session, name, input) {
   const { artifacts } = session
   input = input || {}
+  try {
+    const inputStr = JSON.stringify(input)
+    log(`tool: ${name}(${inputStr.length > 200 ? inputStr.slice(0, 200) + '…' : inputStr})`)
+  } catch (_) {
+    log(`tool: ${name}`)
+  }
   switch (name) {
     case 'list_findings': {
       const sis = artifacts.scanIssuesSummary || {}
@@ -276,7 +321,7 @@ function runTool(session, name, input) {
             description: r.description,
             totalItems: r.totalItems,
             axeImpact: r.axeImpact,
-            conformance: r.conformance ?? r.wcagConformance,
+            conformance: formatWcagConformance(r.conformance ?? r.wcagConformance),
           })
         }
       }
@@ -343,7 +388,7 @@ function runTool(session, name, input) {
         category: input.category,
         description: match.description,
         axeImpact: match.axeImpact,
-        conformance: match.conformance ?? match.wcagConformance,
+        conformance: formatWcagConformance(match.conformance ?? match.wcagConformance),
         helpUrl: match.helpUrl,
         totalItems: match.totalItems ?? occurrences.length,
         occurrences: sliced,
@@ -699,10 +744,95 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
 // ---- IPC handlers ----
 
 function init({ mainWindow, getResultsFolderPath }) {
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId }) => {
+  // Occurrence-browser feed. Same source data as the get_finding_detail tool,
+  // but skips the tool loop and inlines per-occurrence screenshots as data
+  // URIs so the renderer can page through them without further IPC.
+  ipcMain.handle('llmChat:findingDetail', async (_e, { sessionId, category, ruleId }) => {
+    try {
+      const session = sessions.get(sessionId)
+      if (!session) return { ok: false, error: 'Session not found' }
+      const items = session.artifacts.getScanItems() || {}
+      const rules = scanItemsRules(items, category)
+      const match = rules.find((r) => (r.rule ?? r.ruleId) === ruleId)
+      if (!match) return { ok: false, error: `Rule not found: ${category}/${ruleId}` }
+
+      const pagesAffected = Array.isArray(match.pagesAffected) ? match.pagesAffected : []
+      const MAX_OCCURRENCES = 100
+      const SCREENSHOT_BUDGET = 20 * 1024 * 1024
+      let screenshotBudget = SCREENSHOT_BUDGET
+
+      const occurrences = []
+      const totalRaw = pagesAffected.reduce((n, p) => n + (p.items?.length || 0), 0)
+      outer: for (const p of pagesAffected) {
+        for (const it of p.items || []) {
+          if (occurrences.length >= MAX_OCCURRENCES) break outer
+          let screenshotDataUri = null
+          const rel = it.screenshotPath
+          if (rel) {
+            const abs = path.join(session.storagePath, rel)
+            try {
+              const st = fs.statSync(abs)
+              if (
+                st.isFile() &&
+                st.size > 0 &&
+                st.size <= MAX_ELEM_SCREENSHOT_BYTES &&
+                st.size <= screenshotBudget
+              ) {
+                const buf = fs.readFileSync(abs)
+                const mediaType = sniffMediaType(buf, rel)
+                screenshotDataUri = `data:${mediaType};base64,${buf.toString('base64')}`
+                screenshotBudget -= st.size
+              }
+            } catch (_) {}
+          }
+          occurrences.push({
+            url: p.url,
+            pageTitle: p.pageTitle,
+            html: it.html,
+            message: it.message,
+            xpath: it.xpath,
+            screenshotDataUri,
+          })
+        }
+      }
+
+      return {
+        ok: true,
+        rule: match.rule ?? match.ruleId,
+        category,
+        description: match.description,
+        axeImpact: match.axeImpact,
+        conformance: formatWcagConformance(match.conformance ?? match.wcagConformance),
+        helpUrl: match.helpUrl,
+        totalOccurrences: totalRaw,
+        occurrences,
+        truncated: totalRaw > occurrences.length,
+      }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('llmChat:providers', async () => {
+    let anthropicAvailable = false
+    let anthropicError = null
+    try {
+      const cfg = loadLLMConfig()
+      anthropicAvailable = cfg.provider === 'anthropic'
+      if (!anthropicAvailable) {
+        anthropicError = `Configured provider is ${cfg.provider}, not anthropic.`
+      }
+    } catch (e) {
+      anthropicError = e.message
+    }
+    return { anthropic: { available: anthropicAvailable, error: anthropicError } }
+  })
+
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!scanId) throw new Error('Missing scanId')
+      const chosenProvider = provider === 'gemma' ? 'gemma' : 'anthropic'
       const storagePath = getResultsFolderPath(scanId)
       if (!storagePath || !fs.existsSync(storagePath)) {
         return { ok: false, error: `Scan folder not found for scanId=${scanId}` }
@@ -716,26 +846,37 @@ function init({ mainWindow, getResultsFolderPath }) {
         }
       }
       const summary = computeSummary(artifacts)
-      const systemPrompt = buildSystemPrompt({ summary })
+      // The full findings index is ~30 KB, useful as Anthropic prompt-cache
+      // pre-warming. Local Gemma has an ~8 K token context by default, so we
+      // trim it and let the model fetch rule details via list_findings /
+      // get_finding_detail on demand.
+      const promptSummary =
+        chosenProvider === 'gemma' ? { ...summary, findingsIndex: null } : summary
+      const systemPrompt = buildSystemPrompt({ summary: promptSummary })
+      // Dispose any prior session state for this id (e.g. provider switch).
+      const prior = sessions.get(sessionId)
+      if (prior) disposeGemmaSession(prior)
       sessions.set(sessionId, {
         scanId,
+        provider: chosenProvider,
         storagePath,
         artifacts,
         summary,
         systemPrompt,
         cfg: null, // lazy — only load when the user actually sends a message
         messages: [],
+        gemma: null,
         abort: null,
       })
-      log(`session ${sessionId} started for scanId=${scanId}`)
-      return { ok: true, summary }
+      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}`)
+      return { ok: true, summary, provider: chosenProvider }
     } catch (e) {
       warn(`start failed: ${e.message}`)
       return { ok: false, error: e.message }
     }
   })
 
-  ipcMain.on('llmChat:send', async (_event, { sessionId, userMessage }) => {
+  ipcMain.on('llmChat:send', async (_event, { sessionId, userMessage, attachments }) => {
     const session = sessions.get(sessionId)
     if (!session) {
       mainWindow.webContents.send('llmChat:error', {
@@ -744,18 +885,66 @@ function init({ mainWindow, getResultsFolderPath }) {
       })
       return
     }
+    // Split each attachment's data URI into mediaType + base64 once, so both
+    // providers can consume the shared shape without re-parsing.
+    const parsedAttachments = Array.isArray(attachments)
+      ? attachments
+          .map((a) => {
+            if (!a?.dataUri || typeof a.dataUri !== 'string') return null
+            const m = a.dataUri.match(/^data:([^;]+);base64,(.*)$/)
+            if (!m) return null
+            return {
+              mediaType: m[1],
+              base64: m[2],
+              occurrenceIndex: a.occurrenceIndex,
+              pageTitle: a.pageTitle,
+              url: a.url,
+              xpath: a.xpath,
+              kind: a.kind || 'user-attachment',
+            }
+          })
+          .filter(Boolean)
+      : []
     try {
-      if (!session.cfg) {
-        session.cfg = loadLLMConfig()
-        if (session.cfg.provider !== 'anthropic') {
-          throw new Error(
-            'Tool use is only supported for Anthropic providers in this version. Set ANTHROPIC_API_KEY or configure ~/.claude/settings.json.'
-          )
+      if (session.provider === 'gemma') {
+        await streamGemmaChat({
+          session,
+          mainWindow,
+          sessionId,
+          userMessage,
+          attachments: parsedAttachments,
+          runTool,
+          toolSchemas: TOOL_SCHEMAS,
+        })
+      } else {
+        if (!session.cfg) {
+          session.cfg = loadLLMConfig()
+          if (session.cfg.provider !== 'anthropic') {
+            throw new Error(
+              'Tool use is only supported for Anthropic providers in this version. Set ANTHROPIC_API_KEY or configure ~/.claude/settings.json.'
+            )
+          }
+          log(`session ${sessionId} using model ${session.cfg.model} at ${session.cfg.baseURL}`)
         }
-        log(`session ${sessionId} using model ${session.cfg.model} at ${session.cfg.baseURL}`)
+        // Anthropic accepts a content array on user messages. Prepend image
+        // blocks so the model sees the screenshot alongside the question.
+        // (Gemma can't do this today — see llmGemma.js for the tracker-issue
+        // reference and the reasoning behind leaving Gemma image-blind.)
+        if (parsedAttachments.length > 0) {
+          const content = []
+          for (const att of parsedAttachments) {
+            content.push({
+              type: 'image',
+              source: { type: 'base64', media_type: att.mediaType, data: att.base64 },
+            })
+          }
+          content.push({ type: 'text', text: userMessage })
+          session.messages.push({ role: 'user', content })
+        } else {
+          session.messages.push({ role: 'user', content: userMessage })
+        }
+        await runChatLoop({ session, mainWindow, sessionId })
       }
-      session.messages.push({ role: 'user', content: userMessage })
-      await runChatLoop({ session, mainWindow, sessionId })
       mainWindow.webContents.send('llmChat:done', { sessionId })
     } catch (e) {
       warn(`chat error: ${e.message}`)

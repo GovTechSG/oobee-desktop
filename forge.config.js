@@ -3,6 +3,12 @@ const os = require("os");
 module.exports = {
   packagerConfig: {
     icon: 'public/oobee-logo',
+    // node-llama-cpp ships prebuilt native binaries (.node / .dylib / .dll);
+    // these can't live inside asar, so unpack the whole module tree so
+    // dynamic loading + the on-disk model cache work in packaged builds.
+    asar: {
+      unpack: '**/node_modules/{node-llama-cpp,@node-llama-cpp/**}/**/*',
+    },
     osxUniversal: { // config options for `@electron/universal`
       x64ArchFiles: "*" // replace with any relevant glob pattern
     },
