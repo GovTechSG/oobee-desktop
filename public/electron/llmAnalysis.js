@@ -8,9 +8,62 @@ const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 
 const MAX_DOM_CHARS = 30_000
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+const MAX_ELEM_SCREENSHOT_BYTES = 1 * 1024 * 1024
+const MAX_ELEM_SCREENSHOTS_PER_CALL = 4
 const MAX_TOOL_ITEMS = 20
 const MAX_INDEX_KB = 30
 const ANTHROPIC_VERSION = '2023-06-01'
+
+const mediaTypeForPath = (rel) => {
+  const lower = String(rel || '').toLowerCase()
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  return 'image/jpeg'
+}
+
+// Oobee writes some HTML element screenshots with a .jpeg extension but PNG
+// bytes inside; Anthropic rejects the tool result when the declared media
+// type doesn't match. Sniff magic bytes and only fall back to the extension.
+const sniffMediaType = (buf, rel) => {
+  if (buf && buf.length >= 8) {
+    if (
+      buf[0] === 0x89 &&
+      buf[1] === 0x50 &&
+      buf[2] === 0x4e &&
+      buf[3] === 0x47 &&
+      buf[4] === 0x0d &&
+      buf[5] === 0x0a &&
+      buf[6] === 0x1a &&
+      buf[7] === 0x0a
+    ) {
+      return 'image/png'
+    }
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg'
+    if (
+      buf[0] === 0x47 &&
+      buf[1] === 0x49 &&
+      buf[2] === 0x46 &&
+      buf[3] === 0x38
+    ) {
+      return 'image/gif'
+    }
+    if (
+      buf.length >= 12 &&
+      buf[0] === 0x52 &&
+      buf[1] === 0x49 &&
+      buf[2] === 0x46 &&
+      buf[3] === 0x46 &&
+      buf[8] === 0x57 &&
+      buf[9] === 0x45 &&
+      buf[10] === 0x42 &&
+      buf[11] === 0x50
+    ) {
+      return 'image/webp'
+    }
+  }
+  return mediaTypeForPath(rel)
+}
 
 const sessions = new Map() // sessionId -> { storagePath, cfg, artifacts, summary, systemPrompt, messages, abort }
 
@@ -118,16 +171,23 @@ function computeSummary(artifacts) {
     occurrences: sumTotalItems(needsReviewRules),
   }
 
-  const topRules = [...mustFixRules]
-    .sort((a, b) => (b?.totalItems ?? 0) - (a?.totalItems ?? 0))
-    .slice(0, 5)
-    .map((r) => ({
-      rule: r?.rule ?? r?.ruleId ?? '',
-      description: r?.description ?? '',
-      totalItems: r?.totalItems ?? 0,
-      axeImpact: r?.axeImpact ?? '',
-      conformance: r?.conformance ?? r?.wcagConformance ?? [],
-    }))
+  const topN = (rules) =>
+    [...rules]
+      .sort((a, b) => (b?.totalItems ?? 0) - (a?.totalItems ?? 0))
+      .slice(0, 5)
+      .map((r) => ({
+        rule: r?.rule ?? r?.ruleId ?? '',
+        description: r?.description ?? '',
+        totalItems: r?.totalItems ?? 0,
+        axeImpact: r?.axeImpact ?? '',
+        conformance: r?.conformance ?? r?.wcagConformance ?? [],
+      }))
+
+  const topRulesByCategory = {
+    mustFix: topN(mustFixRules),
+    goodToFix: topN(goodToFixRules),
+    needsReview: topN(needsReviewRules),
+  }
 
   const topPages = Array.isArray(sd.topFiveMostIssues)
     ? sd.topFiveMostIssues.map((p) => ({
@@ -189,7 +249,7 @@ function computeSummary(artifacts) {
     goodToFixOccurrences: goodToFixCount.occurrences,
     needsReviewRules: needsReviewCount.rules,
     needsReviewOccurrences: needsReviewCount.occurrences,
-    topRules,
+    topRulesByCategory,
     topPages,
     findingsIndex,
   }
@@ -245,10 +305,40 @@ function runTool(session, name, input) {
             html: it.html,
             message: it.message,
             xpath: it.xpath,
+            screenshotPath: it.screenshotPath || '',
           })
         }
       }
-      return {
+      const sliced = occurrences.slice(0, limit)
+
+      // Attach element screenshots when the scan captured them. If screenshots
+      // were disabled at scan time, `screenshotPath` will be empty (or the file
+      // won't exist) and we simply skip — no error, no placeholder.
+      const attachments = []
+      for (let i = 0; i < sliced.length && attachments.length < MAX_ELEM_SCREENSHOTS_PER_CALL; i++) {
+        const rel = sliced[i].screenshotPath
+        if (!rel) continue
+        const abs = path.join(session.storagePath, rel)
+        if (!fs.existsSync(abs)) continue
+        let buf
+        try {
+          buf = fs.readFileSync(abs)
+        } catch (_) {
+          continue
+        }
+        if (!buf || buf.length === 0 || buf.length > MAX_ELEM_SCREENSHOT_BYTES) continue
+        const mediaType = sniffMediaType(buf, rel)
+        attachments.push({
+          occurrenceIndex: i,
+          url: sliced[i].url,
+          pageTitle: sliced[i].pageTitle,
+          xpath: sliced[i].xpath,
+          mediaType,
+          base64: buf.toString('base64'),
+        })
+      }
+
+      const payload = {
         rule: match.rule ?? match.ruleId,
         category: input.category,
         description: match.description,
@@ -256,9 +346,13 @@ function runTool(session, name, input) {
         conformance: match.conformance ?? match.wcagConformance,
         helpUrl: match.helpUrl,
         totalItems: match.totalItems ?? occurrences.length,
-        occurrences: occurrences.slice(0, limit),
+        occurrences: sliced,
         truncated: occurrences.length > limit,
+        screenshotsAttached: attachments.length,
       }
+
+      if (attachments.length === 0) return payload
+      return { __attachments: attachments, payload }
     }
     case 'list_pages': {
       const ps = artifacts.getPagesSummary() || {}
@@ -343,7 +437,7 @@ function runTool(session, name, input) {
           type: 'image',
           source: {
             type: 'base64',
-            media_type: 'image/png',
+            media_type: sniffMediaType(buf, rel),
             data: buf.toString('base64'),
           },
         },
@@ -528,6 +622,47 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
             name: tu.name,
             status: 'done',
             summary: `screenshot: ${raw.pageUrl} (${raw.viewport})`,
+          })
+        } else if (raw && Array.isArray(raw.__attachments) && raw.__attachments.length > 0) {
+          // Element screenshots — one image block per occurrence for the LLM,
+          // plus attachment events for the renderer so the user can see them.
+          content = []
+          for (const att of raw.__attachments) {
+            content.push({
+              type: 'text',
+              text: `Element screenshot for occurrence #${att.occurrenceIndex} (${att.url}${
+                att.xpath ? ` @ ${att.xpath}` : ''
+              }):`,
+            })
+            content.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: att.mediaType,
+                data: att.base64,
+              },
+            })
+            send('llmChat:attachment', {
+              sessionId,
+              toolCallId: tu.id,
+              occurrenceIndex: att.occurrenceIndex,
+              url: att.url,
+              pageTitle: att.pageTitle,
+              xpath: att.xpath,
+              dataUri: `data:${att.mediaType};base64,${att.base64}`,
+            })
+          }
+          const text = JSON.stringify(raw.payload, null, 0)
+          content.push({
+            type: 'text',
+            text: text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text,
+          })
+          send('llmChat:toolCall', {
+            sessionId,
+            id: tu.id,
+            name: tu.name,
+            status: 'done',
+            summary: `${tu.name}: ${raw.__attachments.length} screenshot(s) attached`,
           })
         } else {
           const text = JSON.stringify(raw, null, 0)
