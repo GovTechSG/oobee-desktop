@@ -5,13 +5,95 @@ import SummaryCard from './SummaryCard'
 import Button from '../../common/components/Button'
 import './ChatPage.scss'
 
+// LLMs frequently emit emphasis in shapes CommonMark treats as literal — most
+// notably a closing `**` that's immediately followed by a word char, or spaces
+// tucked inside the delimiters (`** foo **`). We nudge these back into a valid
+// flanking shape so the user isn't left staring at raw asterisks.
+const normalizeLLMMarkdown = (text) => {
+  if (!text) return ''
+  let out = text
+  // Insert a space between a word char and an adjacent `**`, on either side of
+  // the emphasis, so the delimiter run becomes valid left/right-flanking.
+  out = out.replace(/(\w)(\*\*)(?=\S)/g, '$1 $2')
+  out = out.replace(/(?<=\S)(\*\*)(\w)/g, '$1 $2')
+  // Strip whitespace tucked inside `** ... **` on either or both sides. Open
+  // must be at a valid left-flank (start / non-word non-`*`); close at a valid
+  // right-flank (end / non-word non-`*`). Content forbids nested `**`. Together
+  // these prevent matching across two adjacent bolds.
+  const OPEN = String.raw`(?<=^|[^\w*])\*\*`
+  const CLOSE = String.raw`\*\*(?=$|[^\w*])`
+  const CONTENT = String.raw`(?:[^*\n]|\*(?!\*))+?`
+  out = out.replace(new RegExp(`${OPEN}[ \\t]+(${CONTENT})[ \\t]+${CLOSE}`, 'g'), '**$1**')
+  out = out.replace(new RegExp(`${OPEN}[ \\t]+(${CONTENT})${CLOSE}`, 'g'), '**$1**')
+  out = out.replace(new RegExp(`${OPEN}(${CONTENT})[ \\t]+${CLOSE}`, 'g'), '**$1**')
+  const U_OPEN = String.raw`(?<=^|[^\w_])__`
+  const U_CLOSE = String.raw`__(?=$|[^\w_])`
+  const U_CONTENT = String.raw`(?:[^_\n]|_(?!_))+?`
+  out = out.replace(new RegExp(`${U_OPEN}[ \\t]+(${U_CONTENT})[ \\t]+${U_CLOSE}`, 'g'), '__$1__')
+  out = out.replace(new RegExp(`${U_OPEN}[ \\t]+(${U_CONTENT})${U_CLOSE}`, 'g'), '__$1__')
+  out = out.replace(new RegExp(`${U_OPEN}(${U_CONTENT})[ \\t]+${U_CLOSE}`, 'g'), '__$1__')
+  // Close an odd number of ``` fences so the tail isn't rendered as one <pre>.
+  const fences = out.match(/^[ \t]*```/gm)
+  if (fences && fences.length % 2 === 1) out += '\n```'
+  return out
+}
+
+const HEX_COLOUR_RE = /#[0-9a-fA-F]{6}\b/g
+
+// Walk the parsed markdown DOM and, in text nodes only, insert a coloured
+// swatch immediately after any 6-digit hex colour. Attribute values (e.g.
+// href="...#anchor") are left untouched.
+const injectHexSwatches = (root) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+  const textNodes = []
+  let current
+  while ((current = walker.nextNode())) textNodes.push(current)
+  for (const node of textNodes) {
+    const text = node.nodeValue || ''
+    HEX_COLOUR_RE.lastIndex = 0
+    if (!HEX_COLOUR_RE.test(text)) continue
+    HEX_COLOUR_RE.lastIndex = 0
+    const frag = document.createDocumentFragment()
+    let last = 0
+    let match
+    while ((match = HEX_COLOUR_RE.exec(text)) !== null) {
+      const hex = match[0]
+      if (match.index > last) {
+        frag.appendChild(document.createTextNode(text.slice(last, match.index)))
+      }
+      frag.appendChild(document.createTextNode(hex))
+      const swatch = document.createElement('span')
+      swatch.className = 'hex-swatch'
+      swatch.setAttribute('aria-hidden', 'true')
+      swatch.style.backgroundColor = hex
+      frag.appendChild(swatch)
+      last = match.index + hex.length
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+    node.parentNode.replaceChild(frag, node)
+  }
+}
+
 const renderMarkdown = (text) => {
   try {
-    return marked.parse(text || '')
+    const html = marked.parse(normalizeLLMMarkdown(text))
+    if (typeof DOMParser === 'undefined') return html
+    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+    const root = doc.body.firstChild
+    if (!root) return html
+    injectHexSwatches(root)
+    return root.innerHTML
   } catch (_) {
     return text || ''
   }
 }
+
+const SUGGESTED_QUESTIONS = [
+  "What's the worst accessibility issue on this site?",
+  'Which page has the most issues, and why?',
+  'Give me copy-pasteable fixes for the top must-fix rule.',
+  'Are there any color-contrast violations I should worry about?',
+]
 
 const ChatPage = () => {
   const navigate = useNavigate()
@@ -31,6 +113,7 @@ const ChatPage = () => {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamError, setStreamError] = useState(null)
+  const [detailsOpen, setDetailsOpen] = useState(true)
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
@@ -83,7 +166,7 @@ const ChatPage = () => {
         let idx = streamingIndexRef.current
         if (idx === null || idx === undefined || !next[idx] || next[idx].role !== 'assistant') {
           streamingIndexRef.current = next.length
-          next.push({ role: 'assistant', content: '', toolCalls: [] })
+          next.push({ role: 'assistant', content: '', toolCalls: [], attachments: [] })
           idx = streamingIndexRef.current
         }
         const toolCalls = [...(next[idx].toolCalls || [])]
@@ -95,6 +178,30 @@ const ChatPage = () => {
           toolCalls.push(entry)
         }
         next[idx] = { ...next[idx], toolCalls }
+        return next
+      })
+    })
+
+    window.services.onLlmChatAttachment((payload) => {
+      if (payload?.sessionId !== sessionId) return
+      setMessages((prev) => {
+        const next = [...prev]
+        let idx = streamingIndexRef.current
+        if (idx === null || idx === undefined || !next[idx] || next[idx].role !== 'assistant') {
+          streamingIndexRef.current = next.length
+          next.push({ role: 'assistant', content: '', toolCalls: [], attachments: [] })
+          idx = streamingIndexRef.current
+        }
+        const attachments = [...(next[idx].attachments || [])]
+        attachments.push({
+          toolCallId: payload.toolCallId,
+          occurrenceIndex: payload.occurrenceIndex,
+          url: payload.url,
+          pageTitle: payload.pageTitle,
+          xpath: payload.xpath,
+          dataUri: payload.dataUri,
+        })
+        next[idx] = { ...next[idx], attachments }
         return next
       })
     })
@@ -123,16 +230,23 @@ const ChatPage = () => {
     }
   }, [messages])
 
-  const sendMessage = () => {
-    const text = input.trim()
-    if (!text || isStreaming) return
+  const sendMessage = (overrideText) => {
+    const text = (typeof overrideText === 'string' ? overrideText : input).trim()
+    if (!text || isStreaming || startError) return
     setStreamError(null)
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setInput('')
+    setDetailsOpen(false)
     streamingIndexRef.current = null
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text })
     if (inputRef.current) inputRef.current.focus()
+  }
+
+  const askAboutRule = (rule) => {
+    if (!rule) return
+    const label = rule.description ? `"${rule.rule}" (${rule.description})` : `"${rule.rule}"`
+    sendMessage(`Tell me more about the ${label} rule — where it occurs, why it matters, and how to fix it.`)
   }
 
   const stop = () => {
@@ -162,13 +276,32 @@ const ChatPage = () => {
         </div>
       )}
 
-      {summary && <SummaryCard summary={summary} />}
+      {summary && (
+        <SummaryCard
+          summary={summary}
+          onAskAboutRule={askAboutRule}
+          detailsOpen={detailsOpen}
+          onTopRulesToggle={setDetailsOpen}
+        />
+      )}
 
       <div className="chat-messages" aria-live="polite">
         {messages.length === 0 && !startError && (
           <div className="chat-empty">
-            Ask a question about the scan — e.g. <em>"What's the worst issue?"</em> or{' '}
-            <em>"Show me the HTML around the first color-contrast violation."</em>
+            <p>Ask a question about the scan, or try one of these:</p>
+            <div className="chat-suggested-chips">
+              {SUGGESTED_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="chat-chip"
+                  onClick={() => sendMessage(q)}
+                  disabled={isStreaming}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((m, i) => (
@@ -185,6 +318,28 @@ const ChatPage = () => {
                       </>
                     )}
                   </div>
+                ))}
+              </div>
+            )}
+            {m.role === 'assistant' && Array.isArray(m.attachments) && m.attachments.length > 0 && (
+              <div className="chat-attachments" aria-label="Element screenshots">
+                {m.attachments.map((a, ai) => (
+                  <figure key={`${a.toolCallId}-${a.occurrenceIndex}-${ai}`} className="chat-attachment">
+                    <img
+                      src={a.dataUri}
+                      alt={`Element screenshot for occurrence ${a.occurrenceIndex + 1}${
+                        a.url ? ` on ${a.url}` : ''
+                      }`}
+                      loading="lazy"
+                    />
+                    <figcaption>
+                      <span className="chat-attachment-index">#{a.occurrenceIndex + 1}</span>
+                      {a.pageTitle || a.url ? (
+                        <span className="chat-attachment-page">{a.pageTitle || a.url}</span>
+                      ) : null}
+                      {a.xpath ? <code className="chat-attachment-xpath">{a.xpath}</code> : null}
+                    </figcaption>
+                  </figure>
                 ))}
               </div>
             )}
