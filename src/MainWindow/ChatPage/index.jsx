@@ -494,6 +494,42 @@ const ChatPage = () => {
     const cssHint = isCssDependent
       ? 'This is a CSS-dependent rule. Before answering, call `get_page_computed_styles` with pageUrl set to the URL above and selector set to the XPath/selector shown (axe reports CSS selectors under the "xpath" field). That returns the actually-applied browser styles — the definitive answer for colour and contrast. If it errors because the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1, fall back to `get_page_css` for the inline `<style>` blocks and say plainly if the failing rule lives in an external stylesheet that was not captured.'
       : null
+    // DOM-context-dependent rules (ARIA names, labels, landmarks, headings,
+    // duplicate ids, skip-link targets) can't be answered from the element
+    // snippet alone — the *rest* of the page determines the right fix
+    // (whether an aria-labelledby target already exists, whether a nearby
+    // heading could label a region, whether an id truly is duplicated).
+    // Without this nudge, Gemma just returns generic textbook advice.
+    const isDomContextDependent =
+      !isCssDependent && (
+        ruleLower.startsWith('aria-') ||
+        ruleLower.includes('label') ||
+        ruleLower === 'button-name' ||
+        ruleLower === 'link-name' ||
+        ruleLower === 'input-button-name' ||
+        ruleLower === 'input-image-alt' ||
+        ruleLower === 'image-alt' ||
+        ruleLower === 'heading-order' ||
+        ruleLower === 'empty-heading' ||
+        ruleLower === 'page-has-heading-one' ||
+        ruleLower.startsWith('landmark-') ||
+        ruleLower === 'region' ||
+        ruleLower === 'bypass' ||
+        ruleLower === 'skip-link' ||
+        ruleLower.startsWith('duplicate-id') ||
+        ruleLower === 'frame-title' ||
+        ruleLower === 'document-title' ||
+        ruleLower === 'html-has-lang' ||
+        ruleLower === 'html-lang-valid' ||
+        msgLower.includes('aria-labelledby') ||
+        msgLower.includes('aria-describedby') ||
+        msgLower.includes('references elements that do not exist') ||
+        msgLower.includes('accessible name') ||
+        msgLower.includes('unique id')
+      )
+    const domHint = isDomContextDependent
+      ? 'This fix depends on the surrounding DOM, not just the element itself. Before answering, call `get_page_dom` with pageUrl set to the URL above (viewport "desktop"). Then search the returned HTML for: (a) an existing element whose id would be a plausible aria-labelledby / aria-describedby target for this element (e.g. a heading, caption, or visible title near the element in the DOM); (b) any duplicate ids or landmark/region siblings that are relevant to this rule; (c) nearby visible text that could serve as the accessible name. Base your recommendation on what is actually present in the DOM — cite the specific existing id or heading text — rather than inventing generic labels. If the returned HTML is truncated (>30 KB), say so and describe only what you could see.'
+      : null
     const parts = [
       `About occurrence #${index + 1} of the **${rule}** rule:`,
       description ? `- Rule description: ${description}` : null,
@@ -512,6 +548,7 @@ const ChatPage = () => {
       '',
       'Why does this specific occurrence matter, and what would fix it?',
       cssHint,
+      domHint,
       wcagList
         ? `When citing WCAG, use ONLY the references listed above (${wcagList}). Do not invent or substitute other WCAG success criteria.`
         : 'If you are unsure of the exact WCAG success criterion, say so instead of guessing.',

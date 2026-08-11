@@ -169,6 +169,142 @@ function pick(obj, keys) {
   return out
 }
 
+// --- CSS selector helpers for get_page_computed_styles ---
+// axe reports CSS selectors under a finding's `xpath` field. They can be
+// anything a CSS parser accepts: `.class`, `#id`, tag paths, and — crucially —
+// attribute selectors like `span > a[href$="#foo"]`. The computed-styles JSON
+// stores each element as a flat record with { selector (nth-of-type path),
+// tag, id?, classes?, outerHtmlPrefix, styles }. We don't have a live DOM to
+// run querySelectorAll against, so match on the LEAF simple selector (the
+// trailing token after combinators) which is what actually identifies the
+// failing element.
+
+// Extract the last simple selector after descendant/child/sibling combinators,
+// respecting brackets and parens so `a[href$=" > x"]` isn't split.
+function selectorLeaf(query) {
+  let depth = 0
+  let last = 0
+  const parts = []
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i]
+    if (c === '[' || c === '(') depth++
+    else if (c === ']' || c === ')') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && /[>\s+~]/.test(c)) {
+      if (i > last) parts.push(query.slice(last, i))
+      last = i + 1
+    }
+  }
+  if (last < query.length) parts.push(query.slice(last))
+  const nonEmpty = parts.map((p) => p.trim()).filter((p) => p && !/^[>+~]$/.test(p))
+  return nonEmpty.length ? nonEmpty[nonEmpty.length - 1] : query.trim()
+}
+
+// Parse one simple selector like `a[href$="foo"].bar#baz:hover` into a struct.
+function parseSimpleSelector(text) {
+  const out = { tag: null, id: null, classes: [], attrs: [] }
+  let rest = text.trim()
+  const tagMatch = rest.match(/^(\*|[a-zA-Z][a-zA-Z0-9-]*)/)
+  if (tagMatch) {
+    out.tag = tagMatch[1] === '*' ? '*' : tagMatch[1].toLowerCase()
+    rest = rest.slice(tagMatch[0].length)
+  }
+  while (rest.length > 0) {
+    const ch = rest[0]
+    if (ch === '#') {
+      const m = rest.match(/^#([A-Za-z0-9_\-]+)/)
+      if (!m) break
+      out.id = m[1]
+      rest = rest.slice(m[0].length)
+    } else if (ch === '.') {
+      const m = rest.match(/^\.([A-Za-z0-9_\-]+)/)
+      if (!m) break
+      out.classes.push(m[1])
+      rest = rest.slice(m[0].length)
+    } else if (ch === '[') {
+      const m = rest.match(
+        /^\[\s*([A-Za-z_][A-Za-z0-9_\-:]*)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]+))\s*)?\]/
+      )
+      if (!m) break
+      out.attrs.push({
+        name: m[1].toLowerCase(),
+        op: m[2] || null,
+        value: m[3] ?? m[4] ?? m[5] ?? null,
+      })
+      rest = rest.slice(m[0].length)
+    } else if (ch === ':') {
+      // Skip pseudo-classes/elements — we can't evaluate :hover, :nth-child,
+      // etc. against a static capture without a real DOM. Best-effort ignore.
+      const m = rest.match(/^::?[A-Za-z\-]+(?:\([^)]*\))?/)
+      if (!m) break
+      rest = rest.slice(m[0].length)
+    } else {
+      break
+    }
+  }
+  return out
+}
+
+// Parse the opening tag's attributes out of the stored outerHtmlPrefix. The
+// prefix is capped at 200 chars at capture time, so the opening tag may be
+// truncated for very large ones; we parse what we have.
+function parseOpeningTagAttrs(outerHtmlPrefix) {
+  if (!outerHtmlPrefix) return {}
+  const openMatch = outerHtmlPrefix.match(/^<[a-zA-Z][a-zA-Z0-9-]*([\s\S]*?)(?:\/?>|$)/)
+  if (!openMatch) return {}
+  const attrStr = openMatch[1]
+  const attrs = {}
+  const re = /\s+([a-zA-Z_:][a-zA-Z0-9_.:\-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g
+  let m
+  while ((m = re.exec(attrStr)) !== null) {
+    attrs[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? ''
+  }
+  return attrs
+}
+
+function attrFilterMatches(value, filter) {
+  if (value === undefined || value === null) return filter.op === null ? false : false
+  if (filter.op === null) return true
+  const v = String(filter.value ?? '')
+  switch (filter.op) {
+    case '=':
+      return value === v
+    case '^=':
+      return value.startsWith(v)
+    case '$=':
+      return value.endsWith(v)
+    case '*=':
+      return value.includes(v)
+    case '~=':
+      return value.split(/\s+/).includes(v)
+    case '|=':
+      return value === v || value.startsWith(v + '-')
+    default:
+      return false
+  }
+}
+
+function elementMatchesLeaf(el, leaf, attrCache) {
+  if (leaf.tag && leaf.tag !== '*' && el.tag !== leaf.tag) return false
+  if (leaf.id && el.id !== leaf.id) return false
+  if (leaf.classes.length > 0) {
+    if (!Array.isArray(el.classes)) return false
+    for (const c of leaf.classes) if (!el.classes.includes(c)) return false
+  }
+  if (leaf.attrs.length > 0) {
+    let attrs = attrCache.get(el)
+    if (attrs === undefined) {
+      attrs = parseOpeningTagAttrs(el.outerHtmlPrefix)
+      if (el.id != null && attrs.id === undefined) attrs.id = String(el.id)
+      if (Array.isArray(el.classes) && attrs.class === undefined) {
+        attrs.class = el.classes.join(' ')
+      }
+      attrCache.set(el, attrs)
+    }
+    for (const f of leaf.attrs) if (!attrFilterMatches(attrs[f.name], f)) return false
+  }
+  return true
+}
+
 function computeSummary(artifacts) {
   const sd = artifacts.scanData || {}
   const sis = artifacts.scanIssuesSummary || {}
@@ -499,35 +635,28 @@ function runTool(session, name, input) {
         }
       }
 
-      // axe reports targets as CSS selectors (stored on findings under the
-      // xpath field). Break them down and match against the fields we
-      // captured: id, classes, and the stable selector-path we generated at
-      // capture time. Take the last simple selector when the query is a
-      // compound like `.foo > .bar` — the trailing token identifies the
-      // failing element.
-      const lastToken = q.split(/[>\s+~]+/).filter(Boolean).pop() || q
-      const matchClass = lastToken.match(/^\.([A-Za-z0-9_-]+)/)
-      const matchId = lastToken.match(/^#(.+)/)
-      const cls = matchClass ? matchClass[1] : null
-      const id = matchId ? matchId[1] : null
-      const substr = q.toLowerCase()
+      // Match on the LEAF simple selector (last token after combinators),
+      // parsed into tag + id + classes + attribute filters. Attributes are
+      // resolved from each element's captured outerHtmlPrefix so axe targets
+      // like `span > a[href$="#foo"]` work — the earlier substring-match
+      // strategy silently failed for anything beyond `.class` / `#id`.
+      const leafText = selectorLeaf(q)
+      const leaf = parseSimpleSelector(leafText)
 
+      const attrCache = new Map()
       const matches = []
       for (const el of elements) {
-        let hit = false
-        if (id && el.id === id) hit = true
-        if (!hit && cls && Array.isArray(el.classes) && el.classes.includes(cls)) hit = true
-        if (!hit && typeof el.selector === 'string' && el.selector.toLowerCase().includes(substr)) hit = true
-        if (hit) matches.push(el)
+        if (elementMatchesLeaf(el, leaf, attrCache)) matches.push(el)
       }
 
-      const limit = Math.min(input.limit ?? 5, 20)
+      const limitInput = Number.isFinite(input.limit) ? input.limit : 5
+      const limit = Math.max(1, Math.min(limitInput, 20))
       const sliced = matches.slice(0, limit)
 
       if (matches.length === 0) {
-        // Give the model something actionable — hand back a small
-        // orientation payload (element count + a sample of ids/classes) so
-        // it can revise the selector instead of concluding "no data".
+        // Orientation payload so the model can revise the selector instead
+        // of concluding "no data". Include a sample of outerHtmlPrefix so
+        // attribute-selector authors can see what's actually on the page.
         const idSample = elements
           .map((e) => e.id)
           .filter(Boolean)
@@ -541,15 +670,24 @@ function runTool(session, name, input) {
           }
           if (classSample.size >= 30) break
         }
+        const tagSample = leaf.tag && leaf.tag !== '*'
+          ? elements
+              .filter((e) => e.tag === leaf.tag)
+              .slice(0, 10)
+              .map((e) => ({ selector: e.selector, outerHtmlPrefix: e.outerHtmlPrefix }))
+          : []
         return {
           pageUrl: input.pageUrl,
           viewport,
           selector: q,
+          leafParsed: leaf,
           matches: [],
           totalElements: elements.length,
           idSample,
           classSample: Array.from(classSample),
-          note: 'No elements matched. Try a different selector — the samples above show what ids/classes are present on this page.',
+          tagSample,
+          note:
+            'No elements matched the leaf simple selector. Samples above show what is on the page; revise the selector or drop attribute filters that may not match the captured outerHtmlPrefix (first 200 chars).',
         }
       }
 
@@ -557,6 +695,7 @@ function runTool(session, name, input) {
         pageUrl: input.pageUrl,
         viewport,
         selector: q,
+        leafMatched: leafText,
         propertiesCaptured: doc.properties || [],
         totalMatches: matches.length,
         truncated: matches.length > limit,
