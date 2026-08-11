@@ -476,6 +476,24 @@ const ChatPage = () => {
           },
         ]
       : []
+    // CSS-dependent rules (colour contrast, focus visibility) can't be
+    // answered from the element HTML alone — the failing style lives in a
+    // stylesheet. Nudge the model to call get_page_css first so it either
+    // finds the rule in inline CSS or is honest that the styles live in an
+    // external file the scan didn't capture.
+    const ruleLower = String(rule || '').toLowerCase()
+    const msgLower = String(occurrence.message || '').toLowerCase()
+    const isCssDependent =
+      ruleLower.includes('color-contrast') ||
+      ruleLower.includes('contrast') ||
+      ruleLower.includes('focus-visible') ||
+      ruleLower.includes('focus-order') ||
+      msgLower.includes('could not be determined') ||
+      msgLower.includes('background image') ||
+      msgLower.includes('background gradient')
+    const cssHint = isCssDependent
+      ? 'This is a CSS-dependent rule. Before answering, call `get_page_css` with the URL above to inspect the inline <style> blocks and see which external stylesheets are referenced. If the failing rule is not present in the inline styles, say so plainly and name the likely external stylesheet — do not guess the colour values.'
+      : null
     const parts = [
       `About occurrence #${index + 1} of the **${rule}** rule:`,
       description ? `- Rule description: ${description}` : null,
@@ -493,6 +511,7 @@ const ChatPage = () => {
         : null,
       '',
       'Why does this specific occurrence matter, and what would fix it?',
+      cssHint,
       wcagList
         ? `When citing WCAG, use ONLY the references listed above (${wcagList}). Do not invent or substitute other WCAG success criteria.`
         : 'If you are unsure of the exact WCAG success criterion, say so instead of guessing.',
