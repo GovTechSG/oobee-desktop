@@ -105,7 +105,7 @@ Built by `buildSystemPrompt({ summary })` in
 
 ## Tool schemas
 
-Seven tools, all defined in `TOOL_SCHEMAS` in
+Eight tools, all defined in `TOOL_SCHEMAS` in
 [`llmPrompts.js`](./llmPrompts.js). Design principles:
 
 - **Slim previews, drill-down on demand.** `list_findings` returns
@@ -135,7 +135,39 @@ Seven tools, all defined in `TOOL_SCHEMAS` in
 | `get_page_detail` | all findings on one page | model needs to answer "what's wrong with page X" |
 | `list_page_captures` | which pages have DOM / screenshot artifacts | pre-flight before requesting a DOM or screenshot |
 | `get_page_dom` | ~30 KB of captured HTML | model needs to reason about actual document markup |
+| `get_page_css` | inline `<style>` block bodies + list of external stylesheet URLs | model is answering a CSS-dependent rule (color-contrast, focus-visible) |
 | `get_page_screenshot` | full-page screenshot (Claude sees image, Gemma gets a pointer) | model needs visual context |
+
+### Why `get_page_css` exists separately from `get_page_dom`
+
+Two reasons. First, `get_page_dom` truncates at 30 KB — on realistic pages
+the head + top-of-body is usually gone by then, so any `<style>` blocks
+near the bottom get sliced off. Second, and more important, the captured
+DOM only inlines `<style>` blocks and `style=""` attributes — the content
+of external stylesheets (`<link rel="stylesheet">`) is **never** captured.
+For rules like `color-contrast` on `.foo-text` where the failing colour
+lives in `main.css`, no amount of DOM dumping will surface the failing
+declaration.
+
+`get_page_css` is designed to make that gap explicit:
+
+- Returns every inline `<style>` block body in full (typically <2 KB
+  across a page — cheap to hand over unfiltered).
+- Returns the list of `<link rel="stylesheet">` URLs so the model can
+  name the file the rule likely came from ("the failing colour is in
+  `/assets/main.css`, which is not captured by this scan") instead of
+  guessing colour values.
+- Sets `hasExternalStylesheets: true` when relevant, so the model has
+  a signal to check before answering.
+
+The per-occurrence prompt (`askAboutOccurrence` in
+[`ChatPage/index.jsx`](../../src/MainWindow/ChatPage/index.jsx)) appends
+a nudge asking the model to call `get_page_css` first whenever the rule
+name suggests a CSS-dependent failure (`color-contrast`, `contrast`,
+`focus-visible`, `focus-order`) or the failure message contains phrases
+that require CSS inspection (`could not be determined`,
+`background image`, `background gradient`). Without the nudge, small
+models default to answering from the per-occurrence context alone.
 
 ## Per-occurrence "Ask about this" prompt
 
