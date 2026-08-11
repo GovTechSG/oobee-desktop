@@ -440,6 +440,8 @@ function runTool(session, name, input) {
           hasMobileDom: !!p.mobileDom,
           hasDesktopScreenshot: !!p.desktopScreenshot,
           hasMobileScreenshot: !!p.mobileScreenshot,
+          hasDesktopComputedStyles: !!p.desktopComputedStyles,
+          hasMobileComputedStyles: !!p.mobileComputedStyles,
         })),
       }
     }
@@ -460,6 +462,105 @@ function runTool(session, name, input) {
         html: truncated ? html.slice(0, MAX_DOM_CHARS) : html,
         truncated,
         totalChars: html.length,
+      }
+    }
+    case 'get_page_computed_styles': {
+      // Reads the per-page computed-styles JSON produced by oobee when the
+      // scan runs with OOBEE_SAVE_COMPUTED_STYLES=1. The file lists every
+      // element on the page with a curated ~22-property getComputedStyle
+      // dump. This is the only way to see CSS that lives in an external
+      // stylesheet (which get_page_css cannot reach).
+      const manifest = artifacts.getManifest()
+      const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
+      if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
+      const viewport = input.viewport === 'mobile' ? 'mobile' : 'desktop'
+      const rel = viewport === 'mobile' ? entry.mobileComputedStyles : entry.desktopComputedStyles
+      if (!rel) {
+        return {
+          error: `No computed styles captured for ${input.pageUrl} (${viewport}). The scan was run without OOBEE_SAVE_COMPUTED_STYLES=1. Fall back to get_page_css to inspect inline <style> blocks.`,
+        }
+      }
+      const abs = path.join(session.storagePath, rel)
+      if (!fs.existsSync(abs)) return { error: `Computed styles file missing: ${rel}` }
+      const raw = fs.readFileSync(abs, 'utf8')
+      let doc
+      try {
+        doc = JSON.parse(raw)
+      } catch (e) {
+        return { error: `Computed styles file corrupt: ${e.message}` }
+      }
+      const elements = Array.isArray(doc.elements) ? doc.elements : []
+
+      const q = String(input.selector || '').trim()
+      if (!q) {
+        return {
+          error:
+            'selector is required. Pass the CSS selector for the element you care about (e.g. ".warning2-text").',
+        }
+      }
+
+      // axe reports targets as CSS selectors (stored on findings under the
+      // xpath field). Break them down and match against the fields we
+      // captured: id, classes, and the stable selector-path we generated at
+      // capture time. Take the last simple selector when the query is a
+      // compound like `.foo > .bar` — the trailing token identifies the
+      // failing element.
+      const lastToken = q.split(/[>\s+~]+/).filter(Boolean).pop() || q
+      const matchClass = lastToken.match(/^\.([A-Za-z0-9_-]+)/)
+      const matchId = lastToken.match(/^#(.+)/)
+      const cls = matchClass ? matchClass[1] : null
+      const id = matchId ? matchId[1] : null
+      const substr = q.toLowerCase()
+
+      const matches = []
+      for (const el of elements) {
+        let hit = false
+        if (id && el.id === id) hit = true
+        if (!hit && cls && Array.isArray(el.classes) && el.classes.includes(cls)) hit = true
+        if (!hit && typeof el.selector === 'string' && el.selector.toLowerCase().includes(substr)) hit = true
+        if (hit) matches.push(el)
+      }
+
+      const limit = Math.min(input.limit ?? 5, 20)
+      const sliced = matches.slice(0, limit)
+
+      if (matches.length === 0) {
+        // Give the model something actionable — hand back a small
+        // orientation payload (element count + a sample of ids/classes) so
+        // it can revise the selector instead of concluding "no data".
+        const idSample = elements
+          .map((e) => e.id)
+          .filter(Boolean)
+          .slice(0, 20)
+        const classSample = new Set()
+        for (const e of elements) {
+          if (!Array.isArray(e.classes)) continue
+          for (const c of e.classes) {
+            classSample.add(c)
+            if (classSample.size >= 30) break
+          }
+          if (classSample.size >= 30) break
+        }
+        return {
+          pageUrl: input.pageUrl,
+          viewport,
+          selector: q,
+          matches: [],
+          totalElements: elements.length,
+          idSample,
+          classSample: Array.from(classSample),
+          note: 'No elements matched. Try a different selector — the samples above show what ids/classes are present on this page.',
+        }
+      }
+
+      return {
+        pageUrl: input.pageUrl,
+        viewport,
+        selector: q,
+        propertiesCaptured: doc.properties || [],
+        totalMatches: matches.length,
+        truncated: matches.length > limit,
+        matches: sliced,
       }
     }
     case 'get_page_css': {
