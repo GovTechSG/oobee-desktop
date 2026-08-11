@@ -525,6 +525,7 @@ const startScan = async (scanDetails, scanEvent) => {
           ...(getIncludeProxy() && { INCLUDE_PROXY: getIncludeProxy() }),
           ...(scanDetails.saveDom && { OOBEE_SAVE_DOM: '1' }),
           ...(scanDetails.savePageScreenshot && { OOBEE_SAVE_PAGE_SCREENSHOT: '1' }),
+          ...(scanDetails.saveComputedStyles && { OOBEE_SAVE_COMPUTED_STYLES: '1' }),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
