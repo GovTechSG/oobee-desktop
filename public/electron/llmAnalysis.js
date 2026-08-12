@@ -5,7 +5,7 @@ const zlib = require('zlib')
 const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
-const { streamGemmaChat, disposeSession: disposeGemmaSession } = require('./llmGemma')
+const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
 
 const MAX_DOM_CHARS = 30_000
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
@@ -1256,6 +1256,26 @@ function init({ mainWindow, getResultsFolderPath }) {
       log(`aborting session ${sessionId}`)
       session.abort.abort()
     }
+  })
+
+  ipcMain.handle('llmChat:preloadModel', async () => {
+    try {
+      await ensureGemmaModel()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.on('llmChat:dispose', (_event, sessionId) => {
+    const session = sessions.get(sessionId)
+    if (session) {
+      log(`disposing session ${sessionId}`)
+      if (session.abort) session.abort.abort()
+      disposeGemmaSession(session)
+      sessions.delete(sessionId)
+    }
+    // unloadGemmaModel()
   })
 }
 
