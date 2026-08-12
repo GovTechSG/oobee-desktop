@@ -156,7 +156,9 @@ const AdvancedScanOptions = ({
             id="scan-type-dropdown"
             label="Scan Type:"
             initialValue={advancedOptions.scanType}
-            options={scanTypeOptions}
+            options={scanTypeOptions.map((o) =>
+              o === 'LLM analysis' ? { value: o, label: 'LLM chat' } : o
+            )}
             onChange={handleSetAdvancedOption('scanType')}
           />
           <SelectField
