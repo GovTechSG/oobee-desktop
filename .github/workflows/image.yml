@@ -37,7 +37,7 @@ jobs:
           npm install
           npm run make-win
         env:
-          CI: ""
+          CI: "false"
         working-directory: ${{github.workspace}}
 
       - name: Move build to root
@@ -143,7 +143,7 @@ jobs:
           export PATH="$PATH_TO_NODE:$PATH"
           export PATH="$PWD/oobee-desktop/node_modules/.bin:$PATH"
         env:
-          CI: ""
+          CI: "false"
         working-directory: ${{github.workspace}}
 
       - name: Decode & import certs into temporary keychain
@@ -201,7 +201,7 @@ jobs:
           npm install
           npm run make-mac
         env:
-          CI: ""
+          CI: "false"
           BE_TAG: "${{ vars.BE_TAG }}"
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
