@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { handleClickLink } from '../../common/constants'
 
 const fmt = (v, fallback = '—') =>
   v === null || v === undefined || v === '' ? fallback : v
@@ -110,7 +111,9 @@ const OccurrenceBrowser = ({ category, rule, fetchFindingDetail, onAskAboutOccur
               {current.url && (
                 <span className="occurrence-page-url">
                   {current.pageTitle ? ' — ' : ''}
-                  {current.url}
+                  <a href={current.url} onClick={(e) => handleClickLink(e, current.url)}>
+                    {current.url}
+                  </a>
                 </span>
               )}
             </dd>
@@ -209,7 +212,13 @@ const SummaryCard = ({
       <div className="summary-card-header">
         <h2>{fmt(siteName || urlScanned)}</h2>
         <div className="summary-card-meta">
-          <span>{fmt(urlScanned)}</span>
+          {urlScanned ? (
+            <a href={urlScanned} onClick={(e) => handleClickLink(e, urlScanned)}>
+              {fmt(urlScanned)}
+            </a>
+          ) : (
+            <span>{fmt(urlScanned)}</span>
+          )}
           {startTime && <span> · {fmt(startTime)}</span>}
           {viewport && <span> · {fmt(viewport)}</span>}
         </div>
@@ -337,7 +346,13 @@ const SummaryCard = ({
               <ol>
                 {topPages.map((p, i) => (
                   <li key={i}>
-                    <span className="page-title">{fmt(p.pageTitle || p.url)}</span>
+                    {p.url ? (
+                      <a className="page-title" href={p.url} onClick={(e) => handleClickLink(e, p.url)}>
+                        {fmt(p.pageTitle || p.url)}
+                      </a>
+                    ) : (
+                      <span className="page-title">{fmt(p.pageTitle || p.url)}</span>
+                    )}
                     <span className="rule-meta"> — {p.totalIssues} issues</span>
                   </li>
                 ))}
