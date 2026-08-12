@@ -838,7 +838,7 @@ const ChatPage = () => {
         </div>
       </form>
       <p className="chat-footnote">
-        Large Language Models are supportive coding assistants but can make mistakes. Maintain ultimate responsibility for manually checking, reviewing, and testing all AI-suggested recommendations.
+        Large Language Models are supportive coding assistants but can make mistakes.
       </p>
     </div>
   )
