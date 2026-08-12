@@ -526,6 +526,7 @@ const startScan = async (scanDetails, scanEvent) => {
           ...(scanDetails.saveDom && { OOBEE_SAVE_DOM: '1' }),
           ...(scanDetails.savePageScreenshot && { OOBEE_SAVE_PAGE_SCREENSHOT: '1' }),
           ...(scanDetails.saveComputedStyles && { OOBEE_SAVE_COMPUTED_STYLES: '1' }),
+          OOBEE_HTML_MAX_BYTES: '0',
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
