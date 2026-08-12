@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router'
 import { marked } from 'marked'
 import SummaryCard from './SummaryCard'
 import Button from '../../common/components/Button'
+import { handleClickLink } from '../../common/constants'
 import './ChatPage.scss'
 
 // LLMs frequently emit emphasis in shapes CommonMark treats as literal — most
@@ -238,7 +239,10 @@ const ChatPage = () => {
     ;(async () => {
       try {
         const s = await window.services.llmModelStatus()
-        if (!cancelled) setModelStatus(s)
+        if (!cancelled) {
+          setModelStatus(s)
+          if (s?.downloaded) window.services.llmChatPreloadModel()
+        }
       } catch (e) {
         if (!cancelled) setDownloadError(e.message)
       }
@@ -573,12 +577,15 @@ const ChatPage = () => {
   return (
     <div id="chat-page">
       <div className="chat-page-header">
-        <Button type="btn-link" onClick={() => navigate('/')}>
+        <Button type="btn-link" onClick={() => {
+          window.services.llmChatDispose(sessionId)
+          navigate('/')
+        }}>
           ← Back
         </Button>
-        <h1>LLM analysis</h1>
+        <h1>LLM Chat</h1>
         <div className="chat-provider-select">
-          <label htmlFor="chat-provider">Model</label>
+          <label htmlFor="chat-provider">Model:</label>
           <select
             id="chat-provider"
             value={provider}
@@ -720,8 +727,12 @@ const ChatPage = () => {
                     />
                     <figcaption>
                       <span className="chat-attachment-index">#{a.occurrenceIndex + 1}</span>
-                      {a.pageTitle || a.url ? (
-                        <span className="chat-attachment-page">{a.pageTitle || a.url}</span>
+                      {a.url ? (
+                        <a className="chat-attachment-page" href={a.url} onClick={(e) => handleClickLink(e, a.url)}>
+                          {a.pageTitle || a.url}
+                        </a>
+                      ) : a.pageTitle ? (
+                        <span className="chat-attachment-page">{a.pageTitle}</span>
                       ) : null}
                       {a.xpath ? <code className="chat-attachment-xpath">{a.xpath}</code> : null}
                     </figcaption>
@@ -733,6 +744,13 @@ const ChatPage = () => {
               <div
                 className="chat-message-body chat-markdown"
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                onClick={(e) => {
+                  const anchor = e.target.closest('a[href]')
+                  if (!anchor) return
+                  const href = anchor.getAttribute('href')
+                  if (!href || href === '#') return
+                  handleClickLink(e, href)
+                }}
               />
             ) : (
               <div className="chat-message-body">
@@ -755,8 +773,12 @@ const ChatPage = () => {
                         />
                         {(a.pageTitle || a.url || a.xpath) && (
                           <figcaption>
-                            {a.pageTitle || a.url ? (
-                              <span className="chat-attachment-page">{a.pageTitle || a.url}</span>
+                            {a.url ? (
+                              <a className="chat-attachment-page" href={a.url} onClick={(e) => handleClickLink(e, a.url)}>
+                                {a.pageTitle || a.url}
+                              </a>
+                            ) : a.pageTitle ? (
+                              <span className="chat-attachment-page">{a.pageTitle}</span>
                             ) : null}
                             {a.xpath ? (
                               <code className="chat-attachment-xpath">{a.xpath}</code>
@@ -815,6 +837,9 @@ const ChatPage = () => {
           )}
         </div>
       </form>
+      <p className="chat-footnote">
+        Large Language Models are supportive coding assistants but can make mistakes. Maintain ultimate responsibility for manually checking, reviewing, and testing all AI-suggested recommendations.
+      </p>
     </div>
   )
 }
