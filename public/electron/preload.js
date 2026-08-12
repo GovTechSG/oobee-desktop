@@ -161,6 +161,8 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
+    llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),
+    llmChatPreloadModel: async () => ipcRenderer.invoke("llmChat:preloadModel"),
     llmModelStatus: async () => ipcRenderer.invoke("llmModel:status"),
     llmModelDownload: async () => ipcRenderer.invoke("llmModel:download"),
     llmModelDownloadAbort: () => ipcRenderer.send("llmModel:downloadAbort"),

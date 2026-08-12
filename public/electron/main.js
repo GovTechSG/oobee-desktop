@@ -593,4 +593,5 @@ app.on('quit', () => {
 
   updateManager.killChildProcess()
   scanManager.killChildProcess()
+  require('./llmGemma').unloadModel()
 })

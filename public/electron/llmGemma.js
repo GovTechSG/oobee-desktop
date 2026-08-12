@@ -358,4 +358,4 @@ function disposeSession(session) {
   session.gemma = null
 }
 
-module.exports = { streamGemmaChat, disposeSession, unloadModel }
+module.exports = { streamGemmaChat, disposeSession, unloadModel, ensureModel }

@@ -12,11 +12,15 @@ const SelectField = ({ id, label, initialValue, options, onChange, isDownload })
         value={initialValue}
         onChange={onChange}
       >
-      {options.map((option, index) => (
-        <option key={index} value={option}>
-          {option}
-        </option>
-      ))}
+      {options.map((option, index) => {
+        const value = typeof option === 'object' ? option.value : option
+        const label2 = typeof option === 'object' ? option.label : option
+        return (
+          <option key={index} value={value}>
+            {label2}
+          </option>
+        )
+      })}
       </select>
     </div>
   );
