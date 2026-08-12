@@ -460,7 +460,7 @@ const ChatPage = () => {
   const askAboutOccurrence = (ctx) => {
     if (!ctx || !ctx.rule || !ctx.occurrence) return
     const { rule, description, category, conformance, axeImpact, helpUrl, occurrence, index } = ctx
-    const htmlSnippet = (occurrence.html || '').slice(0, 500)
+    const htmlSnippet = (occurrence.html || '').slice(0, 2000)
     const wcagFormatted = formatWcagConformance(conformance)
     const wcagList = wcagFormatted.length > 0 ? wcagFormatted.join(', ') : null
     const categoryLabel =
