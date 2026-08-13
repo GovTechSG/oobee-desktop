@@ -66,6 +66,8 @@ const startScan = async (scanDetails) => {
     scanArgs.saveDom = true
     scanArgs.savePageScreenshot = true
     scanArgs.saveComputedStyles = true
+    scanArgs.htmlMaxBytes = 0
+    scanArgs.parentHtmlDepth = 2
   }
 
   if (viewport === viewportTypes.mobile) {
