@@ -157,7 +157,7 @@ const AdvancedScanOptions = ({
             label="Scan Type:"
             initialValue={advancedOptions.scanType}
             options={scanTypeOptions.map((o) =>
-              o === 'LLM analysis' ? { value: o, label: 'LLM chat' } : o
+              o === 'LLM analysis' ? { value: o, label: 'LLM chat (alpha)' } : o
             )}
             onChange={handleSetAdvancedOption('scanType')}
           />

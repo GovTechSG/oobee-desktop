@@ -242,6 +242,20 @@ const uploadFolderName = "Upload Files";
 
 const hashPath = path.join(appPath, 'backendHash.txt');
 
+// Deep-link scheme used to unlock gated features. Each UUID in the map
+// corresponds to a specific feature — a browser click on
+// `oobee://unlock-feature/<UUID>` writes the mapped `flag` key to
+// userData.txt (value: true) and emits the mapped `ipc` event to the
+// renderer. Add new entries here to gate additional features by UUID.
+const unlockProtocol = 'oobee';
+const unlockHost = 'unlock-feature';
+const unlockFeatureMap = {
+  'f3d7b1c2-9a4e-4b6f-8d2a-1e7c9b0f5a83': {
+    flag: 'llmAnalysisEnabled',
+    ipc: 'llmAnalysisUnlocked',
+  },
+};
+
 module.exports = {
   appPath,
   releaseUrl,
@@ -270,5 +284,8 @@ module.exports = {
   macOSPrepackageBackend,
   hashPath,
   getDefaultChromeDataDir,
-  getDefaultEdgeDataDir
+  getDefaultEdgeDataDir,
+  unlockProtocol,
+  unlockHost,
+  unlockFeatureMap,
 };
