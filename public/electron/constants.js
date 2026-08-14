@@ -242,6 +242,18 @@ const uploadFolderName = "Upload Files";
 
 const hashPath = path.join(appPath, 'backendHash.txt');
 
+// On-disk WCAG corpus used by the `search_wcag` LLM tool. Ships in the app
+// resources under `public/electron/wcag-index/`. Because forge.config.js
+// already asar-unpacks the entire `public/electron` tree (for
+// node-llama-cpp native binaries), the corpus is directly readable at
+// `__dirname/wcag-index` in packaged builds as well as in dev. Returns
+// null if the directory is missing so the tool can fail gracefully rather
+// than crashing the tool-use loop.
+const getWcagIndexPath = () => {
+  const p = path.join(__dirname, 'wcag-index');
+  return fs.existsSync(p) ? p : null;
+};
+
 // Deep-link scheme used to unlock gated features. Each UUID in the map
 // corresponds to a specific feature — a browser click on
 // `oobee://unlock-feature/<UUID>` writes the mapped `flag` key to
@@ -288,4 +300,5 @@ module.exports = {
   unlockProtocol,
   unlockHost,
   unlockFeatureMap,
+  getWcagIndexPath,
 };
