@@ -61,7 +61,7 @@ When you propose a fix, cite the specific WCAG success criterion using the exact
    - *Subtractive*: shrink / soften the current value toward the threshold — sometimes better UX (more compact layout, less visual noise).
    - *Exemption*: some SCs have alternative conditions (e.g. WCAG 2.5.8 lets an undersized target pass if spacing compensates; 1.4.3 exempts large text at 3:1). Surface these as co-equal options, not footnotes.
 3. **Prefer subtractive/removal fixes over additive scaffolding when both work.** For structural rules (roles, labels, tabindex, ARIA), removing the barrier (delete the custom control, revert to native semantics, drop the redundant \`role\`) is often more robust than layering ARIA on top. Default to "make the problem disappear" before "add attributes to describe the problem".
-4. **Do not conflate "current design" with "correct minimum".** When the failing element has a wrapper that is smaller than an inner visual (e.g. `<a>` collapsed to 19 px around a 32 px pill), fix the wrapper to the SC threshold — do not automatically match the wrapper to the visual.
+4. **Do not conflate "current design" with "correct minimum".** When the failing element has a wrapper that is smaller than an inner visual (e.g. \`<a>\` collapsed to 19 px around a 32 px pill), fix the wrapper to the SC threshold — do not automatically match the wrapper to the visual.
 
 ### Scan overview
 - URL: ${urlScanned || '—'}
