@@ -332,28 +332,34 @@ const ChatPage = () => {
       })
     })
 
-    window.services.onLlmChatToolCall(({ sessionId: sid, name, id, status, input, error }) => {
-      if (sid !== sessionId) return
-      setMessages((prev) => {
-        const next = [...prev]
-        let idx = streamingIndexRef.current
-        if (idx === null || idx === undefined || !next[idx] || next[idx].role !== 'assistant') {
-          streamingIndexRef.current = next.length
-          next.push({ role: 'assistant', content: '', toolCalls: [], attachments: [] })
-          idx = streamingIndexRef.current
-        }
-        const toolCalls = [...(next[idx].toolCalls || [])]
-        const existing = toolCalls.findIndex((c) => c.id === id)
-        const entry = { id, name, status, input, error }
-        if (existing >= 0) {
-          toolCalls[existing] = { ...toolCalls[existing], ...entry }
-        } else {
-          toolCalls.push(entry)
-        }
-        next[idx] = { ...next[idx], toolCalls }
-        return next
-      })
-    })
+    window.services.onLlmChatToolCall(
+      ({ sessionId: sid, name, id, status, input, error, result, summary }) => {
+        if (sid !== sessionId) return
+        setMessages((prev) => {
+          const next = [...prev]
+          let idx = streamingIndexRef.current
+          if (idx === null || idx === undefined || !next[idx] || next[idx].role !== 'assistant') {
+            streamingIndexRef.current = next.length
+            next.push({ role: 'assistant', content: '', toolCalls: [], attachments: [] })
+            idx = streamingIndexRef.current
+          }
+          const toolCalls = [...(next[idx].toolCalls || [])]
+          const existing = toolCalls.findIndex((c) => c.id === id)
+          const patch = { id, name, status }
+          if (input !== undefined) patch.input = input
+          if (error !== undefined) patch.error = error
+          if (result !== undefined) patch.result = result
+          if (summary !== undefined) patch.summary = summary
+          if (existing >= 0) {
+            toolCalls[existing] = { ...toolCalls[existing], ...patch }
+          } else {
+            toolCalls.push(patch)
+          }
+          next[idx] = { ...next[idx], toolCalls }
+          return next
+        })
+      }
+    )
 
     window.services.onLlmChatAttachment((payload) => {
       if (payload?.sessionId !== sessionId) return
@@ -701,17 +707,63 @@ const ChatPage = () => {
           <div key={i} className={`chat-message chat-message-${m.role}`}>
             {m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0 && (
               <div className="chat-tool-calls">
-                {m.toolCalls.map((tc) => (
-                  <div key={tc.id} className={`chat-tool-call chat-tool-call-${tc.status}`}>
-                    {tc.status === 'start' && <>Calling <code>{tc.name}</code>…</>}
-                    {tc.status === 'end' && <>Called <code>{tc.name}</code></>}
-                    {tc.status === 'error' && (
-                      <>
-                        <code>{tc.name}</code> failed: {tc.error}
-                      </>
-                    )}
-                  </div>
-                ))}
+                {m.toolCalls.map((tc) => {
+                  const inProgress = tc.status === 'start' || tc.status === 'ready'
+                  const label =
+                    tc.status === 'error'
+                      ? `${tc.name} failed`
+                      : inProgress
+                      ? `Calling ${tc.name}…`
+                      : `Called ${tc.name}`
+                  const hasBody =
+                    (tc.input && Object.keys(tc.input).length > 0) ||
+                    tc.result ||
+                    tc.error
+                  return (
+                    <details
+                      key={tc.id}
+                      className={`chat-tool-call chat-tool-call-${tc.status}`}
+                    >
+                      <summary>
+                        <span className="chat-tool-call-caret" aria-hidden="true">
+                          ▸
+                        </span>
+                        {inProgress ? (
+                          <>Calling <code>{tc.name}</code>…</>
+                        ) : tc.status === 'error' ? (
+                          <>
+                            <code>{tc.name}</code> failed
+                            {tc.error ? `: ${tc.error}` : ''}
+                          </>
+                        ) : (
+                          <>Called <code>{tc.name}</code></>
+                        )}
+                      </summary>
+                      {hasBody && (
+                        <div className="chat-tool-call-body">
+                          {tc.input && Object.keys(tc.input).length > 0 && (
+                            <>
+                              <div className="chat-tool-call-label">Input</div>
+                              <pre>{JSON.stringify(tc.input, null, 2)}</pre>
+                            </>
+                          )}
+                          {tc.result && (
+                            <>
+                              <div className="chat-tool-call-label">Result</div>
+                              <pre>{tc.result}</pre>
+                            </>
+                          )}
+                          {tc.error && (
+                            <>
+                              <div className="chat-tool-call-label">Error</div>
+                              <pre>{tc.error}</pre>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </details>
+                  )
+                })}
               </div>
             )}
             {m.role === 'assistant' && Array.isArray(m.attachments) && m.attachments.length > 0 && (

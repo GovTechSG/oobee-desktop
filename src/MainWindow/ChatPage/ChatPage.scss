@@ -139,7 +139,7 @@
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: 0.5rem;
-      margin: 0.75rem 0 0.5rem;
+      margin: 0.5rem 0 0.25rem;
 
       .stat {
         background: #fff;
@@ -578,10 +578,40 @@
     .chat-tool-calls {
       display: flex;
       flex-direction: column;
-      gap: 0.15rem;
+      gap: 0.2rem;
       margin-bottom: 0.35rem;
       font-size: 0.75rem;
       color: #6b7280;
+
+      .chat-tool-call {
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.6);
+
+        > summary {
+          list-style: none;
+          cursor: pointer;
+          padding: 0.25rem 0.5rem;
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          user-select: none;
+
+          &::-webkit-details-marker {
+            display: none;
+          }
+
+          .chat-tool-call-caret {
+            transition: transform 0.15s ease;
+            display: inline-block;
+            color: #9ca3af;
+          }
+        }
+
+        &[open] > summary .chat-tool-call-caret {
+          transform: rotate(90deg);
+        }
+      }
 
       .chat-tool-call code {
         background: #ede9fe;
@@ -590,8 +620,45 @@
         border-radius: 3px;
         font-size: 0.75rem;
       }
+
+      .chat-tool-call-body {
+        border-top: 1px solid rgba(0, 0, 0, 0.06);
+        padding: 0.4rem 0.5rem 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+
+        .chat-tool-call-label {
+          font-weight: 600;
+          color: #4b5563;
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        pre {
+          margin: 0;
+          padding: 0.4rem 0.5rem;
+          background: #f9fafb;
+          border: 1px solid rgba(0, 0, 0, 0.06);
+          border-radius: 4px;
+          font-size: 0.7rem;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          color: #1f2937;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 18rem;
+          overflow: auto;
+        }
+      }
+
       .chat-tool-call-error {
         color: #b91c1c;
+
+        > summary code {
+          background: #fee2e2;
+          color: #991b1b;
+        }
       }
     }
 
@@ -747,7 +814,9 @@
 
     textarea {
       flex: 1 1 auto;
-      resize: none;
+      resize: vertical;
+      min-height: 3.4rem;
+      max-height: 24rem;
       padding: 0.6rem 0.8rem;
       font-family: inherit;
       font-size: 0.92rem;

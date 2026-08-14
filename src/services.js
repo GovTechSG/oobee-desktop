@@ -68,6 +68,7 @@ const startScan = async (scanDetails) => {
     scanArgs.saveComputedStyles = true
     scanArgs.htmlMaxBytes = 0
     scanArgs.parentHtmlDepth = 2
+    scanArgs.isLLMAnalysis = true
   }
 
   if (viewport === viewportTypes.mobile) {
