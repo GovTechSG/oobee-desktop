@@ -52,11 +52,21 @@ const InitScanForm = ({
   scanButtonIsClicked,
   setScanButtonIsClicked,
   isAbortingScan,
+  llmAnalysisEnabled,
 }) => {
   const [openPageLimitAdjuster, setOpenPageLimitAdjuster] = useState(false)
   const [pageWord, setPageWord] = useState('pages')
   const pageLimitAdjuster = useRef()
-  const scanTypeOptions = Object.keys(scanTypes)
+  // LLM analysis is a gated feature — hide the option unless the user has
+  // unlocked it via the `oobee://unlock-llm/<uuid>` deep link. When shown,
+  // it becomes the first option in the dropdown.
+  const scanTypeOptions = (() => {
+    const all = Object.keys(scanTypes)
+    if (!llmAnalysisEnabled) {
+      return all.filter((o) => o !== SCAN_TYPE.LLM_ANALYSIS)
+    }
+    return [SCAN_TYPE.LLM_ANALYSIS, ...all.filter((o) => o !== SCAN_TYPE.LLM_ANALYSIS)]
+  })()
   const fileTypesOptions = Object.keys(fileTypes)
   const [selectedFile, setSelectedFile] = useState(null)
   const [scanUrl, setScanUrl] = useState('')
@@ -83,10 +93,32 @@ const InitScanForm = ({
     return cachedPageLimit ? JSON.parse(cachedPageLimit) : '100'
   })
   const [advancedOptions, setAdvancedOptions] = useState(() => {
-    return cachedAdvancedOptions
-      ? JSON.parse(cachedAdvancedOptions)
-      : getDefaultAdvancedOptions()
+    if (cachedAdvancedOptions) return JSON.parse(cachedAdvancedOptions)
+    const defaults = getDefaultAdvancedOptions()
+    // When LLM chat is unlocked, make it the default scan type. Only applied
+    // when no cached options exist — a returning user's last-used scan type
+    // still wins. Also see the useEffect below which handles the async case
+    // where the flag arrives after mount.
+    if (llmAnalysisEnabled) defaults.scanType = SCAN_TYPE.LLM_ANALYSIS
+    return defaults
   })
+
+  // The unlock flag is read from userData asynchronously in HomePage, so on
+  // cold-start it flips false → true after mount. If we're still on the
+  // pre-unlock default and no session cache exists, upgrade the default to
+  // LLM chat once the flag arrives.
+  const llmDefaultAppliedRef = useRef(false)
+  useEffect(() => {
+    if (!llmAnalysisEnabled) return
+    if (llmDefaultAppliedRef.current) return
+    if (sessionStorage.getItem('advancedOptions')) return
+    if (advancedOptions.scanType === SCAN_TYPE.LLM_ANALYSIS) return
+    // Only upgrade if the user hasn't manually picked something — i.e. we're
+    // still showing the vanilla pre-unlock default.
+    if (advancedOptions.scanType !== getDefaultAdvancedOptions().scanType) return
+    llmDefaultAppliedRef.current = true
+    setAdvancedOptions((prev) => ({ ...prev, scanType: SCAN_TYPE.LLM_ANALYSIS }))
+  }, [llmAnalysisEnabled, advancedOptions.scanType])
 
   const [isFileOptionChecked, setIsFileOptionChecked] = useState(() => {
     const cachedCheckboxState = sessionStorage.getItem('isFileOptionChecked')

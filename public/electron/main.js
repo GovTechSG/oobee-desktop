@@ -88,6 +88,106 @@ Sentry.init({
 let launchWindow
 let mainWindow
 
+// ---------------------------------------------------------------------------
+// Feature unlock via `oobee://unlock-feature/<uuid>` deep link
+// ---------------------------------------------------------------------------
+// Gated features are hidden by default. A browser click on a URL of the form
+// `oobee://unlock-feature/<uuid>` — where the UUID matches an entry in
+// `constants.unlockFeatureMap` — writes the mapped flag (e.g.
+// `llmAnalysisEnabled: true`) to userData.txt and emits the mapped IPC event
+// to the renderer. The UUID is a hardcoded shared secret; anyone with the
+// link can flip the flag, so this is gating for discoverability, not access
+// control.
+
+// Buffer IPC events that arrive before mainWindow.webContents can receive
+// them — on macOS cold-launch, `open-url` fires before `ready` completes.
+const pendingDeepLinks = []
+
+const processDeepLinkUrl = (url) => {
+  if (typeof url !== 'string' || url.length === 0) return
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch (_) {
+    return
+  }
+  if (parsed.protocol !== `${constants.unlockProtocol}:`) return
+  if (parsed.hostname !== constants.unlockHost) return
+  const providedUuid = parsed.pathname.replace(/^\/+/, '').split('/')[0]
+  const feature = constants.unlockFeatureMap[providedUuid]
+  if (!feature) {
+    console.warn('[deep-link] unlock URL rejected: unknown UUID')
+    return
+  }
+  try {
+    userDataManager.writeUserDetailsToFile({ [feature.flag]: true })
+  } catch (e) {
+    console.error(`[deep-link] failed to write ${feature.flag} flag:`, e)
+    return
+  }
+  console.log(`[deep-link] feature unlocked: ${feature.flag}`)
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send(feature.ipc)
+    // Bring the window forward so the user sees confirmation.
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  } else {
+    pendingDeepLinks.push(feature.ipc)
+  }
+}
+
+const flushPendingDeepLinks = () => {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents) return
+  while (pendingDeepLinks.length > 0) {
+    const event = pendingDeepLinks.shift()
+    mainWindow.webContents.send(event)
+  }
+}
+
+// Windows/Linux hand the URL in as a trailing argv entry; scan for it.
+const extractDeepLinkFromArgv = (argv) => {
+  if (!Array.isArray(argv)) return null
+  for (const arg of argv) {
+    if (typeof arg === 'string' && arg.startsWith(`${constants.unlockProtocol}://`)) {
+      return arg
+    }
+  }
+  return null
+}
+
+// Runtime registration — required on Windows/Linux, harmless on macOS (the
+// packaged Info.plist entry is what actually binds the scheme there).
+if (!app.isDefaultProtocolClient(constants.unlockProtocol)) {
+  app.setAsDefaultProtocolClient(constants.unlockProtocol)
+}
+
+// Single-instance lock: a second launch triggered by `oobee://` in a browser
+// should route the URL into the already-running instance, not spawn a new
+// one. macOS uses `open-url` and doesn't need this, but the lock is safe
+// there too.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = extractDeepLinkFromArgv(argv)
+    if (url) processDeepLinkUrl(url)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
+// macOS: fires when the OS routes a `oobee://` click into this app.
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  processDeepLinkUrl(url)
+})
+
+// Cold-launch on Windows/Linux — the URL is in process.argv.
+const initialDeepLink = extractDeepLinkFromArgv(process.argv)
+
 // We can't rely on an fs write probe from this process for the admin-group
 // question, because Electron's kauth credentials are snapshotted at launch —
 // Admin By Request's JIT admin grant doesn't propagate into an already-running
@@ -390,6 +490,12 @@ app.on('ready', async () => {
   })
 
   createMainWindow()
+
+  // Flush any deep-link events buffered while mainWindow didn't exist.
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (initialDeepLink) processDeepLinkUrl(initialDeepLink)
+    flushPendingDeepLinks()
+  })
 
   mainWindow.webContents.on('render-process-gone', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {

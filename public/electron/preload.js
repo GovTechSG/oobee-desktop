@@ -200,4 +200,8 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.removeAllListeners("llmChat:done");
       ipcRenderer.removeAllListeners("llmChat:error");
     },
+    onLlmAnalysisUnlocked: (callback) => {
+      ipcRenderer.removeAllListeners("llmAnalysisUnlocked");
+      ipcRenderer.on("llmAnalysisUnlocked", () => callback());
+    },
   });

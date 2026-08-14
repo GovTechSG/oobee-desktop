@@ -3,6 +3,15 @@ const os = require("os");
 module.exports = {
   packagerConfig: {
     icon: 'public/oobee-logo',
+    // Declares the `oobee://` URL scheme in macOS Info.plist so Launch
+    // Services routes browser clicks (`oobee://unlock-llm/<uuid>`) into
+    // the running app. Windows/Linux use runtime registration in main.js.
+    protocols: [
+      {
+        name: 'Oobee',
+        schemes: ['oobee'],
+      },
+    ],
     // node-llama-cpp ships prebuilt native binaries (.node / .dylib / .dll);
     // these can't live inside asar, so unpack the whole module tree so
     // dynamic loading + the on-disk model cache work in packaged builds.

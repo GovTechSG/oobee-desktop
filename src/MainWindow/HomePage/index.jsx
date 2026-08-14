@@ -28,11 +28,12 @@ import AboutModal from './AboutModal'
 const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   const navigate = useNavigate()
   const [prevUrlErrorMessage, setPrevUrlErrorMessage] = useState('')
-  const [{ name, email, browser, isLabMode }, setUserData] = useState({
+  const [{ name, email, browser, isLabMode, llmAnalysisEnabled }, setUserData] = useState({
     name: '',
     email: '',
     browser: null,
     isLabMode: false,
+    llmAnalysisEnabled: false,
   })
   const [showBasicAuthModal, setShowBasicAuthModal] = useState(false)
   const [showEditDataModal, setShowEditDataModal] = useState(false)
@@ -190,6 +191,19 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
     const whatsNewModalTimeout = getUserData()
     return () => clearTimeout(whatsNewModalTimeout)
+  }, [])
+
+  // Deep-link unlock: main process fires `llmAnalysisUnlocked` after it
+  // validates the `oobee://unlock-llm/<uuid>` URL and persists the flag in
+  // userData.txt. Sync it into local state so the dropdown updates without
+  // a restart.
+  useEffect(() => {
+    if (!window.services || typeof window.services.onLlmAnalysisUnlocked !== 'function') {
+      return
+    }
+    window.services.onLlmAnalysisUnlocked(() => {
+      setUserData((prev) => ({ ...prev, llmAnalysisEnabled: true }))
+    })
   }, [])
 
   // Show the announcement modal whenever the release catalog contains a
@@ -381,6 +395,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             scanButtonIsClicked={scanButtonIsClicked}
             setScanButtonIsClicked={setScanButtonIsClicked}
             isAbortingScan={isAbortingScan}
+            llmAnalysisEnabled={llmAnalysisEnabled}
           />
         </div>
         {showBasicAuthModal && (
