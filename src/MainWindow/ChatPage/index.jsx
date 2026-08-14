@@ -583,7 +583,7 @@ const ChatPage = () => {
         }}>
           ← Back
         </Button>
-        <h1>LLM Chat</h1>
+        <h1>LLM Chat (alpha)</h1>
         <div className="chat-provider-select">
           <label htmlFor="chat-provider">Model:</label>
           <select
