@@ -8,12 +8,23 @@ const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
 
 const MAX_DOM_CHARS = 30_000
+const MAX_ELEMENT_CONTEXT_CHARS = 10_000
+const MAX_ELEMENT_CONTEXT_DEPTH = 5
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 const MAX_ELEM_SCREENSHOT_BYTES = 1 * 1024 * 1024
 const MAX_ELEM_SCREENSHOTS_PER_CALL = 4
 const MAX_TOOL_ITEMS = 20
 const MAX_INDEX_KB = 30
 const ANTHROPIC_VERSION = '2023-06-01'
+
+// Lazy-load cheerio to keep the import surface small; it's only used by
+// get_element_context and pulls a moderate transitive tree (parse5 + css-select).
+let _cheerio = null
+const cheerio = () => {
+  if (_cheerio) return _cheerio
+  _cheerio = require('cheerio')
+  return _cheerio
+}
 
 const mediaTypeForPath = (rel) => {
   const lower = String(rel || '').toLowerCase()
@@ -598,6 +609,88 @@ function runTool(session, name, input) {
         html: truncated ? html.slice(0, MAX_DOM_CHARS) : html,
         truncated,
         totalChars: html.length,
+      }
+    }
+    case 'get_element_context': {
+      // Locate a failing element in the captured DOM via CSS selector, walk up
+      // N ancestor levels, return that ancestor's outerHTML so the model can
+      // reason about siblings and existing ids (e.g. aria-labelledby targets)
+      // without inventing DOM that isn't there.
+      const manifest = artifacts.getManifest()
+      const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
+      if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
+      const viewport = input.viewport === 'mobile' ? 'mobile' : 'desktop'
+      const rel = viewport === 'mobile' ? entry.mobileDom : entry.desktopDom
+      if (!rel) return { error: `No ${viewport} DOM captured for ${input.pageUrl}` }
+      const abs = path.join(session.storagePath, rel)
+      if (!fs.existsSync(abs)) return { error: `DOM file missing: ${rel}` }
+
+      const selector = String(input.selector || '').trim()
+      if (!selector) {
+        return {
+          error:
+            'selector is required. Pass the CSS selector for the failing element (the finding\'s xpath field).',
+        }
+      }
+      const rawDepth = Number.isFinite(input.ancestorDepth) ? input.ancestorDepth : 2
+      const ancestorDepth = Math.max(1, Math.min(rawDepth, MAX_ELEMENT_CONTEXT_DEPTH))
+
+      const html = fs.readFileSync(abs, 'utf8')
+      let $
+      try {
+        $ = cheerio().load(html, { decodeEntities: false })
+      } catch (e) {
+        return { error: `Failed to parse DOM: ${e.message}` }
+      }
+
+      let target
+      try {
+        target = $(selector).first()
+      } catch (e) {
+        return { error: `Invalid selector "${selector}": ${e.message}` }
+      }
+      if (!target || target.length === 0) {
+        return {
+          pageUrl: input.pageUrl,
+          viewport,
+          selector,
+          ancestorDepth,
+          error: `No element matched selector "${selector}" in captured DOM. The selector may reference a dynamically injected node not present in the static capture.`,
+        }
+      }
+
+      // Walk up to the requested depth, stopping if we hit the document root.
+      // parents() returns nearest-first; parent[0] is direct parent.
+      const parentsChain = target.parents().toArray()
+      const requestedIdx = ancestorDepth - 1
+      const effectiveIdx = Math.min(requestedIdx, parentsChain.length - 1)
+      const ancestorNode = parentsChain[effectiveIdx]
+      const ancestor = ancestorNode ? $(ancestorNode) : target
+      const effectiveDepth = ancestorNode ? effectiveIdx + 1 : 0
+
+      const targetHtml = $.html(target)
+      const ancestorHtmlRaw = $.html(ancestor)
+      const truncated = ancestorHtmlRaw.length > MAX_ELEMENT_CONTEXT_CHARS
+      const ancestorHtml = truncated
+        ? ancestorHtmlRaw.slice(0, MAX_ELEMENT_CONTEXT_CHARS)
+        : ancestorHtmlRaw
+
+      return {
+        pageUrl: input.pageUrl,
+        viewport,
+        selector,
+        requestedAncestorDepth: ancestorDepth,
+        effectiveAncestorDepth: effectiveDepth,
+        ancestorTag: ancestor.get(0)?.tagName || null,
+        targetTag: target.get(0)?.tagName || null,
+        targetHtml,
+        ancestorHtml,
+        truncated,
+        totalAncestorChars: ancestorHtmlRaw.length,
+        note:
+          effectiveDepth < ancestorDepth
+            ? `Only ${effectiveDepth} ancestor levels exist above the target (capped by document root).`
+            : undefined,
       }
     }
     case 'get_page_computed_styles': {
