@@ -125,6 +125,16 @@ const InitScanForm = ({
     return cachedCheckboxState ? JSON.parse(cachedCheckboxState) : false
   })
 
+  // Keep displayScanType in sync with advancedOptions.scanType in URL mode.
+  // The mount effect below falls back to INTELLIGENT when no sessionStorage
+  // cache exists, but advancedOptions defaults to LLM_ANALYSIS when unlocked.
+  // Without this sync, the page-limit control (which reads displayScanType)
+  // stays visible on first paint even though the dropdown shows LLM chat.
+  useEffect(() => {
+    if (isFileOptionChecked) return
+    setDisplayScanType(advancedOptions.scanType)
+  }, [advancedOptions.scanType, isFileOptionChecked])
+
   useEffect(() => {
     const cachedScanUrl = sessionStorage.getItem('scanUrl')
     const cachedScanType = sessionStorage.getItem('scanType')
