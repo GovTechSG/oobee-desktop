@@ -244,6 +244,12 @@ function selectorLeaf(query) {
 }
 
 // Parse one simple selector like `a[href$="foo"].bar#baz:hover` into a struct.
+// Handles CSS backslash escapes in id/class names, so Tailwind variants like
+// `.hover\:text-default` and `.md\:py-6` parse to their real class names
+// (`hover:text-default`, `md:py-6`) — axe reports these escapes verbatim.
+function unescapeCssIdent(s) {
+  return s.replace(/\\(.)/g, '$1')
+}
 function parseSimpleSelector(text) {
   const out = { tag: null, id: null, classes: [], attrs: [] }
   let rest = text.trim()
@@ -252,18 +258,19 @@ function parseSimpleSelector(text) {
     out.tag = tagMatch[1] === '*' ? '*' : tagMatch[1].toLowerCase()
     rest = rest.slice(tagMatch[0].length)
   }
+  const IDENT = /^((?:[A-Za-z0-9_\-]|\\.)+)/
   while (rest.length > 0) {
     const ch = rest[0]
     if (ch === '#') {
-      const m = rest.match(/^#([A-Za-z0-9_\-]+)/)
+      const m = rest.slice(1).match(IDENT)
       if (!m) break
-      out.id = m[1]
-      rest = rest.slice(m[0].length)
+      out.id = unescapeCssIdent(m[1])
+      rest = rest.slice(1 + m[0].length)
     } else if (ch === '.') {
-      const m = rest.match(/^\.([A-Za-z0-9_\-]+)/)
+      const m = rest.slice(1).match(IDENT)
       if (!m) break
-      out.classes.push(m[1])
-      rest = rest.slice(m[0].length)
+      out.classes.push(unescapeCssIdent(m[1]))
+      rest = rest.slice(1 + m[0].length)
     } else if (ch === '[') {
       const m = rest.match(
         /^\[\s*([A-Za-z_][A-Za-z0-9_\-:]*)\s*(?:([~|^$*]?=)\s*(?:"([^"]*)"|'([^']*)'|([^\]\s]+))\s*)?\]/
