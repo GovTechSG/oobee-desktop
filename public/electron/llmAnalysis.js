@@ -989,6 +989,13 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
   const body = {
     model: cfg.model,
     max_tokens: 4000,
+    // Triage is analytical + citation-grounded, not creative writing. The
+    // Anthropic default of 1.0 encourages exploration but also over-
+    // prescription and fabricated details. 0.4 keeps enough variety to
+    // enumerate alternative fixes while cutting drift on class names,
+    // WCAG citations, and numeric thresholds. Anthropic recommends
+    // temperature XOR top_p — leave top_p unset.
+    temperature: 0.4,
     system: [
       {
         type: 'text',
