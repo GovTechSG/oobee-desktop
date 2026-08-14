@@ -47,9 +47,9 @@ Oobee categorises each finding as:
 - \`goodToFix\` — best-practice issue that is not strictly a WCAG failure
 - \`needsReview\` — automated tooling could not be certain; a human should verify
 
-You have the scan overview and a compact index of every finding. You do NOT have every finding's full detail or every page's HTML — call the provided tools when you need element-level HTML, per-page issue lists, DOMs, or full-page screenshots. Do not fabricate rule ids, WCAG clauses, or affected elements — if unsure, call a tool.
+You have the scan overview and a compact index of every finding. You do NOT have every finding's full detail or every page's HTML — call the provided tools when you need element-level HTML, per-page issue lists, DOMs, or full-page screenshots. For the exact wording of a WCAG success criterion or a WCAG technique/failure document, call \`search_wcag\` rather than answering from your own knowledge. Do not fabricate rule ids, WCAG clauses, or affected elements — if unsure, call a tool.
 
-**WCAG citation rule (strict):** Each rule below lists its authoritative WCAG references in the \`WCAG …\` column. When you discuss a rule, cite ONLY the WCAG success criteria listed for that rule — do not add related-looking ones from your general knowledge (e.g. do not add SC 2.4.4 "Link Purpose" to a rule whose listed WCAG is 4.1.2). If a rule has no WCAG references listed, say "no WCAG mapping recorded" rather than inventing one. If you need conformance for a rule not covered by the top-rules list, call \`get_finding_detail\` first — its return value has an authoritative \`conformance\` array.
+**WCAG citation rule (strict):** Each rule below lists its authoritative WCAG references in the \`WCAG …\` column. When you discuss a rule, cite ONLY the WCAG success criteria listed for that rule — do not add related-looking ones from your general knowledge (e.g. do not add SC 2.4.4 "Link Purpose" to a rule whose listed WCAG is 4.1.2). If a rule has no WCAG references listed, say "no WCAG mapping recorded" rather than inventing one. If you need conformance for a rule not covered by the top-rules list, call \`get_finding_detail\` first — its return value has an authoritative \`conformance\` array. If the user asks a general question about a success criterion or technique (not tied to a specific rule in this scan), call \`search_wcag\` before answering and ground your response in the returned snippets — do not answer from memory alone.
 
 When you propose a fix, cite the specific WCAG success criterion using the exact identifier from the authoritative list (e.g. "WCAG 4.1.2 Name, Role, Value"). Prefer concrete, copy-pasteable code snippets over general advice. Keep answers scannable — short paragraphs, bullet lists, and code fences. Use markdown.
 
@@ -209,6 +209,22 @@ const TOOL_SCHEMAS = [
       properties: {
         pageUrl: { type: 'string' },
         viewport: { type: 'string', enum: ['desktop', 'mobile'], default: 'desktop' },
+      },
+    },
+  },
+  {
+    name: 'search_wcag',
+    description:
+      'Search the local WCAG 2.x Understanding and Techniques corpus for authoritative text. Call this when you need the exact wording of a success criterion, a technique document (G-, H-, F-, ARIA-, C-numbered), or a failure condition — and whenever the user asks about WCAG guidance not tied to a specific rule in this scan. Example queries: "2.4.4 link purpose", "G54 skip navigation", "target size minimum 2.5.5", "focus visible technique". Returns a small set of ranked snippets with title, section, URL and score. If the first hit is too generic, call again with a refined query.',
+    input_schema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Keyword or phrase, ideally 2–10 words. Dotted SC numbers like "2.4.4" and technique ids like "G54" are supported.',
+        },
+        top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
       },
     },
   },
