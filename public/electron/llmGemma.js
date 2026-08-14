@@ -321,15 +321,24 @@ async function streamGemmaChat({
   session.abort = abort
   const filter = createTemplateTokenFilter()
 
-  // Gemma 4 recommended sampling per the model card:
-  // temperature=1.0, topP=0.95, topK=64
+  // Gemma 4's model-card defaults (temp=1.0, topP=0.95, topK=64) are tuned
+  // for creative generation. This task is analytical: pick the right tool,
+  // cite the exact WCAG SC, quote the actual class names from the ancestor
+  // HTML. High temperature encourages exactly the failure modes we saw
+  // (fabricated Tailwind classes, wrong spacing math, anchoring on visual
+  // size instead of the SC minimum). Tighten:
+  //   temperature 1.0 → 0.7  (still permits option enumeration; less drift)
+  //   topP        0.95 → 0.9 (trims low-probability token tail)
+  //   topK          64 → 40  (node-llama-cpp default; narrows candidate set)
+  // Grammar-constrained function calls remain valid regardless — this only
+  // affects natural-language content and argument selection.
   try {
     await chat.prompt(promptText, {
       functions,
       signal: abort.signal,
-      temperature: 1.0,
-      topP: 0.95,
-      topK: 64,
+      temperature: 0.7,
+      topP: 0.9,
+      topK: 40,
       maxTokens: 4000,
       onTextChunk: (text) => {
         const cleaned = filter.push(text)
