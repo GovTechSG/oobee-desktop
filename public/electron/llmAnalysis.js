@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron')
+const { ipcMain, nativeImage } = require('electron')
 const fs = require('fs-extra')
 const path = require('path')
 const zlib = require('zlib')
@@ -13,6 +13,10 @@ const MAX_ELEMENT_CONTEXT_DEPTH = 5
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 const MAX_ELEM_SCREENSHOT_BYTES = 1 * 1024 * 1024
 const MAX_ELEM_SCREENSHOTS_PER_CALL = 4
+// Anthropic rejects images whose width or height exceeds 8000 px. Full-page
+// scan screenshots routinely exceed that on the long axis, so we downscale
+// with a small safety margin before sending.
+const ANTHROPIC_MAX_IMAGE_DIM = 7680
 const MAX_TOOL_ITEMS = 20
 const MAX_INDEX_KB = 30
 const ANTHROPIC_VERSION = '2023-06-01'
@@ -75,6 +79,33 @@ const sniffMediaType = (buf, rel) => {
     }
   }
   return mediaTypeForPath(rel)
+}
+
+// Anthropic rejects images with either dimension > 8000 px. Full-page scan
+// screenshots can be 20k+ px tall, so decode with nativeImage, downscale
+// preserving aspect ratio when needed, and re-encode as PNG. Returns
+// { buf, mediaType } — original inputs when no resize is needed or when
+// decoding fails (in which case the API will surface a clearer error than
+// silent truncation).
+const constrainImageForAnthropic = (buf, mediaType) => {
+  try {
+    const img = nativeImage.createFromBuffer(buf)
+    if (img.isEmpty()) return { buf, mediaType }
+    const { width, height } = img.getSize()
+    if (width <= ANTHROPIC_MAX_IMAGE_DIM && height <= ANTHROPIC_MAX_IMAGE_DIM) {
+      return { buf, mediaType }
+    }
+    const scale = ANTHROPIC_MAX_IMAGE_DIM / Math.max(width, height)
+    const resized = img.resize({
+      width: Math.max(1, Math.floor(width * scale)),
+      height: Math.max(1, Math.floor(height * scale)),
+      quality: 'good',
+    })
+    return { buf: resized.toPNG(), mediaType: 'image/png' }
+  } catch (e) {
+    warn(`image resize failed: ${e.message}`)
+    return { buf, mediaType }
+  }
 }
 
 const sessions = new Map() // sessionId -> { storagePath, cfg, artifacts, summary, systemPrompt, messages, abort }
@@ -519,14 +550,14 @@ function runTool(session, name, input) {
           continue
         }
         if (!buf || buf.length === 0 || buf.length > MAX_ELEM_SCREENSHOT_BYTES) continue
-        const mediaType = sniffMediaType(buf, rel)
+        const constrained = constrainImageForAnthropic(buf, sniffMediaType(buf, rel))
         attachments.push({
           occurrenceIndex: i,
           url: sliced[i].url,
           pageTitle: sliced[i].pageTitle,
           xpath: sliced[i].xpath,
-          mediaType,
-          base64: buf.toString('base64'),
+          mediaType: constrained.mediaType,
+          base64: constrained.buf.toString('base64'),
         })
       }
 
@@ -866,13 +897,14 @@ function runTool(session, name, input) {
           error: `Screenshot too large (${buf.length} bytes). Ask about a smaller region or the DOM instead.`,
         }
       }
+      const constrained = constrainImageForAnthropic(buf, sniffMediaType(buf, rel))
       return {
         __imageContent: {
           type: 'image',
           source: {
             type: 'base64',
-            media_type: sniffMediaType(buf, rel),
-            data: buf.toString('base64'),
+            media_type: constrained.mediaType,
+            data: constrained.buf.toString('base64'),
           },
         },
         pageUrl: input.pageUrl,
@@ -1056,6 +1088,11 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
             name: tu.name,
             status: 'done',
             summary: `screenshot: ${raw.pageUrl} (${raw.viewport})`,
+            result: JSON.stringify(
+              { pageUrl: raw.pageUrl, viewport: raw.viewport, note: 'image attached to conversation' },
+              null,
+              2
+            ),
           })
         } else if (raw && Array.isArray(raw.__attachments) && raw.__attachments.length > 0) {
           // Element screenshots — one image block per occurrence for the LLM,
@@ -1097,16 +1134,19 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
             name: tu.name,
             status: 'done',
             summary: `${tu.name}: ${raw.__attachments.length} screenshot(s) attached`,
+            result: JSON.stringify(raw.payload, null, 2),
           })
         } else {
           const text = JSON.stringify(raw, null, 0)
           content = text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text
+          const pretty = JSON.stringify(raw, null, 2)
           send('llmChat:toolCall', {
             sessionId,
             id: tu.id,
             name: tu.name,
             status: 'done',
             summary: `${tu.name} returned ${content.length} bytes`,
+            result: pretty.length > 40_000 ? pretty.slice(0, 40_000) + '\n…[truncated]' : pretty,
           })
         }
       } catch (e) {
@@ -1117,6 +1157,7 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
           name: tu.name,
           status: 'error',
           summary: e.message,
+          error: e.message,
         })
       }
       toolResults.push({
@@ -1322,9 +1363,17 @@ function init({ mainWindow, getResultsFolderPath }) {
         if (parsedAttachments.length > 0) {
           const content = []
           for (const att of parsedAttachments) {
+            const constrained = constrainImageForAnthropic(
+              Buffer.from(att.base64, 'base64'),
+              att.mediaType,
+            )
             content.push({
               type: 'image',
-              source: { type: 'base64', media_type: att.mediaType, data: att.base64 },
+              source: {
+                type: 'base64',
+                media_type: constrained.mediaType,
+                data: constrained.buf.toString('base64'),
+              },
             })
           }
           content.push({ type: 'text', text: userMessage })
