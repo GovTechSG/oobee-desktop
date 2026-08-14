@@ -137,5 +137,8 @@ dist
 
 /extraResources/
 
-#docs 
+#docs
 /docs
+
+# WCAG RAG index (large binary vector store, generated artifact)
+/public/electron/wcag-index/
