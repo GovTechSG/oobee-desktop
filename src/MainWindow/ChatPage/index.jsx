@@ -183,6 +183,7 @@ const ChatPage = () => {
   const [respondingDots, setRespondingDots] = useState(1)
   const [streamError, setStreamError] = useState(null)
   const [detailsOpen, setDetailsOpen] = useState(true)
+  const [copiedIndex, setCopiedIndex] = useState(null)
 
   // Gemma-specific state
   const [modelStatus, setModelStatus] = useState(null) // { downloaded, path, sizeBytes, expectedBytes }
@@ -580,6 +581,30 @@ const ChatPage = () => {
     }
   }
 
+  const copyAssistantMarkdown = async (index, text) => {
+    const md = normalizeLLMMarkdown(text || '')
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(md)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = md
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopiedIndex(index)
+      setTimeout(() => {
+        setCopiedIndex((cur) => (cur === index ? null : cur))
+      }, 1500)
+    } catch (_) {
+      // Silently swallow — clipboard permission denials shouldn't break chat.
+    }
+  }
+
   return (
     <div id="chat-page">
       <div className="chat-page-header">
@@ -793,17 +818,32 @@ const ChatPage = () => {
               </div>
             )}
             {m.role === 'assistant' ? (
-              <div
-                className="chat-message-body chat-markdown"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                onClick={(e) => {
-                  const anchor = e.target.closest('a[href]')
-                  if (!anchor) return
-                  const href = anchor.getAttribute('href')
-                  if (!href || href === '#') return
-                  handleClickLink(e, href)
-                }}
-              />
+              <>
+                <div
+                  className="chat-message-body chat-markdown"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                  onClick={(e) => {
+                    const anchor = e.target.closest('a[href]')
+                    if (!anchor) return
+                    const href = anchor.getAttribute('href')
+                    if (!href || href === '#') return
+                    handleClickLink(e, href)
+                  }}
+                />
+                {m.content && !(isStreaming && streamingIndexRef.current === i) && (
+                  <div className="chat-message-actions">
+                    <button
+                      type="button"
+                      className="chat-copy-btn"
+                      onClick={() => copyAssistantMarkdown(i, m.content)}
+                      aria-label="Copy response as markdown"
+                      title="Copy response as markdown"
+                    >
+                      {copiedIndex === i ? 'Copied!' : 'Copy as Markdown'}
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="chat-message-body">
                 {m.content}
