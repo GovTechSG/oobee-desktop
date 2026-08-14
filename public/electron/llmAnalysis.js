@@ -6,6 +6,8 @@ const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
+const { searchWcag } = require('./wcagCorpus')
+const { getWcagIndexPath } = require('./constants')
 
 const MAX_DOM_CHARS = 30_000
 const MAX_ELEMENT_CONTEXT_CHARS = 10_000
@@ -911,6 +913,21 @@ function runTool(session, name, input) {
         viewport,
       }
     }
+    case 'search_wcag': {
+      const query = String(input.query || '').trim()
+      if (!query) return { error: 'search_wcag requires a non-empty query' }
+      const topK = Math.min(Math.max(Number(input.top_k) || 5, 1), 10)
+      const dir = getWcagIndexPath()
+      if (!dir) {
+        return { error: 'WCAG index not available in this build' }
+      }
+      try {
+        return searchWcag({ dir, query, topK })
+      } catch (e) {
+        log(`search_wcag failed: ${e && e.message ? e.message : String(e)}`)
+        return { error: `WCAG search failed: ${e && e.message ? e.message : 'unknown'}` }
+      }
+    }
     default:
       return { error: `Unknown tool: ${name}` }
   }
@@ -1068,7 +1085,10 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
     for (const tu of toolUses) {
       let content
       try {
-        const raw = runTool(session, tu.name, tu.input)
+        // Most tool cases return synchronously; search_wcag returns a Promise
+        // (Vectra + embedding are async). `await` on a non-Promise is a no-op,
+        // so this is safe for every branch.
+        const raw = await runTool(session, tu.name, tu.input)
         // Screenshot returns a special marker with an image block.
         if (raw && raw.__imageContent) {
           content = [
