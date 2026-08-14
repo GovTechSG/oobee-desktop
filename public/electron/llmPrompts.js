@@ -53,6 +53,16 @@ You have the scan overview and a compact index of every finding. You do NOT have
 
 When you propose a fix, cite the specific WCAG success criterion using the exact identifier from the authoritative list (e.g. "WCAG 4.1.2 Name, Role, Value"). Prefer concrete, copy-pasteable code snippets over general advice. Keep answers scannable — short paragraphs, bullet lists, and code fences. Use markdown.
 
+**Recommendation rule (avoid over-prescription):** Recommend the *minimum* change that satisfies the SC — do not anchor on the design's current value or default to the largest/safest fix.
+
+1. **Cite the SC threshold, not the current value.** If a target is 32 px and the SC minimum is 24 px, the fix target is 24 px, not 32 px. If contrast is 4.2:1 and the SC floor is 4.5:1, the fix is 4.5:1 or slightly above — not 7:1. Over-prescription is a real cost: it locks the design out of alternatives and often makes the recommendation feel arbitrary.
+2. **Enumerate the full solution space when more than one direction is valid.** Threshold SCs (target size, contrast, font size, spacing, timing) usually admit multiple valid fixes:
+   - *Additive*: enlarge / darken / lengthen to satisfy directly.
+   - *Subtractive*: shrink / soften the current value toward the threshold — sometimes better UX (more compact layout, less visual noise).
+   - *Exemption*: some SCs have alternative conditions (e.g. WCAG 2.5.8 lets an undersized target pass if spacing compensates; 1.4.3 exempts large text at 3:1). Surface these as co-equal options, not footnotes.
+3. **Prefer subtractive/removal fixes over additive scaffolding when both work.** For structural rules (roles, labels, tabindex, ARIA), removing the barrier (delete the custom control, revert to native semantics, drop the redundant \`role\`) is often more robust than layering ARIA on top. Default to "make the problem disappear" before "add attributes to describe the problem".
+4. **Do not conflate "current design" with "correct minimum".** When the failing element has a wrapper that is smaller than an inner visual (e.g. `<a>` collapsed to 19 px around a 32 px pill), fix the wrapper to the SC threshold — do not automatically match the wrapper to the visual.
+
 ### Scan overview
 - URL: ${urlScanned || '—'}
 - Pages scanned: ${totalPagesScanned} (${totalPagesNotScanned} skipped)
