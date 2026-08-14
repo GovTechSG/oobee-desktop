@@ -690,12 +690,29 @@ function runTool(session, name, input) {
         return { error: `Invalid selector "${selector}": ${e.message}` }
       }
       if (!target || target.length === 0) {
+        // Give the model a concrete next call rather than a dead end.
+        // Common causes: :nth-child positions don't match the static capture,
+        // pseudo-classes like :hover can't match, attribute filters use a
+        // slightly different value than the HTML. Progressively strip these
+        // and hand back retry candidates the model can just call verbatim.
+        const retryHints = []
+        const stripped = selector.replace(/:[a-zA-Z\-]+(?:\([^)]*\))?/g, '').trim()
+        if (stripped && stripped !== selector) retryHints.push(stripped)
+        const noAttrs = stripped.replace(/\[[^\]]*\]/g, '').trim()
+        if (noAttrs && noAttrs !== stripped && !retryHints.includes(noAttrs)) {
+          retryHints.push(noAttrs)
+        }
         return {
           pageUrl: input.pageUrl,
           viewport,
           selector,
           ancestorDepth,
-          error: `No element matched selector "${selector}" in captured DOM. The selector may reference a dynamically injected node not present in the static capture.`,
+          error: `No element matched selector "${selector}" in captured DOM. Likely cause: :nth-child positions or pseudo-classes don't match the static capture, or an attribute filter uses a value that differs from the HTML.`,
+          retryHints,
+          note:
+            retryHints.length > 0
+              ? `Call get_element_context again with selector="${retryHints[0]}" — same tool, simpler selector. If that also returns nothing, try selector="${retryHints[retryHints.length - 1]}".`
+              : 'The selector may reference a dynamically injected node not present in the static capture. Try get_page_dom to inspect the surrounding structure.',
         }
       }
 
@@ -809,6 +826,25 @@ function runTool(session, name, input) {
               .slice(0, 10)
               .map((e) => ({ selector: e.selector, outerHtmlPrefix: e.outerHtmlPrefix }))
           : []
+        // Concrete retry candidates the model can call verbatim. Prefer
+        // dropping the most-restrictive filters first: attribute selectors
+        // (which match the outerHtmlPrefix, so are prone to miss) then all
+        // but the longest class (Tailwind atoms like `mr-2` collide across
+        // hundreds of elements; a distinctive class narrows the match).
+        const retryHints = []
+        if (leaf.classes.length > 0) {
+          const longest = leaf.classes
+            .slice()
+            .sort((a, b) => b.length - a.length)[0]
+          const soleClass = `${leaf.tag && leaf.tag !== '*' ? leaf.tag : ''}.${longest}`
+          if (soleClass !== q) retryHints.push(soleClass)
+        }
+        if (leaf.attrs.length === 0 && leaf.classes.length > 1) {
+          const noAttrsAllClasses = `${leaf.tag && leaf.tag !== '*' ? leaf.tag : ''}${leaf.classes.map((c) => `.${c}`).join('')}`
+          if (noAttrsAllClasses !== q && !retryHints.includes(noAttrsAllClasses)) {
+            retryHints.push(noAttrsAllClasses)
+          }
+        }
         return {
           pageUrl: input.pageUrl,
           viewport,
@@ -819,8 +855,11 @@ function runTool(session, name, input) {
           idSample,
           classSample: Array.from(classSample),
           tagSample,
+          retryHints,
           note:
-            'No elements matched the leaf simple selector. Samples above show what is on the page; revise the selector or drop attribute filters that may not match the captured outerHtmlPrefix (first 200 chars).',
+            retryHints.length > 0
+              ? `No elements matched. Call get_page_computed_styles again with selector="${retryHints[0]}" — same tool, simpler selector. If still empty, cross-reference classSample above and pick a class that actually appears.`
+              : 'No elements matched. Cross-reference classSample / idSample above and call again with a selector that uses a class or id from those lists.',
         }
       }
 
