@@ -224,143 +224,141 @@ const SummaryCard = ({
         </div>
       </div>
 
-      <div className="summary-card-stats">
-        <div className="stat">
-          <div className="stat-label">WCAG Score</div>
-          <div className="stat-value">
-            {Number.isFinite(wcagChecksPassed) && Number.isFinite(wcagChecksTotal)
-              ? `${wcagChecksPassed} / ${wcagChecksTotal}`
-              : typeof wcagPassPercentage === 'number' && Number.isFinite(wcagPassPercentage)
-                ? `${wcagPassPercentage.toFixed(1)}%`
-                : '—'}
+      <details
+        className="summary-card-section summary-card-details"
+        open={detailsOpen}
+        onToggle={(e) => {
+          if (onDetailsToggle) onDetailsToggle(e.currentTarget.open)
+        }}
+      >
+        <summary>Scan overview &amp; issue details</summary>
+
+        <div className="summary-card-stats">
+          <div className="stat">
+            <div className="stat-label">WCAG Score</div>
+            <div className="stat-value">
+              {Number.isFinite(wcagChecksPassed) && Number.isFinite(wcagChecksTotal)
+                ? `${wcagChecksPassed} / ${wcagChecksTotal}`
+                : typeof wcagPassPercentage === 'number' && Number.isFinite(wcagPassPercentage)
+                  ? `${wcagPassPercentage.toFixed(1)}%`
+                  : '—'}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">Pages Scanned</div>
+            <div className="stat-value">
+              {fmt(totalPagesScanned, 0)}
+              {totalPagesNotScanned ? (
+                <span className="stat-sub"> ({totalPagesNotScanned} skipped)</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="stat stat-must-fix">
+            <div className="stat-label">Must Fix</div>
+            <div className="stat-value">{fmt(mustFixRules, 0)}</div>
+            <div className="stat-sub">{fmt(mustFixOccurrences, 0)} occurrences</div>
+          </div>
+          <div className="stat stat-good-to-fix">
+            <div className="stat-label">Good to Fix</div>
+            <div className="stat-value">{fmt(goodToFixRules, 0)}</div>
+            <div className="stat-sub">{fmt(goodToFixOccurrences, 0)} occurrences</div>
+          </div>
+          <div className="stat stat-needs-review">
+            <div className="stat-label">Needs Review</div>
+            <div className="stat-value">{fmt(needsReviewRules, 0)}</div>
+            <div className="stat-sub">{fmt(needsReviewOccurrences, 0)} occurrences</div>
           </div>
         </div>
-        <div className="stat">
-          <div className="stat-label">Pages Scanned</div>
-          <div className="stat-value">
-            {fmt(totalPagesScanned, 0)}
-            {totalPagesNotScanned ? (
-              <span className="stat-sub"> ({totalPagesNotScanned} skipped)</span>
-            ) : null}
-          </div>
-        </div>
-        <div className="stat stat-must-fix">
-          <div className="stat-label">Must Fix</div>
-          <div className="stat-value">{fmt(mustFixRules, 0)}</div>
-          <div className="stat-sub">{fmt(mustFixOccurrences, 0)} occurrences</div>
-        </div>
-        <div className="stat stat-good-to-fix">
-          <div className="stat-label">Good to Fix</div>
-          <div className="stat-value">{fmt(goodToFixRules, 0)}</div>
-          <div className="stat-sub">{fmt(goodToFixOccurrences, 0)} occurrences</div>
-        </div>
-        <div className="stat stat-needs-review">
-          <div className="stat-label">Needs Review</div>
-          <div className="stat-value">{fmt(needsReviewRules, 0)}</div>
-          <div className="stat-sub">{fmt(needsReviewOccurrences, 0)} occurrences</div>
-        </div>
-      </div>
 
-      {(hasAnyRules || topPages.length > 0) && (
-        <details
-          className="summary-card-section summary-card-details"
-          open={detailsOpen}
-          onToggle={(e) => {
-            if (onDetailsToggle) onDetailsToggle(e.currentTarget.open)
-          }}
-        >
-          <summary>Issue details</summary>
-
-          {hasAnyRules && (
-            <div className="summary-card-rules">
-              <h4 className="details-subhead">Top rules</h4>
-              {ruleCategories.map(({ key, title }) => {
-                const rules = Array.isArray(topRulesByCategory[key])
-                  ? topRulesByCategory[key]
-                  : []
-                if (rules.length === 0) return null
-                return (
-                  <div key={key} className={`rule-group rule-group-${key}`}>
-                    <h4>{title}</h4>
-                    <ol>
-                      {rules.map((r, i) => {
-                        const rowKey = `${key}::${r.rule}`
-                        const isOpen = browseOpenKey === rowKey
-                        return (
-                          <li key={i}>
-                            <div className="rule-row">
-                              {onAskAboutRule ? (
-                                <button
-                                  type="button"
-                                  className="rule-chip"
-                                  onClick={() => onAskAboutRule(r)}
-                                  title={`Ask about ${r.rule}`}
-                                >
-                                  {r.rule}
-                                </button>
-                              ) : (
-                                <strong>{r.rule}</strong>
-                              )}
-                              {fetchFindingDetail && (
-                                <button
-                                  type="button"
-                                  className={`rule-browse-toggle${isOpen ? ' is-open' : ''}`}
-                                  onClick={() => toggleBrowse(key, r)}
-                                  aria-expanded={isOpen}
-                                >
-                                  {isOpen ? '▾ Hide occurrences' : '▸ Browse occurrences'}
-                                </button>
-                              )}
-                              {r.description ? (
-                                <span className="rule-description"> — {r.description}</span>
-                              ) : null}
-                              <span className="rule-meta">
-                                {' '}({r.totalItems} occurrence{r.totalItems === 1 ? '' : 's'}
-                                {Array.isArray(r.conformance) && r.conformance.length > 0
-                                  ? `, WCAG ${r.conformance.join(', ')}`
-                                  : ''}
-                                )
-                              </span>
-                            </div>
-                            {isOpen && fetchFindingDetail && (
-                              <OccurrenceBrowser
-                                category={key}
-                                rule={r}
-                                fetchFindingDetail={fetchFindingDetail}
-                                onAskAboutOccurrence={onAskAboutOccurrence}
-                              />
+        {hasAnyRules && (
+          <div className="summary-card-rules">
+            <h4 className="details-subhead">Top rules</h4>
+            {ruleCategories.map(({ key, title }) => {
+              const rules = Array.isArray(topRulesByCategory[key])
+                ? topRulesByCategory[key]
+                : []
+              if (rules.length === 0) return null
+              return (
+                <div key={key} className={`rule-group rule-group-${key}`}>
+                  <h4>{title}</h4>
+                  <ol>
+                    {rules.map((r, i) => {
+                      const rowKey = `${key}::${r.rule}`
+                      const isOpen = browseOpenKey === rowKey
+                      return (
+                        <li key={i}>
+                          <div className="rule-row">
+                            {onAskAboutRule ? (
+                              <button
+                                type="button"
+                                className="rule-chip"
+                                onClick={() => onAskAboutRule(r)}
+                                title={`Ask about ${r.rule}`}
+                              >
+                                {r.rule}
+                              </button>
+                            ) : (
+                              <strong>{r.rule}</strong>
                             )}
-                          </li>
-                        )
-                      })}
-                    </ol>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                            {fetchFindingDetail && (
+                              <button
+                                type="button"
+                                className={`rule-browse-toggle${isOpen ? ' is-open' : ''}`}
+                                onClick={() => toggleBrowse(key, r)}
+                                aria-expanded={isOpen}
+                              >
+                                {isOpen ? '▾ Hide occurrences' : '▸ Browse occurrences'}
+                              </button>
+                            )}
+                            {r.description ? (
+                              <span className="rule-description"> — {r.description}</span>
+                            ) : null}
+                            <span className="rule-meta">
+                              {' '}({r.totalItems} occurrence{r.totalItems === 1 ? '' : 's'}
+                              {Array.isArray(r.conformance) && r.conformance.length > 0
+                                ? `, WCAG ${r.conformance.join(', ')}`
+                                : ''}
+                              )
+                            </span>
+                          </div>
+                          {isOpen && fetchFindingDetail && (
+                            <OccurrenceBrowser
+                              category={key}
+                              rule={r}
+                              fetchFindingDetail={fetchFindingDetail}
+                              onAskAboutOccurrence={onAskAboutOccurrence}
+                            />
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
-          {topPages.length > 0 && (
-            <div className="summary-card-pages">
-              <h4 className="details-subhead">Top pages by issue count</h4>
-              <ol>
-                {topPages.map((p, i) => (
-                  <li key={i}>
-                    {p.url ? (
-                      <a className="page-title" href={p.url} onClick={(e) => handleClickLink(e, p.url)}>
-                        {fmt(p.pageTitle || p.url)}
-                      </a>
-                    ) : (
-                      <span className="page-title">{fmt(p.pageTitle || p.url)}</span>
-                    )}
-                    <span className="rule-meta"> — {p.totalIssues} issues</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-        </details>
-      )}
+        {topPages.length > 0 && (
+          <div className="summary-card-pages">
+            <h4 className="details-subhead">Top pages by issue count</h4>
+            <ol>
+              {topPages.map((p, i) => (
+                <li key={i}>
+                  {p.url ? (
+                    <a className="page-title" href={p.url} onClick={(e) => handleClickLink(e, p.url)}>
+                      {fmt(p.pageTitle || p.url)}
+                    </a>
+                  ) : (
+                    <span className="page-title">{fmt(p.pageTitle || p.url)}</span>
+                  )}
+                  <span className="rule-meta"> — {p.totalIssues} issues</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </details>
     </div>
   )
 }
