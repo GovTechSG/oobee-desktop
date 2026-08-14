@@ -528,6 +528,7 @@ const startScan = async (scanDetails, scanEvent) => {
           ...(scanDetails.saveComputedStyles && { OOBEE_SAVE_COMPUTED_STYLES: '1' }),
           ...(scanDetails.htmlMaxBytes !== undefined && { OOBEE_HTML_MAX_BYTES: String(scanDetails.htmlMaxBytes) }),
           ...(scanDetails.parentHtmlDepth !== undefined && { OOBEE_PARENT_HTML_DEPTH: String(scanDetails.parentHtmlDepth) }),
+          ...(scanDetails.isLLMAnalysis && { OOBEE_SCAN_PRODUCT: 'Oobee LLM Chat (alpha)' }),
         },
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
