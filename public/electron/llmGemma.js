@@ -88,14 +88,24 @@ async function ensureChatSession(session) {
   if (session.gemma?.chat) return session.gemma
 
   const model = await ensureModel()
-  const { LlamaChatSession } = await getLlamaModule()
+  const { LlamaChatSession, Gemma4ChatWrapper } = await getLlamaModule()
   const context = await model.createContext({ contextSize: pickContextSize() })
   const seq = context.getSequence()
+  // Force Gemma4ChatWrapper rather than letting resolveChatWrapper auto-pick.
+  // With `chatWrapper: "auto"` the resolver compares the GGUF's baked-in Jinja
+  // template against Gemma4ChatWrapper's rendering; the unsloth Q4_K_XL build
+  // has patched tokens (see the `'<|tool_response>' was not control-type` load
+  // warning) so equivalence fails and it falls back to JinjaTemplateChatWrapper.
+  // That fallback wrapper has no function-call scaffolding — no
+  // `<|tool>declaration:` system-message injection, no `<|tool_call>call:`
+  // grammar — so Gemma never emits tool calls. Forcing Gemma4ChatWrapper gives
+  // it both, matching the token syntax the model was trained on.
   const chat = new LlamaChatSession({
     contextSequence: seq,
     systemPrompt: session.systemPrompt,
-    // Rely on Gemma 4's Jinja template baked into the GGUF via auto-detection.
+    chatWrapper: new Gemma4ChatWrapper(),
   })
+  log(`chat wrapper: ${chat.chatWrapper?.constructor?.name || 'unknown'}`)
   session.gemma = { chat, context }
   return session.gemma
 }
