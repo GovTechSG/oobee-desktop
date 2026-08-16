@@ -129,11 +129,11 @@ const SUGGESTED_QUESTIONS = [
   'Are there any color-contrast violations I should worry about?',
 ]
 
+// Storage key holds the full option id (`anthropic` / `gemma-e4b` / `gemma-12b`).
 const PROVIDER_STORAGE_KEY = 'llmProvider'
-const PROVIDERS = [
-  { id: 'anthropic', label: 'Anthropic Claude (cloud)' },
-  { id: 'gemma', label: 'Gemma 4 E4B (local)' },
-]
+const VALID_OPTIONS = new Set(['anthropic', 'gemma-e4b', 'gemma-12b'])
+const optionToProvider = (id) => (id === 'anthropic' ? 'anthropic' : 'gemma')
+const optionToModelId = (id) => (id === 'anthropic' ? null : id)
 
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -147,10 +147,13 @@ const formatBytes = (bytes) => {
   return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-const readStoredProvider = () => {
+const readStoredOption = () => {
   try {
     const raw = window.localStorage.getItem(PROVIDER_STORAGE_KEY)
-    return PROVIDERS.some((p) => p.id === raw) ? raw : 'anthropic'
+    // Migrate the legacy value `gemma` (which used to select the sole E4B build)
+    // to the new fully-qualified id so the user's saved preference survives.
+    if (raw === 'gemma') return 'gemma-e4b'
+    return VALID_OPTIONS.has(raw) ? raw : 'anthropic'
   } catch (_) {
     return 'anthropic'
   }
@@ -161,11 +164,14 @@ const ChatPage = () => {
   const location = useLocation()
   const scanId = location.state?.scanId
 
-  const [provider, setProvider] = useState(readStoredProvider)
+  const [selectedOption, setSelectedOption] = useState(readStoredOption)
+  const provider = optionToProvider(selectedOption)
+  const chosenModelId = optionToModelId(selectedOption)
   const [providerAvailability, setProviderAvailability] = useState(null)
+  const [availableModels, setAvailableModels] = useState([])
   const providerInitialisedRef = useRef(false)
-  // A new sessionId is minted on every provider switch — the backend disposes
-  // the previous state and treats it as a fresh session.
+  // A new sessionId is minted on every provider/model switch — the backend
+  // disposes the previous state and treats it as a fresh session.
   const [sessionEpoch, setSessionEpoch] = useState(0)
   const sessionId = useMemo(() => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -202,9 +208,9 @@ const ChatPage = () => {
 
   const modelReady = provider !== 'gemma' || modelStatus?.downloaded === true
 
-  // Probe provider availability once. If Anthropic isn't configured on this
-  // machine (no ANTHROPIC_API_KEY / ~/.claude/settings.json), pre-select Gemma
-  // so the dropdown lands on something the user can actually use.
+  // Probe provider availability + model registry once. If Anthropic isn't
+  // configured on this machine (no ANTHROPIC_API_KEY / ~/.claude/settings.json),
+  // pre-select the first Gemma model the host can actually run.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -212,13 +218,25 @@ const ChatPage = () => {
         const p = await window.services.llmChatProviders()
         if (cancelled) return
         setProviderAvailability(p)
+        const models = Array.isArray(p?.models) ? p.models : []
+        setAvailableModels(models)
         if (!providerInitialisedRef.current) {
           providerInitialisedRef.current = true
-          if (!p?.anthropic?.available && provider === 'anthropic') {
+          const anthropicOk = !!p?.anthropic?.available
+          const currentSupported =
+            selectedOption === 'anthropic'
+              ? anthropicOk
+              : models.find((m) => m.id === selectedOption)?.supported !== false
+          if (!currentSupported) {
+            // Prefer Anthropic when available; otherwise the first supported
+            // local model; falling back to the smallest even if unsupported.
+            const fallback = anthropicOk
+              ? 'anthropic'
+              : models.find((m) => m.supported)?.id || models[0]?.id || 'gemma-e4b'
             try {
-              window.localStorage.setItem(PROVIDER_STORAGE_KEY, 'gemma')
+              window.localStorage.setItem(PROVIDER_STORAGE_KEY, fallback)
             } catch (_) {}
-            setProvider('gemma')
+            setSelectedOption(fallback)
             setSessionEpoch((e) => e + 1)
           }
         }
@@ -232,17 +250,17 @@ const ChatPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Probe model status whenever the user picks Gemma so we know if the
-  // download panel needs to render.
+  // Probe model status whenever the user picks a Gemma option so we know if
+  // the download panel needs to render. Re-fetch on model switch too.
   useEffect(() => {
-    if (provider !== 'gemma') return
+    if (!chosenModelId) return
     let cancelled = false
     ;(async () => {
       try {
-        const s = await window.services.llmModelStatus()
+        const s = await window.services.llmModelStatus(chosenModelId)
         if (!cancelled) {
           setModelStatus(s)
-          if (s?.downloaded) window.services.llmChatPreloadModel()
+          if (s?.downloaded) window.services.llmChatPreloadModel(chosenModelId)
         }
       } catch (e) {
         if (!cancelled) setDownloadError(e.message)
@@ -251,7 +269,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [provider, isDownloading])
+  }, [chosenModelId, isDownloading])
 
   useEffect(() => {
     window.services.onLlmModelDownloadProgress((data) => setDownloadProgress(data))
@@ -259,11 +277,12 @@ const ChatPage = () => {
   }, [])
 
   const startDownload = async () => {
+    if (!chosenModelId) return
     setDownloadError(null)
     setIsDownloading(true)
     setDownloadProgress({ downloaded: 0, total: modelStatus?.expectedBytes || 0, percent: 0 })
     try {
-      const res = await window.services.llmModelDownload()
+      const res = await window.services.llmModelDownload(chosenModelId)
       if (!res?.ok) setDownloadError(res?.error || 'Download failed')
     } catch (e) {
       setDownloadError(e.message)
@@ -273,22 +292,27 @@ const ChatPage = () => {
   }
 
   const cancelDownload = () => {
-    window.services.llmModelDownloadAbort()
+    window.services.llmModelDownloadAbort(chosenModelId)
   }
 
-  const changeProvider = (next) => {
-    if (next === provider) return
+  const changeOption = (next) => {
+    if (!VALID_OPTIONS.has(next) || next === selectedOption) return
     try {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, next)
     } catch (_) {
       // localStorage disabled — ignore
     }
-    setProvider(next)
+    setSelectedOption(next)
     setMessages([])
     setStartError(null)
     setStreamError(null)
     setDetailsOpen(true)
     setSummary(null)
+    // Clear stale download panel state so we don't briefly show the previous
+    // model's progress bar before the new status probe returns.
+    setModelStatus(null)
+    setDownloadError(null)
+    setDownloadProgress(null)
     setSessionEpoch((e) => e + 1)
   }
 
@@ -301,7 +325,12 @@ const ChatPage = () => {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await window.services.llmChatStart({ sessionId, scanId, provider })
+        const res = await window.services.llmChatStart({
+          sessionId,
+          scanId,
+          provider,
+          modelId: chosenModelId,
+        })
         if (cancelled) return
         if (res && res.ok) {
           setSummary(res.summary)
@@ -315,7 +344,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [sessionId, scanId, provider, modelReady])
+  }, [sessionId, scanId, provider, chosenModelId, modelReady])
 
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
@@ -538,8 +567,52 @@ const ChatPage = () => {
         msgLower.includes('accessible name') ||
         msgLower.includes('unique id')
       )
+    // scanToolViewport is computed just below for geometryHint; recompute it
+    // here too since domHint fires on a different (and mostly disjoint)
+    // rule set and this hint is evaluated before the geometry branch.
+    const domHintScanViewportRaw = typeof summary?.viewport === 'string' ? summary.viewport.trim() : ''
+    const domHintToolViewport = domHintScanViewportRaw.toLowerCase() === 'desktop' ? 'desktop' : 'mobile'
     const domHint = isDomContextDependent
-      ? 'This fix depends on the surrounding DOM, not just the element itself. Before answering, call `get_page_dom` with pageUrl set to the URL above (viewport "desktop"). Then search the returned HTML for: (a) an existing element whose id would be a plausible aria-labelledby / aria-describedby target for this element (e.g. a heading, caption, or visible title near the element in the DOM); (b) any duplicate ids or landmark/region siblings that are relevant to this rule; (c) nearby visible text that could serve as the accessible name. Base your recommendation on what is actually present in the DOM — cite the specific existing id or heading text — rather than inventing generic labels. If the returned HTML is truncated (>30 KB), say so and describe only what you could see.'
+      ? `This fix depends on the surrounding DOM, not just the element itself. Before answering, call \`get_page_dom\` with pageUrl set to the URL above and \`viewport="${domHintToolViewport}"\` (the scan viewport — the opposite slot is typically not populated). Then search the returned HTML for: (a) an existing element whose id would be a plausible aria-labelledby / aria-describedby target for this element (e.g. a heading, caption, or visible title near the element in the DOM); (b) any duplicate ids or landmark/region siblings that are relevant to this rule; (c) nearby visible text that could serve as the accessible name. Base your recommendation on what is actually present in the DOM — cite the specific existing id or heading text — rather than inventing generic labels. If the returned HTML is truncated (>30 KB), say so and describe only what you could see.`
+      : null
+    // Geometry-dependent rules (target-size, and any layout-size check where
+    // the failing element may wrap a differently-sized visible child). Without
+    // a specific nudge the model reads only the element HTML + failure
+    // message, latches onto the reported pixel value (typically the collapsed
+    // wrapper's inline metrics ≈ 19 px on a 16 px font), and recommends a
+    // one-size-fits-all "add padding to 24 px" fix — missing both the child
+    // element that already meets the SC and the spacing-exemption path.
+    const isGeometryDependent =
+      !isCssDependent && !isDomContextDependent && (
+        ruleLower === 'target-size' ||
+        ruleLower.includes('target-size') ||
+        msgLower.includes('insufficient target size') ||
+        msgLower.includes('adjacent element')
+      )
+    // Resolve the scan viewport once so the geometry hint tells the model
+    // EXACTLY which viewport slot to inspect. Without this, an earlier draft
+    // of the hint said "call get_page_computed_styles twice — once with
+    // viewport=desktop and once with viewport=mobile", which caused the
+    // model to default to desktop on a Mobile scan (where the desktop slot
+    // is empty). Keep this in sync with the buildSystemPrompt viewport
+    // resolution in public/electron/llmPrompts.js.
+    const scanViewportRaw = typeof summary?.viewport === 'string' ? summary.viewport.trim() : ''
+    const isDesktopScan = scanViewportRaw.toLowerCase() === 'desktop'
+    const scanToolViewport = isDesktopScan ? 'desktop' : 'mobile'
+    const scanViewportLabel = scanViewportRaw || 'the scan'
+    const geometryHint = isGeometryDependent
+      ? `This rule depends on rendered element geometry AT THE ${scanViewportLabel.toUpperCase()} VIEWPORT (\`viewport="${scanToolViewport}"\`${isDesktopScan ? '' : `; only the mobile capture slot is populated on this scan — \`viewport="desktop"\` will typically return "not captured"`}). The failing element is often a bare wrapper (e.g. \`<a>\` with no height class) around a taller/wider visible child (e.g. a styled \`<div>\`). Do NOT answer from the failure message + element HTML alone — the reported pixel value may be the wrapper's collapsed inline box, not the visible target${isDesktopScan ? '' : ', AND responsive classes (`md:*`, `lg:*`) DO NOT apply at this narrow viewport'}. Before recommending anything, do all of the following in order — do not skip any step, and pass \`viewport="${scanToolViewport}"\` on EVERY tool call unless comparing viewports (see step 4):\n\n` +
+        `1. Call \`get_element_context\` with pageUrl set to the URL above, selector set to the XPath/selector shown, ancestorDepth=2, and \`viewport="${scanToolViewport}"\`. Inspect the returned HTML for whether the failing element wraps a visibly-styled child. If it does, note the child's classes/tag — that child is the visual target the user actually sees.${isDesktopScan ? '' : ' If the classes include responsive prefixes like `md:py-6` or `lg:h-10`, flag that these DO NOT apply at this viewport.'}\n\n` +
+        `2. Call \`get_page_computed_styles\` with \`viewport="${scanToolViewport}"\` and the failing element's selector. If a visible child was found in step 1, call it again with the child's selector (same viewport). For each element, read the LAYOUT properties directly: \`height\`, \`width\`, \`min-height\`, \`min-width\`, \`padding-top\`, \`padding-bottom\`, \`padding-left\`, \`padding-right\`, \`box-sizing\`, and \`display\`. Do NOT report \`line-height\` in place of \`height\` — a 24 px \`line-height\` on a 16 px font produces an inline-box height near 19 px, which is a common source of confusion in target-size findings. Resolve \`rem\`/\`em\`/\`%\` values to pixels using a 16 px base font-size before comparing to the 24 px threshold.\n\n` +
+        `3. If the wrapper and child computed heights differ (e.g. wrapper collapses to ~19 px inline while the child is 32 px), also call \`get_page_dom\` with \`viewport="${scanToolViewport}"\` and locate the failing element (search by class or nearby text). Confirm which classes are actually present in the rendered DOM vs. the authored HTML in the finding — do not infer runtime behaviour from class names alone.\n\n` +
+        `4. Only call the OPPOSITE viewport ("${isDesktopScan ? 'mobile' : 'desktop'}") if you need to compare — and only after first calling \`list_page_captures\` to confirm that opposite slot has data. Do not "check both viewports" reflexively; on this scan the primary evidence lives at \`viewport="${scanToolViewport}"\`.\n\n` +
+        `5. When you state a dimension, cite THREE things: the element it belongs to (the failing wrapper vs. the visible child), the viewport it was measured at (always name it — this scan is **${scanViewportLabel}**), and the computed-style property it came from — e.g. "at ${scanViewportLabel} viewport, the \`<a>\` has no explicit \`height\`; its \`line-height\` is 24 px, giving an inline-box height of ~19 px; the inner \`<div>\` has \`height: 2rem\` = 32 px".\n\n` +
+        `6. If a measurement contradicts what the user has stated or what the attached screenshot shows, do NOT invent an explanation (e.g. "the mobile viewport collapses it" without evidence). Either call \`get_page_screenshot\` with \`viewport="${scanToolViewport}"\` and describe what you actually see, or say the discrepancy is unexplained and ask the user for guidance. Verify, don't speculate.\n\n` +
+        `For WCAG 2.5.8 specifically, enumerate three satisfaction paths as CO-EQUAL options and pick the minimum change that satisfies the SC:\n` +
+        `(a) enlarge the target to ≥ 24 × 24 CSS px (the SC minimum, not the visible child's size);\n` +
+        `(b) meet the spacing exemption — a 24 CSS-px-diameter circle centered on each undersized target does not intersect another target's circle;\n` +
+        `(c) if the failing wrapper already has a visible child ≥ 24 × 24, add a \`min-height\` / \`min-width\` to the wrapper so its own layout box matches the SC minimum (this addresses the tool measurement without altering the visible design).\n` +
+        `Option (c) is often the right pick for wrapper-collapse cases — it needs no visual change and no spacing rework.`
       : null
     const parts = [
       `About occurrence #${index + 1} of the **${rule}** rule:`,
@@ -560,6 +633,7 @@ const ChatPage = () => {
       'Why does this specific occurrence matter, and what would fix it?',
       cssHint,
       domHint,
+      geometryHint,
       wcagList
         ? `When citing WCAG, use ONLY the references listed above (${wcagList}). Do not invent or substitute other WCAG success criteria.`
         : 'If you are unsure of the exact WCAG success criterion, say so instead of guessing.',
@@ -619,29 +693,67 @@ const ChatPage = () => {
           <label htmlFor="chat-provider">Model:</label>
           <select
             id="chat-provider"
-            value={provider}
-            onChange={(e) => changeProvider(e.target.value)}
+            value={selectedOption}
+            onChange={(e) => changeOption(e.target.value)}
             disabled={isStreaming || isDownloading}
           >
-            {PROVIDERS.map((p) => {
-              const unavailable =
-                p.id === 'anthropic' && providerAvailability?.anthropic?.available === false
-              return (
-                <option key={p.id} value={p.id} disabled={unavailable}>
-                  {unavailable ? `${p.label} — not configured` : p.label}
-                </option>
-              )
-            })}
+            {(() => {
+              const anthropicUnavailable =
+                providerAvailability?.anthropic?.available === false
+              const opts = [
+                <option
+                  key="anthropic"
+                  value="anthropic"
+                  disabled={anthropicUnavailable}
+                >
+                  {anthropicUnavailable
+                    ? 'Anthropic Claude (cloud) — not configured'
+                    : 'Anthropic Claude (cloud)'}
+                </option>,
+              ]
+              for (const m of availableModels) {
+                const sizeSuffix = m.sizeBytes ? ` — ${formatBytes(m.sizeBytes)}` : ''
+                const unsupportedSuffix = m.supported === false ? ' (unsupported)' : ''
+                opts.push(
+                  <option
+                    key={m.id}
+                    value={m.id}
+                    disabled={m.supported === false}
+                    title={m.supported === false ? m.unsupportedReason || '' : ''}
+                  >
+                    {`${m.label} (local)${sizeSuffix}${unsupportedSuffix}`}
+                  </option>,
+                )
+              }
+              return opts
+            })()}
           </select>
+          {(() => {
+            const selected = availableModels.find((m) => m.id === selectedOption)
+            if (selected && selected.supported === false && selected.unsupportedReason) {
+              return (
+                <span className="chat-provider-unsupported-hint">
+                  {selected.unsupportedReason}
+                </span>
+              )
+            }
+            return null
+          })()}
         </div>
       </div>
 
       {provider === 'gemma' && modelStatus?.downloaded === false && (
         <div className="chat-model-download" role="region" aria-label="Gemma model download">
-          <h2>Download Gemma 4 E4B</h2>
+          <h2>
+            Download {availableModels.find((m) => m.id === chosenModelId)?.label || 'Gemma model'}
+          </h2>
           <p>
             The local model runs entirely on your machine — no data leaves this device. First-time
-            download is ~5 GB and is cached under your app data folder.
+            download is{' '}
+            {modelStatus?.expectedBytes
+              ? formatBytes(modelStatus.expectedBytes)
+              : 'a few GB'}{' '}
+            and is cached under your app data folder.
           </p>
           {isDownloading ? (
             <>
@@ -673,7 +785,7 @@ const ChatPage = () => {
                 Download{modelStatus?.expectedBytes ? ` ${formatBytes(modelStatus.expectedBytes)}` : '…'}
               </Button>
               {providerAvailability?.anthropic?.available !== false && (
-                <Button type="btn-link" onClick={() => changeProvider('anthropic')}>
+                <Button type="btn-link" onClick={() => changeOption('anthropic')}>
                   Use Anthropic Claude instead
                 </Button>
               )}

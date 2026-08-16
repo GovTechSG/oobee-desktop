@@ -55,6 +55,15 @@
         opacity: 0.5;
         cursor: not-allowed;
       }
+      option:disabled {
+        color: #9ca3af;
+      }
+    }
+    .chat-provider-unsupported-hint {
+      font-size: 0.7rem;
+      color: #9ca3af;
+      max-width: 18rem;
+      line-height: 1.3;
     }
   }
 
