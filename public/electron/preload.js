@@ -157,15 +157,16 @@ contextBridge.exposeInMainWorld("services", {
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
-    llmChatStart: async ({ sessionId, scanId, provider }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider }),
+    llmChatStart: async ({ sessionId, scanId, provider, modelId }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),
-    llmChatPreloadModel: async () => ipcRenderer.invoke("llmChat:preloadModel"),
-    llmModelStatus: async () => ipcRenderer.invoke("llmModel:status"),
-    llmModelDownload: async () => ipcRenderer.invoke("llmModel:download"),
-    llmModelDownloadAbort: () => ipcRenderer.send("llmModel:downloadAbort"),
+    llmChatPreloadModel: async (modelId) => ipcRenderer.invoke("llmChat:preloadModel", modelId),
+    llmModelList: async () => ipcRenderer.invoke("llmModel:list"),
+    llmModelStatus: async (modelId) => ipcRenderer.invoke("llmModel:status", modelId),
+    llmModelDownload: async (modelId) => ipcRenderer.invoke("llmModel:download", modelId),
+    llmModelDownloadAbort: (modelId) => ipcRenderer.send("llmModel:downloadAbort", modelId),
     onLlmModelDownloadProgress: (callback) => {
       ipcRenderer.removeAllListeners("llmModel:downloadProgress");
       ipcRenderer.on("llmModel:downloadProgress", (_e, data) => callback(data));
