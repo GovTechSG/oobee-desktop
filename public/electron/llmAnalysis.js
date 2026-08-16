@@ -6,6 +6,7 @@ const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
+const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmModelManager')
 const { searchWcag } = require('./wcagCorpus')
 const { getWcagIndexPath } = require('./constants')
 
@@ -1328,14 +1329,30 @@ function init({ mainWindow, getResultsFolderPath }) {
     } catch (e) {
       anthropicError = e.message
     }
-    return { anthropic: { available: anthropicAvailable, error: anthropicError } }
+    let models = []
+    try {
+      models = await listGemmaModels()
+    } catch (e) {
+      warn(`listGemmaModels failed: ${e.message}`)
+    }
+    return {
+      anthropic: { available: anthropicAvailable, error: anthropicError },
+      models,
+    }
   })
 
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider }) => {
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!scanId) throw new Error('Missing scanId')
       const chosenProvider = provider === 'gemma' ? 'gemma' : 'anthropic'
+      // Only Gemma cares about modelId. Default to E4B if the renderer
+      // forgets to send one — it's the smaller/faster of the two Gemma
+      // options and safe for low-resource devices.
+      let chosenModelId = null
+      if (chosenProvider === 'gemma') {
+        chosenModelId = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
+      }
       const storagePath = getResultsFolderPath(scanId)
       if (!storagePath || !fs.existsSync(storagePath)) {
         return { ok: false, error: `Scan folder not found for scanId=${scanId}` }
@@ -1362,6 +1379,7 @@ function init({ mainWindow, getResultsFolderPath }) {
       sessions.set(sessionId, {
         scanId,
         provider: chosenProvider,
+        modelId: chosenModelId,
         storagePath,
         artifacts,
         summary,
@@ -1371,8 +1389,8 @@ function init({ mainWindow, getResultsFolderPath }) {
         gemma: null,
         abort: null,
       })
-      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}`)
-      return { ok: true, summary, provider: chosenProvider }
+      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}` : ''}`)
+      return { ok: true, summary, provider: chosenProvider, modelId: chosenModelId }
     } catch (e) {
       warn(`start failed: ${e.message}`)
       return { ok: false, error: e.message }
@@ -1473,10 +1491,11 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:preloadModel', async () => {
+  ipcMain.handle('llmChat:preloadModel', async (_event, modelId) => {
     try {
-      await ensureGemmaModel()
-      return { ok: true }
+      const chosen = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
+      await ensureGemmaModel(chosen)
+      return { ok: true, modelId: chosen }
     } catch (e) {
       return { ok: false, error: e.message }
     }

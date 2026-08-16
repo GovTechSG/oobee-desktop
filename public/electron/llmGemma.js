@@ -1,12 +1,15 @@
-// Local-model chat backend using node-llama-cpp with Google's Gemma 4 E4B.
-// Mirrors the streaming surface of the Anthropic path in llmAnalysis.js — the
-// same 7 tools are exposed via `defineChatSessionFunction`, and the same IPC
-// events (`llmChat:chunk`, `llmChat:toolCall`, `llmChat:attachment`) fire so
-// the renderer stays provider-agnostic.
+// Local-model chat backend using node-llama-cpp with Google's Gemma 4 family
+// (E4B and 12B, both official QAT Q4_0 GGUFs from Google's own HuggingFace
+// repos — see llmModelManager.js for the exact repo/filenames). Mirrors the
+// streaming surface of the Anthropic path in llmAnalysis.js — the same tools
+// are exposed via `defineChatSessionFunction`, and the same IPC events
+// (`llmChat:chunk`, `llmChat:toolCall`, `llmChat:attachment`) fire so the
+// renderer stays provider-agnostic.
 //
 // node-llama-cpp v3 is ESM-only with top-level await; we `await import()` it
-// lazily to keep this a CommonJS module and to avoid loading the ~5 GB model
-// (or paying its process startup cost) unless the user actually picks Gemma.
+// lazily to keep this a CommonJS module and to avoid loading the multi-GB
+// weights (or paying process startup cost) unless the user actually picks
+// Gemma.
 
 const os = require('os')
 const path = require('path')
@@ -17,27 +20,43 @@ const log = (...args) => console.log('[llmGemma]', ...args)
 const warn = (...args) => console.warn('[llmGemma]', ...args)
 
 let llamaSingleton = null
-let modelSingleton = null // { model, path }
+// Keyed on the resolved GGUF path so switching between E4B and 12B disposes
+// the previous weights before loading the new ones — never hold two ~7 GB
+// models in RAM at once.
+let modelSingleton = null // { model, path, modelId }
 
 async function getLlamaModule() {
   return await import('node-llama-cpp')
 }
 
-async function ensureModel() {
-  const modelPath = getModelPath()
+async function ensureModel(modelId) {
+  if (!modelId) throw new Error('ensureModel requires a modelId')
+  const modelPath = getModelPath(modelId)
   if (!(await fs.pathExists(modelPath))) {
-    throw new Error('Gemma model not downloaded. Open the LLM Analysis page and download it first.')
+    throw new Error(`Gemma model "${modelId}" not downloaded. Open the LLM Analysis page and download it first.`)
   }
   if (modelSingleton && modelSingleton.path === modelPath) return modelSingleton.model
+
+  // Different model requested — dispose the previous one before loading. Not
+  // doing this leaves both ~7 GB weight sets mapped and OOMs 16 GB machines.
+  if (modelSingleton) {
+    log(`unloading previous model (${modelSingleton.modelId}) before loading ${modelId}`)
+    try {
+      modelSingleton.model?.dispose?.()
+    } catch (e) {
+      warn(`dispose previous model failed: ${e.message}`)
+    }
+    modelSingleton = null
+  }
 
   const { getLlama } = await getLlamaModule()
   if (!llamaSingleton) {
     log('initialising llama.cpp runtime')
     llamaSingleton = await getLlama()
   }
-  log(`loading model from ${modelPath}`)
+  log(`loading model ${modelId} from ${modelPath}`)
   const model = await llamaSingleton.loadModel({ modelPath })
-  modelSingleton = { model, path: modelPath }
+  modelSingleton = { model, path: modelPath, modelId }
   return model
 }
 
@@ -87,19 +106,38 @@ function pickContextSize() {
 async function ensureChatSession(session) {
   if (session.gemma?.chat) return session.gemma
 
-  const model = await ensureModel()
+  const modelId = session.modelId || 'gemma-e4b'
+  const model = await ensureModel(modelId)
   const { LlamaChatSession, Gemma4ChatWrapper } = await getLlamaModule()
-  const context = await model.createContext({ contextSize: pickContextSize() })
+  // Perf tuning for Apple Silicon Metal (also safe/neutral on Windows/Linux):
+  //   batchSize=2048 – default is 512. Prefill of our long system prompt
+  //     (5 KB template + findings index + tool schemas) is what makes the
+  //     model feel unresponsive before the first token streams. Bigger
+  //     micro-batches give Metal enough parallelism to chew through it.
+  //   flashAttention=true – node-llama-cpp defaults to "auto" which usually
+  //     enables it on Metal; explicit true is a no-op there but locks the
+  //     memory-efficient path in.
+  //   KV cache K/V as q8_0 – halves the KV memory bandwidth during decode.
+  //     Well-vetted quality-wise; the `experimental` prefix is API-stability,
+  //     not accuracy. Bigger effect at longer contexts (our tool-loop chats).
+  const context = await model.createContext({
+    contextSize: pickContextSize(),
+    batchSize: 2048,
+    flashAttention: true,
+    experimentalKvCacheKeyType: 'q8_0',
+    experimentalKvCacheValueType: 'q8_0',
+  })
   const seq = context.getSequence()
   // Force Gemma4ChatWrapper rather than letting resolveChatWrapper auto-pick.
-  // With `chatWrapper: "auto"` the resolver compares the GGUF's baked-in Jinja
-  // template against Gemma4ChatWrapper's rendering; the unsloth Q4_K_XL build
-  // has patched tokens (see the `'<|tool_response>' was not control-type` load
-  // warning) so equivalence fails and it falls back to JinjaTemplateChatWrapper.
-  // That fallback wrapper has no function-call scaffolding — no
-  // `<|tool>declaration:` system-message injection, no `<|tool_call>call:`
-  // grammar — so Gemma never emits tool calls. Forcing Gemma4ChatWrapper gives
-  // it both, matching the token syntax the model was trained on.
+  // Even on Google's official QAT GGUFs (where the token-type metadata is
+  // correct), we still want an explicit wrapper so the tool-call scaffolding
+  // — `<|tool>declaration:` system-message injection and `<|tool_call>call:`
+  // grammar — is guaranteed. Auto-resolution can silently fall back to
+  // JinjaTemplateChatWrapper (no function-call scaffolding at all) if the
+  // baked-in Jinja doesn't compare byte-identical to Gemma4ChatWrapper's.
+  // Historical note: with unsloth's Q4_K_XL build, load-time also emitted
+  // `'<|tool_response>' was not control-type` warnings — those should be
+  // gone on Google's builds, but keep the explicit wrapper regardless.
   const chat = new LlamaChatSession({
     contextSequence: seq,
     systemPrompt: session.systemPrompt,
@@ -113,11 +151,13 @@ async function ensureChatSession(session) {
 // Gemma 4's chat template uses channel delimiters (`<channel|>reasoning`,
 // `<channel|>final`, plus `<|tool_response>` / `</s>` etc.) to bracket
 // thinking-mode reasoning and structured segments. node-llama-cpp normally
-// consumes these via the Jinja template baked into the GGUF, but the unsloth
-// Q4_K_XL build ships with some control tokens mis-classified (the load log
-// emits `'<|tool_response>' was not control-type; this is probably a bug in
-// the model. its type will be overridden`) — a few of them slip past and
-// land in the visible chunk stream as `<channel|>`, `<|message|>`, etc.
+// consumes these via the Jinja template baked into the GGUF. Historically
+// unsloth's Q4_K_XL build mis-classified some control tokens, letting a few
+// leak into the visible chunk stream as `<channel|>`, `<|message|>`, etc.
+// On Google's official Q4_0 QAT builds these tokens should be classified
+// correctly and never appear in the stream — but we keep this defensive
+// filter in place as insurance across future model swaps and llama.cpp
+// updates.
 //
 // Strip them with a small stateful filter: keep an unbounded tail buffer of
 // the *shortest string that could still be the start of a template token*

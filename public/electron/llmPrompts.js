@@ -6,6 +6,7 @@ function buildSystemPrompt({ summary }) {
     siteName,
     urlScanned,
     startTime,
+    viewport,
     totalPagesScanned = 0,
     totalPagesNotScanned = 0,
     wcagPassPercentage = null,
@@ -40,6 +41,46 @@ function buildSystemPrompt({ summary }) {
     ? `\n### Full findings index\n${JSON.stringify(findingsIndex, null, 0)}\n`
     : ''
 
+  // Oobee's viewport selector (see src/common/constants.js viewportTypes) yields
+  // one of four display strings: "Desktop", "Mobile", a Playwright device name
+  // (e.g. "iPhone 11", "Pixel 5", "Samsung Galaxy S23"), or a numeric custom
+  // width. Only "Desktop" maps to the desktop capture slot; every other value
+  // populates the mobile capture slot on the scan artefacts.
+  //
+  // Concrete viewport widths (from Oobee CLI + Playwright device descriptors):
+  //   - "Desktop"          → 1280 × 720 (Playwright "Desktop Chrome"), isMobile=false
+  //   - "Mobile"           → 414 × 715 (Playwright "iPhone 11"), isMobile=true, DPR=2
+  //   - "Samsung Galaxy S9+" → Playwright "Galaxy S9+" (360 × 740), isMobile=true
+  //   - Other device names → their Playwright profile
+  //   - Custom width       → { width, height: 720 }, isMobile=false
+  //
+  // Both key Tailwind breakpoints (`md:` = 768 px, `lg:` = 1024 px) sit ABOVE
+  // 414 px, so on a Mobile scan neither responsive-prefix set applies.
+  const viewportRaw = typeof viewport === 'string' ? viewport.trim() : ''
+  const viewportLower = viewportRaw.toLowerCase()
+  const isDesktopScan = viewportLower === 'desktop'
+  const isNarrowScan = viewportRaw !== '' && !isDesktopScan
+  const toolViewport = isDesktopScan ? 'desktop' : 'mobile'
+  // Known-width detail for common presets. Improves the model's ability to
+  // reason about media-query cut-offs (e.g. "does md:h-10 apply here?").
+  let widthDetail = ''
+  if (isDesktopScan) {
+    widthDetail = '1280 × 720 CSS px, Playwright "Desktop Chrome" profile, `isMobile=false`'
+  } else if (viewportLower === 'mobile') {
+    widthDetail = '414 × 715 CSS px, Playwright "iPhone 11" profile, `isMobile=true`, DPR=2'
+  } else if (viewportLower === 'samsung galaxy s9+') {
+    widthDetail = '360 × 740 CSS px, Playwright "Galaxy S9+" profile, `isMobile=true`'
+  } else if (/^\d+$/.test(viewportRaw)) {
+    widthDetail = `${viewportRaw} × 720 CSS px, Chrome UA, \`isMobile=false\` (custom width)`
+  }
+  const narrowHint = `narrow — responsive-prefix classes like Tailwind \`md:*\` (≥ 768 px) and \`lg:*\` (≥ 1024 px), and desktop-only media-query rules, DO NOT apply here; the geometry axe measured is the mobile-rendered geometry, not the desktop one`
+  const scanViewportLine = viewportRaw
+    ? `- Scan viewport: ${viewportRaw}${widthDetail ? ` — ${widthDetail}` : ''}${isNarrowScan ? ` (${narrowHint})` : ''}`
+    : null
+  const viewportRuleText = viewportRaw
+    ? `**Viewport rule:** This scan was run at the **${viewportRaw}** viewport${widthDetail ? ` (${widthDetail})` : ''}${isNarrowScan ? ' — a narrow one where responsive-prefix classes (Tailwind `md:*` ≥ 768 px, `lg:*` ≥ 1024 px) and desktop-only media-query rules DO NOT apply' : ''}. Every geometry / layout finding (target size, contrast on responsive layouts, focus-visible on responsive controls) reflects THIS viewport, not the desktop DevTools view the developer is looking at. When you inspect computed styles, DOM, or screenshots, default to \`viewport="${toolViewport}"\` to match what the scanner actually saw${isNarrowScan ? ' (only the mobile capture slot is populated for non-desktop scans; \`viewport="desktop"\` will typically return "not captured")' : ''}. Always name the viewport in your dimension citations.`
+    : `**Viewport rule:** The scan viewport is unknown. Non-desktop scans run at a narrow viewport where responsive-prefix classes (Tailwind \`md:*\` ≥ 768 px, \`lg:*\` ≥ 1024 px; media-query rules) do NOT apply. Before assuming geometry, call \`list_page_captures\` to see which viewport slot (desktop vs. mobile) actually has data. When a rule depends on rendered geometry, always report the viewport you measured at.`
+
   return `You are an accessibility triage expert reviewing an Oobee accessibility scan of ${siteName || urlScanned || 'the target site'} (started ${startTime || 'recently'}).
 
 Oobee categorises each finding as:
@@ -53,6 +94,10 @@ You have the scan overview and a compact index of every finding. You do NOT have
 
 When you propose a fix, cite the specific WCAG success criterion using the exact identifier from the authoritative list (e.g. "WCAG 4.1.2 Name, Role, Value"). Prefer concrete, copy-pasteable code snippets over general advice. Keep answers scannable — short paragraphs, bullet lists, and code fences. Use markdown.
 
+**Evidence rule (verify, don't speculate):** Never fabricate an explanation to reconcile a measurement discrepancy. If a computed value contradicts the user's claim, the attached screenshot, or common sense (e.g. a visibly 32 px pill reported as 19 px), do NOT invent a cause like "the mobile viewport collapses it" or "hydration hasn't run yet" from your general knowledge. Instead: (a) re-check by calling \`get_page_computed_styles\` for BOTH viewports (\`desktop\` and \`mobile\`); (b) call \`get_page_dom\` with the mobile viewport to confirm which classes are actually rendered there; (c) call \`get_page_screenshot\` with \`viewport="mobile"\` and describe what you actually see. If after these checks the discrepancy is still unexplained, say so plainly and ask the user for guidance — do not guess.
+
+${viewportRuleText}
+
 **Recommendation rule (avoid over-prescription):** Recommend the *minimum* change that satisfies the SC — do not anchor on the design's current value or default to the largest/safest fix.
 
 1. **Cite the SC threshold, not the current value.** If a target is 32 px and the SC minimum is 24 px, the fix target is 24 px, not 32 px. If contrast is 4.2:1 and the SC floor is 4.5:1, the fix is 4.5:1 or slightly above — not 7:1. Over-prescription is a real cost: it locks the design out of alternatives and often makes the recommendation feel arbitrary.
@@ -64,7 +109,7 @@ When you propose a fix, cite the specific WCAG success criterion using the exact
 4. **Do not conflate "current design" with "correct minimum".** When the failing element has a wrapper that is smaller than an inner visual (e.g. \`<a>\` collapsed to 19 px around a 32 px pill), fix the wrapper to the SC threshold — do not automatically match the wrapper to the visual.
 
 ### Scan overview
-- URL: ${urlScanned || '—'}
+- URL: ${urlScanned || '—'}${scanViewportLine ? `\n${scanViewportLine}` : ''}
 - Pages scanned: ${totalPagesScanned} (${totalPagesNotScanned} skipped)
 - WCAG AA automated score: ${
     Number.isFinite(wcagChecksPassed) && Number.isFinite(wcagChecksTotal)
@@ -143,7 +188,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'get_page_dom',
     description:
-      'Return the captured HTML content for a scanned page. Content is truncated at ~30 KB — if truncated, ask a more specific follow-up.',
+      'Return the captured HTML content for a scanned page. Content is truncated at ~30 KB — if truncated, ask a more specific follow-up. Pass viewport="mobile" to see the DOM AS THE SCANNER SAW IT at a narrow viewport — this is the authoritative source for whether responsive-prefix classes (Tailwind `md:*`, `lg:*`) or media-query rules actually applied. For any geometry-dependent finding (target-size, focus-visible, contrast on responsive layouts), call this with viewport="mobile" to confirm which classes are rendered — do NOT infer viewport behaviour from the authored class list in the finding.',
     input_schema: {
       type: 'object',
       required: ['pageUrl'],
@@ -180,7 +225,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'get_page_computed_styles',
     description:
-      'Return the browser-computed styles (color, background-color, background-image, font-size, opacity, outline, border, etc.) for elements on a scanned page. Use this for color-contrast, focus-visible, and any rule where you need the actually-applied CSS values rather than just the inline styles. Requires a selector — pass the same selector the finding\'s xpath field contains (axe reports CSS selectors under the "xpath" name). If the file is missing, the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1 — fall back to get_page_css. Do NOT call this without a selector; the whole file can be thousands of elements.',
+      'Return the browser-computed styles for elements on a scanned page. The returned object contains both APPEARANCE properties (color, background-color, background-image, font-size, line-height, opacity, outline, border) AND LAYOUT properties (height, width, min-height, min-width, max-height, max-width, padding-top, padding-bottom, padding-left, padding-right, margin-top, margin-bottom, box-sizing, display, position). Use this for color-contrast, focus-visible, and target-size — any rule where you need the actually-applied CSS values rather than just the inline styles. For target-size / geometry rules, read the LAYOUT properties (never report line-height in place of height — a 24px line-height on a 16px font yields an inline-box height near 19px, a common source of confusion) and resolve rem/em/% units to pixels using a 16px base font-size before comparing to the 24px threshold. Requires a selector — pass the same selector the finding\'s xpath field contains (axe reports CSS selectors under the "xpath" name). If the file is missing, the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1 — fall back to get_page_css. Do NOT call this without a selector; the whole file can be thousands of elements.',
     input_schema: {
       type: 'object',
       required: ['pageUrl', 'selector'],
