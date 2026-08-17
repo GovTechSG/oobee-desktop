@@ -157,8 +157,18 @@ const extractDeepLinkFromArgv = (argv) => {
 
 // Runtime registration — required on Windows/Linux, harmless on macOS (the
 // packaged Info.plist entry is what actually binds the scheme there).
-if (!app.isDefaultProtocolClient(constants.unlockProtocol)) {
-  app.setAsDefaultProtocolClient(constants.unlockProtocol)
+let protocolRegistered = false
+if (process.defaultApp && process.argv.length >= 2) {
+  protocolRegistered = app.setAsDefaultProtocolClient(
+    constants.unlockProtocol,
+    process.execPath,
+    [path.resolve(process.argv[1])]
+  )
+} else {
+  protocolRegistered = app.setAsDefaultProtocolClient(constants.unlockProtocol)
+}
+if (!protocolRegistered) {
+  console.warn(`[deep-link] failed to register protocol client for ${constants.unlockProtocol}://`)
 }
 
 // Single-instance lock: a second launch triggered by `oobee://` in a browser
