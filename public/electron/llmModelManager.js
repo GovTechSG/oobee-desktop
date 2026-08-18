@@ -1,13 +1,14 @@
-// Local model download + presence probe for the Gemma providers. Two models
+// Local model download + presence probe for the Gemma provider. Two models
 // are exposed: E4B (~5.15 GB) for low-resource devices and 12B (~6.98 GB) for
-// machines with the RAM headroom. Both are Google's OFFICIAL QAT Q4_0 GGUF
-// releases, pulled via node-llama-cpp's `createModelDownloader` (resumable
-// parallel HTTP via ipull) and stored under Electron's userData so they
-// survive app upgrades but are easy to wipe from the OS.
+// machines with the RAM headroom. Both are Google's official QAT Q4_0 GGUFs.
+// Each model also gets its mmproj (multimodal projector) file downloaded
+// alongside so `llama-server --mmproj …` can process screenshots — Gemma is
+// image-capable end-to-end.
 //
-// We used to ship unsloth's Q4_K_XL / mobile-Q2_K_XL variants; switched to
-// Google's own builds so the token-type metadata (`<|tool_response>` etc.)
-// matches what Gemma4ChatWrapper expects and the tool-call path is reliable.
+// Downloads use ipull directly (resumable, multi-connection, progress). We
+// used to reach it via node-llama-cpp's `createModelDownloader`; since the
+// switch to a spawned `llama-server` subprocess we no longer depend on
+// node-llama-cpp and call ipull ourselves.
 
 const path = require('path')
 const os = require('os')
@@ -18,16 +19,16 @@ const { app, ipcMain } = require('electron')
 const log = (...args) => console.log('[llmModelManager]', ...args)
 const warn = (...args) => console.warn('[llmModelManager]', ...args)
 
-// Model registry. `minRamGb` gates the option in the UI — 12B needs enough
-// headroom for the ~7 GB weights plus llama.cpp/Electron working set (~2 GB),
-// which we round up so 16 GB machines pass and 12 GB machines don't swap.
+// Model registry. `minRamGb` gates the option in the UI — needs enough
+// headroom for weights + mmproj + llama-server working set (~2 GB). Bumped
+// vs. the pre-mmproj values so 12 GB machines pass E4B and 16 GB machines
+// pass 12B without swapping.
 const MODELS = {
-  // Filenames below are Google's actual on-repo names, verified via
-  // `GET huggingface.co/api/models/<repo>/tree/main`. The E4B repo publishes
-  // `gemma-4-E4B_q4_0-it.gguf` (unusual suffix ordering) and the 12B repo
-  // publishes `gemma-4-12b-it-qat-q4_0.gguf` (lowercase `12b`). Both repos
-  // also ship an `mmproj-*.gguf` multimodal projection file which we do NOT
-  // download — text-only chat doesn't need it.
+  // Filenames verified against
+  // https://huggingface.co/api/models/google/gemma-4-E4B-it-qat-q4_0-gguf/tree/main
+  // and the 12B equivalent. mmproj naming is inconsistent between repos
+  // (Google published them under different filename conventions) — the
+  // registry captures the exact on-repo names.
   'gemma-e4b': {
     id: 'gemma-e4b',
     label: 'Gemma 4 E4B (QAT)',
@@ -35,7 +36,9 @@ const MODELS = {
     repo: 'google/gemma-4-E4B-it-qat-q4_0-gguf',
     filename: 'gemma-4-E4B_q4_0-it.gguf',
     fallbackBytes: 5_154_941_280,
-    minRamGb: 8,
+    mmprojFilename: 'gemma-4-E4B-it-mmproj.gguf',
+    mmprojBytes: 991_552_256,
+    minRamGb: 10,
   },
   'gemma-12b': {
     id: 'gemma-12b',
@@ -44,23 +47,23 @@ const MODELS = {
     repo: 'google/gemma-4-12B-it-qat-q4_0-gguf',
     filename: 'gemma-4-12b-it-qat-q4_0.gguf',
     fallbackBytes: 6_975_879_296,
-    minRamGb: 14,
+    mmprojFilename: 'mmproj-gemma-4-12b-it-qat-q4_0.gguf',
+    mmprojBytes: 175_115_616,
+    minRamGb: 16,
   },
 }
 
 for (const m of Object.values(MODELS)) {
-  m.uri = `hf:${m.repo}/${m.filename}`
-  m.httpUrl = `https://huggingface.co/${m.repo}/resolve/main/${m.filename}`
+  m.weightsHttpUrl = `https://huggingface.co/${m.repo}/resolve/main/${m.filename}`
+  m.mmprojHttpUrl = `https://huggingface.co/${m.repo}/resolve/main/${m.mmprojFilename}`
+  m.totalBytes = m.fallbackBytes + m.mmprojBytes
 }
 
-// Per-model cache of the HuggingFace-reported size, so the download panel can
+// Per-file cache of the HuggingFace-reported size, so the download panel can
 // show accurate progress before the first byte arrives.
-const cachedExpectedBytes = new Map()
+const cachedExpectedBytes = new Map() // key: `${modelId}:${which}` → bytes
 
-// Only one download at a time across all models — the UI enforces this too by
-// disabling the model select while a download is in flight, but we belt-and-
-// braces it here so a stray IPC can't start a second concurrent transfer.
-let inFlight = null // { modelId, abort, promise }
+let inFlight = null // { modelId, cancel, promise }
 
 function getModelsDir() {
   return path.join(app.getPath('userData'), 'models')
@@ -76,14 +79,20 @@ function getModelPath(modelId) {
   return path.join(getModelsDir(), resolveModel(modelId).filename)
 }
 
+function getMmprojPath(modelId) {
+  return path.join(getModelsDir(), resolveModel(modelId).mmprojFilename)
+}
+
 // HEAD the resolve URL, follow redirects to the LFS CDN, and read the final
 // content-length. HuggingFace also exposes `x-linked-size` on the redirect
 // itself so we can often skip the second hop.
-async function probeExpectedBytes(modelId) {
-  if (cachedExpectedBytes.has(modelId)) return cachedExpectedBytes.get(modelId)
+async function probeExpectedBytes(modelId, which) {
+  const key = `${modelId}:${which}`
+  if (cachedExpectedBytes.has(key)) return cachedExpectedBytes.get(key)
   const m = resolveModel(modelId)
+  const url = which === 'mmproj' ? m.mmprojHttpUrl : m.weightsHttpUrl
   try {
-    const resp = await axios.head(m.httpUrl, {
+    const resp = await axios.head(url, {
       maxRedirects: 5,
       timeout: 10_000,
       validateStatus: (s) => s >= 200 && s < 400,
@@ -91,53 +100,70 @@ async function probeExpectedBytes(modelId) {
     const linked = Number(resp.headers['x-linked-size'])
     const contentLen = Number(resp.headers['content-length'])
     const size = Number.isFinite(linked) && linked > 0 ? linked : contentLen
-    if (Number.isFinite(size) && size > 100 * 1024 * 1024) {
-      cachedExpectedBytes.set(modelId, size)
-      log(`resolved remote size for ${modelId}: ${size} bytes`)
+    if (Number.isFinite(size) && size > 100 * 1024) {
+      cachedExpectedBytes.set(key, size)
       return size
     }
-    warn(`HEAD returned unexpected size for ${modelId}: linked=${linked}, contentLength=${contentLen}`)
+    warn(`HEAD returned unexpected size for ${modelId}/${which}: linked=${linked}, contentLength=${contentLen}`)
   } catch (e) {
-    warn(`HEAD probe failed for ${modelId}: ${e.message}`)
+    warn(`HEAD probe failed for ${modelId}/${which}: ${e.message}`)
   }
   return null
 }
 
+// A model is "downloaded" only when BOTH files are on disk at sane sizes.
+// Half-downloaded stubs (aborted mid-stream) can leave a small partial file
+// — the >100 MB threshold guards against that.
 async function getStatus(modelId) {
   const m = resolveModel(modelId)
-  const p = getModelPath(modelId)
+  const weightsPath = getModelPath(modelId)
+  const mmprojPath = getMmprojPath(modelId)
+
+  let weightsSize = 0
+  let mmprojSize = 0
   try {
-    const s = await fs.stat(p)
-    // Guard against half-downloaded stubs — anything meaningfully smaller than
-    // a few hundred MB definitely isn't the full quantised weight file.
-    if (s.isFile() && s.size > 100 * 1024 * 1024) {
-      return { modelId: m.id, downloaded: true, path: p, sizeBytes: s.size, expectedBytes: s.size }
+    const s = await fs.stat(weightsPath)
+    if (s.isFile() && s.size > 100 * 1024 * 1024) weightsSize = s.size
+  } catch (_) {}
+  try {
+    const s = await fs.stat(mmprojPath)
+    if (s.isFile() && s.size > 100 * 1024 * 1024) mmprojSize = s.size
+  } catch (_) {}
+
+  const downloaded = weightsSize > 0 && mmprojSize > 0
+
+  if (downloaded) {
+    return {
+      modelId,
+      downloaded: true,
+      path: weightsPath,
+      mmprojPath,
+      sizeBytes: weightsSize + mmprojSize,
+      expectedBytes: weightsSize + mmprojSize,
     }
-  } catch (_) {
-    // not present — fall through to remote probe
   }
-  const remoteBytes = await probeExpectedBytes(modelId)
+
+  const remoteWeights = await probeExpectedBytes(modelId, 'weights')
+  const remoteMmproj = await probeExpectedBytes(modelId, 'mmproj')
   return {
-    modelId: m.id,
+    modelId,
     downloaded: false,
-    path: p,
-    sizeBytes: 0,
-    expectedBytes: remoteBytes ?? m.fallbackBytes,
+    path: weightsPath,
+    mmprojPath,
+    sizeBytes: weightsSize + mmprojSize,
+    expectedBytes:
+      (remoteWeights ?? m.fallbackBytes) + (remoteMmproj ?? m.mmprojBytes),
   }
 }
 
-// Snapshot of all models for the provider dropdown. Includes RAM-based
-// support gating so the UI can grey out 12B on low-memory machines.
 async function listModels() {
   const totalGb = os.totalmem() / (1024 ** 3)
   const out = []
   for (const m of Object.values(MODELS)) {
-    // Fire-and-cache the size probe but don't block if it's slow — fallback
-    // bytes keep the UI responsive.
     const status = await getStatus(m.id).catch(() => ({
       downloaded: false,
       sizeBytes: 0,
-      expectedBytes: m.fallbackBytes,
+      expectedBytes: m.totalBytes,
     }))
     const supported = totalGb >= m.minRamGb * 0.9
     out.push({
@@ -147,10 +173,30 @@ async function listModels() {
       sizeBytes: status.expectedBytes,
       downloaded: status.downloaded,
       supported,
-      unsupportedReason: supported ? null : `Needs ${m.minRamGb}+ GB RAM (this machine has ~${totalGb.toFixed(0)} GB)`,
+      unsupportedReason: supported
+        ? null
+        : `Needs ${m.minRamGb}+ GB RAM (this machine has ~${totalGb.toFixed(0)} GB)`,
     })
   }
   return out
+}
+
+// Kick off a resumable download of one file via ipull. Returns the engine so
+// the caller can attach progress listeners and later close() to abort.
+async function startIpullDownload({ url, savePath, fileName }) {
+  // ipull is ESM-only; keep it a dynamic import so this module stays CJS and
+  // the ~mid-MB dep isn't paid for on paths that never download.
+  const { default: DownloadEngineNodejs } = await import(
+    'ipull/dist/download/download-engine/engine/download-engine-nodejs.js'
+  )
+  const engine = await DownloadEngineNodejs.createFromOptions({
+    url,
+    savePath,
+    fileName,
+    parallelStreams: 4,
+    skipExisting: true,
+  })
+  return engine
 }
 
 async function startDownload(mainWindow, modelId) {
@@ -160,8 +206,14 @@ async function startDownload(mainWindow, modelId) {
   const m = resolveModel(modelId)
   await fs.ensureDir(getModelsDir())
 
-  const { createModelDownloader } = await import('node-llama-cpp')
-  const abortController = new AbortController()
+  // Total-progress model: we combine bytes across the two files so the UI
+  // shows one monotonic bar. Base the totals on the HEAD-probed sizes when
+  // available, falling back to the manifest values.
+  const weightsTotal = (await probeExpectedBytes(modelId, 'weights')) || m.fallbackBytes
+  const mmprojTotal = (await probeExpectedBytes(modelId, 'mmproj')) || m.mmprojBytes
+  const combinedTotal = weightsTotal + mmprojTotal
+  let bytesFromCompletedFiles = 0
+
   const send = (payload) => {
     try {
       mainWindow?.webContents?.send('llmModel:downloadProgress', { modelId, ...payload })
@@ -170,54 +222,71 @@ async function startDownload(mainWindow, modelId) {
     }
   }
 
-  let downloader
-  try {
-    downloader = await createModelDownloader({
-      modelUri: m.uri,
-      dirPath: getModelsDir(),
-      fileName: m.filename,
-      skipExisting: true,
-      parallelDownloads: 4,
-      onProgress: ({ totalSize, downloadedSize }) => {
-        const total = totalSize || cachedExpectedBytes.get(modelId) || m.fallbackBytes
-        const percent = total > 0 ? Math.min(1, downloadedSize / total) : 0
-        send({ downloaded: downloadedSize, total, percent })
-      },
-    })
-  } catch (e) {
-    warn(`downloader setup failed for ${modelId}: ${e.message}`)
-    throw e
+  const reportProgress = (currentFileBytes) => {
+    const downloaded = bytesFromCompletedFiles + currentFileBytes
+    const percent = combinedTotal > 0 ? Math.min(1, downloaded / combinedTotal) : 0
+    send({ downloaded, total: combinedTotal, percent })
   }
 
-  const abort = () => {
-    try {
-      abortController.abort()
-    } catch (_) {}
-    try {
-      downloader.cancel?.()
-    } catch (_) {}
+  let activeEngine = null
+  const cancel = () => {
+    if (activeEngine) {
+      try {
+        activeEngine.close()
+      } catch (_) {}
+    }
+  }
+
+  const runOne = async ({ url, fileName, description }) => {
+    log(`downloading ${description} (${fileName}) for ${modelId}`)
+    const engine = await startIpullDownload({
+      url,
+      savePath: path.join(getModelsDir(), fileName),
+    })
+    activeEngine = engine
+    engine.on('progress', (status) => {
+      // ipull's progress status includes `transferredBytes` per stream — sum
+      // across streams. The FormattedStatus object typically exposes
+      // .transferredBytes as a total already; be defensive.
+      const t = typeof status?.transferredBytes === 'number'
+        ? status.transferredBytes
+        : status?.bytesDownloaded || 0
+      reportProgress(t)
+    })
+    await engine.download()
+    activeEngine = null
   }
 
   const promise = (async () => {
     try {
-      const modelPath = await downloader.download({ signal: abortController.signal })
-      log(`downloaded ${modelId} to ${modelPath}`)
-      const total = downloader.totalSize || cachedExpectedBytes.get(modelId) || m.fallbackBytes
-      send({ downloaded: total, total, percent: 1 })
-      return { ok: true, path: modelPath, modelId }
+      await runOne({
+        url: m.weightsHttpUrl,
+        fileName: m.filename,
+        description: 'weights',
+      })
+      bytesFromCompletedFiles += weightsTotal
+      await runOne({
+        url: m.mmprojHttpUrl,
+        fileName: m.mmprojFilename,
+        description: 'mmproj (vision)',
+      })
+      bytesFromCompletedFiles += mmprojTotal
+      send({ downloaded: combinedTotal, total: combinedTotal, percent: 1 })
+      log(`downloaded ${modelId} + mmproj into ${getModelsDir()}`)
+      return { ok: true, path: getModelPath(modelId), mmprojPath: getMmprojPath(modelId), modelId }
     } finally {
       inFlight = null
     }
   })()
 
-  inFlight = { modelId, abort, promise }
+  inFlight = { modelId, cancel, promise }
   return promise
 }
 
 function abortDownload(modelId) {
   if (inFlight && (!modelId || inFlight.modelId === modelId)) {
     log(`aborting in-flight download (${inFlight.modelId})`)
-    inFlight.abort()
+    inFlight.cancel()
   }
 }
 
@@ -243,7 +312,7 @@ function init({ mainWindow }) {
         error: e.message,
         path: m ? getModelPath(modelId) : null,
         sizeBytes: 0,
-        expectedBytes: m?.fallbackBytes ?? 0,
+        expectedBytes: m?.totalBytes ?? 0,
       }
     }
   })
@@ -263,6 +332,7 @@ function init({ mainWindow }) {
 module.exports = {
   init,
   getModelPath,
+  getMmprojPath,
   getStatus,
   listModels,
   resolveModel,
