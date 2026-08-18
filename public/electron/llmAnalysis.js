@@ -118,6 +118,16 @@ const constrainImageForAnthropic = (buf, mediaType) => {
 
 const sessions = new Map() // sessionId -> { storagePath, cfg, artifacts, summary, systemPrompt, messages, abort }
 
+// Local Gemma runs with tighter context budgets than Anthropic. Excluding
+// get_page_dom forces selector-first workflows (get_element_context) and
+// prevents large whole-page HTML payloads from dominating tool loops.
+// get_page_detail is also excluded: full per-page issue payloads are large and
+// tend to trigger repetitive tool loops on local models. Use list_findings /
+// get_finding_detail + get_element_context instead.
+const GEMMA_TOOL_SCHEMAS = TOOL_SCHEMAS.filter(
+  (t) => t.name !== 'get_page_dom' && t.name !== 'get_page_detail',
+)
+
 const log = (...args) => console.log('[llmAnalysis]', ...args)
 const warn = (...args) => console.warn('[llmAnalysis]', ...args)
 
@@ -622,6 +632,12 @@ function runTool(session, name, input) {
       }
     }
     case 'get_page_detail': {
+      if (session.provider === 'gemma') {
+        return {
+          error:
+            'get_page_detail is disabled for local Gemma models. Use list_findings and get_finding_detail, then inspect specific elements with get_element_context.',
+        }
+      }
       const pd = artifacts.getPagesDetail() || {}
       const affected = Array.isArray(pd.pagesAffected) ? pd.pagesAffected : []
       const notAffected = Array.isArray(pd.pagesNotAffected) ? pd.pagesNotAffected : []
@@ -647,6 +663,12 @@ function runTool(session, name, input) {
       }
     }
     case 'get_page_dom': {
+      if (session.provider === 'gemma') {
+        return {
+          error:
+            'get_page_dom is disabled for local Gemma models. Use get_element_context with a selector from get_finding_detail instead.',
+        }
+      }
       const manifest = artifacts.getManifest()
       const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
       if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
@@ -1448,7 +1470,7 @@ function init({ mainWindow, getResultsFolderPath }) {
           userMessage,
           attachments: parsedAttachments,
           runTool,
-          toolSchemas: TOOL_SCHEMAS,
+          toolSchemas: GEMMA_TOOL_SCHEMAS,
         })
       } else {
         if (!session.cfg) {

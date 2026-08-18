@@ -26,6 +26,7 @@ const warn = (...args) => console.warn('[llmGemma]', ...args)
 const MAX_TOOL_RESULT_CHARS = 12_000
 const MAX_HISTORY_MESSAGES = 18
 const MAX_HISTORY_CHARS = 55_000
+const REQUEST_TIMEOUT_MS = 180_000
 
 // Context window sizing — same tiered heuristic we used with node-llama-cpp,
 // because the RAM math is the same underneath. Gemma 4's hybrid attention
@@ -213,6 +214,22 @@ function truncateToolResult(text) {
   return text.slice(0, MAX_TOOL_RESULT_CHARS) + '\n…[truncated]'
 }
 
+function canonicalizeForSignature(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeForSignature)
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const k of Object.keys(value).sort()) {
+      out[k] = canonicalizeForSignature(value[k])
+    }
+    return out
+  }
+  return value
+}
+
+function toolCallSignature(name, args) {
+  return `${name}:${JSON.stringify(canonicalizeForSignature(args || {}))}`
+}
+
 // SSE parser for /v1/chat/completions?stream=true. Yields parsed JSON delta
 // objects (the payload after `data: `), stopping at `data: [DONE]`.
 async function* readChatSSE(response) {
@@ -293,9 +310,22 @@ async function streamGemmaChat({
 
   for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
     trimGemmaHistory(session.gemma.messages)
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const requestAbort = new AbortController()
+    const timeoutId = setTimeout(() => {
+      requestAbort.abort(new Error(`timeout after ${REQUEST_TIMEOUT_MS}ms`))
+    }, REQUEST_TIMEOUT_MS)
+    const onUserAbort = () => requestAbort.abort(new Error('aborted by user'))
+    abort.signal.addEventListener('abort', onUserAbort, { once: true })
+
+    log(
+      `hop=${hop + 1}/${MAX_TOOL_HOPS} messages=${session.gemma.messages.length} approxChars=${session.gemma.messages.reduce((n, m) => n + estimateMessageChars(m), 0)}`,
+    )
+
+    let res
+    try {
+      res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
-      signal: abort.signal,
+      signal: requestAbort.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: session.modelId || 'gemma-e4b',
@@ -305,7 +335,11 @@ async function streamGemmaChat({
         stream: true,
         ...samplingKnobs,
       }),
-    })
+      })
+    } finally {
+      clearTimeout(timeoutId)
+      abort.signal.removeEventListener('abort', onUserAbort)
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
@@ -393,10 +427,12 @@ async function streamGemmaChat({
       continue // let the model consume the tool results
     }
 
-    // No tool call — this is the final assistant turn.
-    if (content) {
-      session.gemma.messages.push({ role: 'assistant', content })
+    if (!content.trim()) {
+      throw new Error('Model returned an empty response. Please retry.')
     }
+
+    // No tool call — this is the final assistant turn.
+    session.gemma.messages.push({ role: 'assistant', content })
     if (finishReason && finishReason !== 'stop' && finishReason !== 'length') {
       warn(`unexpected finish_reason: ${finishReason}`)
     }
@@ -420,6 +456,25 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
 
   send('llmChat:toolCall', { sessionId, id, name, status: 'start' })
   send('llmChat:toolCall', { sessionId, id, name, status: 'ready', input: args })
+
+  // Prevent runaway local-tool loops where the model repeatedly calls the
+  // exact same tool with the exact same args. Repeated large tool payloads can
+  // dominate prompt tokens and stall inference.
+  if (!session.gemmaToolState) {
+    session.gemmaToolState = { calls: new Map() }
+  }
+  const signature = toolCallSignature(name, args)
+  const seen = (session.gemmaToolState.calls.get(signature) || 0) + 1
+  session.gemmaToolState.calls.set(signature, seen)
+  if (seen > 1) {
+    const msg = `Repeated tool call blocked for ${name}; same arguments were already processed. Use a narrower tool (for example get_finding_detail or get_element_context) instead of repeating the same page-level request.`
+    send('llmChat:toolCall', { sessionId, id, name, status: 'error', summary: msg })
+    return JSON.stringify({
+      error: msg,
+      repeatedToolCall: true,
+      tool: name,
+    })
+  }
 
   let result
   try {
