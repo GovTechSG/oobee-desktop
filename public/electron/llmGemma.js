@@ -495,83 +495,97 @@ async function streamGemmaChat({
     const hopRequestStart = Date.now()
 
     let res
-    try {
-      res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      signal: requestAbort.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: session.modelId || 'gemma-e4b',
-        messages: session.gemma.messages,
-        tools,
-        tool_choice: 'auto',
-        stream: true,
-        // llama-server (OpenAI-compatible endpoint) supports the standard
-        // stream_options.include_usage field: the final SSE chunk gets an
-        // empty `choices` array plus a `usage` object with authoritative
-        // prompt_tokens/completion_tokens/total_tokens for this request.
-        // Diagnostic-only — does not change generation behavior.
-        stream_options: { include_usage: true },
-        // Explicit belt-and-braces: llama-server defaults this to true, but
-        // we rely on it heavily now (single slot + hysteresis-trimmed
-        // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
-        // so make it non-negotiable rather than trusting the server default.
-        cache_prompt: true,
-        ...samplingKnobs,
-      }),
-      })
-    } catch (e) {
-      if (abort.signal.aborted || requestAbort.signal.aborted) {
-        log(`session ${sessionId} aborted before response stream opened`)
-        return
-      }
-      throw e
-    } finally {
-      clearTimeout(timeoutId)
-      abort.signal.removeEventListener('abort', onUserAbort)
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
-    }
-
     let content = '' // accumulated assistant text this hop
     const toolCalls = new Map() // index → { id, name, args }
     let finishReason = null
     let usage = null // set from the final SSE chunk's usage field, if present
 
+    // Both the fetch() call and the SSE-reading loop below share ONE
+    // try/finally so the timeout (and user-abort forwarding) stay armed for
+    // the entire hop. Bug fixed here: `fetch()` resolves as soon as response
+    // HEADERS arrive — for a `stream: true` request that happens almost
+    // immediately, long before generation finishes. The previous code
+    // cleared the timeout in a `finally` attached only to the fetch() call,
+    // so REQUEST_TIMEOUT_MS was cancelled right after each request started
+    // and never actually covered the body-streaming phase, where all the
+    // real time is spent. Confirmed in the field: a hop ran 453.7s — well
+    // past the 180s timeout — and completed with no abort at all.
     try {
-      for await (const chunk of readChatSSE(res)) {
-        if (chunk.usage) usage = chunk.usage
-        const choice = chunk.choices?.[0]
-        if (!choice) continue
-        const delta = choice.delta || {}
-        if (typeof delta.content === 'string' && delta.content.length) {
-          content += delta.content
-          const cleaned = filter.push(delta.content)
-          if (cleaned) send('llmChat:chunk', { sessionId, text: cleaned })
+      try {
+        res = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        signal: requestAbort.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: session.modelId || 'gemma-e4b',
+          messages: session.gemma.messages,
+          tools,
+          tool_choice: 'auto',
+          stream: true,
+          // llama-server (OpenAI-compatible endpoint) supports the standard
+          // stream_options.include_usage field: the final SSE chunk gets an
+          // empty `choices` array plus a `usage` object with authoritative
+          // prompt_tokens/completion_tokens/total_tokens for this request.
+          // Diagnostic-only — does not change generation behavior.
+          stream_options: { include_usage: true },
+          // Explicit belt-and-braces: llama-server defaults this to true, but
+          // we rely on it heavily now (single slot + hysteresis-trimmed
+          // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
+          // so make it non-negotiable rather than trusting the server default.
+          cache_prompt: true,
+          ...samplingKnobs,
+        }),
+        })
+      } catch (e) {
+        if (abort.signal.aborted || requestAbort.signal.aborted) {
+          log(`session ${sessionId} aborted before response stream opened`)
+          return
         }
-        if (Array.isArray(delta.tool_calls)) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0
-            let acc = toolCalls.get(idx)
-            if (!acc) {
-              acc = { id: tc.id || `tc-${Date.now()}-${idx}`, name: '', args: '' }
-              toolCalls.set(idx, acc)
-            }
-            if (tc.id) acc.id = tc.id
-            if (tc.function?.name) acc.name = tc.function.name
-            if (typeof tc.function?.arguments === 'string') acc.args += tc.function.arguments
+        throw e
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
+      }
+
+      try {
+        for await (const chunk of readChatSSE(res)) {
+          if (chunk.usage) usage = chunk.usage
+          const choice = chunk.choices?.[0]
+          if (!choice) continue
+          const delta = choice.delta || {}
+          if (typeof delta.content === 'string' && delta.content.length) {
+            content += delta.content
+            const cleaned = filter.push(delta.content)
+            if (cleaned) send('llmChat:chunk', { sessionId, text: cleaned })
           }
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0
+              let acc = toolCalls.get(idx)
+              if (!acc) {
+                acc = { id: tc.id || `tc-${Date.now()}-${idx}`, name: '', args: '' }
+                toolCalls.set(idx, acc)
+              }
+              if (tc.id) acc.id = tc.id
+              if (tc.function?.name) acc.name = tc.function.name
+              if (typeof tc.function?.arguments === 'string') acc.args += tc.function.arguments
+            }
+          }
+          if (choice.finish_reason) finishReason = choice.finish_reason
         }
-        if (choice.finish_reason) finishReason = choice.finish_reason
+      } catch (e) {
+        if (abort.signal.aborted || requestAbort.signal.aborted) {
+          log(
+            `session ${sessionId} aborted mid-response${requestAbort.signal.aborted && !abort.signal.aborted ? ` (timeout after ${REQUEST_TIMEOUT_MS}ms)` : ''}`,
+          )
+          return
+        }
+        throw e
       }
-    } catch (e) {
-      if (abort.signal.aborted) {
-        log(`session ${sessionId} aborted mid-response`)
-        return
-      }
-      throw e
+    } finally {
+      clearTimeout(timeoutId)
+      abort.signal.removeEventListener('abort', onUserAbort)
     }
 
     const tail = filter.flush()
