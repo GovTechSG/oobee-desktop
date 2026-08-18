@@ -873,6 +873,15 @@
     }
   }
 
+  .chat-stream-stats {
+    margin: 0 0 4px;
+    padding: 0 4px;
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    color: #6b7280;
+    text-align: right;
+  }
+
   .chat-footnote {
     margin: 4px 0 0;
     padding: 0 4px;
