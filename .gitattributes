@@ -1,0 +1,21 @@
+# Normalize text files to LF in repo across Windows/macOS/Linux.
+* text=auto eol=lf
+
+# Keep common binaries untouched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.pdf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
