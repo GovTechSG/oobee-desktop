@@ -183,18 +183,22 @@ async function listModels() {
 
 // Kick off a resumable download of one file via ipull. Returns the engine so
 // the caller can attach progress listeners and later close() to abort.
-async function startIpullDownload({ url, savePath, fileName }) {
+//
+// We go through ipull's top-level `downloadFile` (with cliProgress:false) —
+// its package.json exports map doesn't expose the deep engine module paths, so
+// importing them directly throws ERR_PACKAGE_PATH_NOT_EXPORTED under Node's
+// ESM resolver. downloadFile just constructs the engine and no-ops the CLI
+// wrapper when cliProgress is false, so we get the same object back either way.
+async function startIpullDownload({ url, savePath }) {
   // ipull is ESM-only; keep it a dynamic import so this module stays CJS and
   // the ~mid-MB dep isn't paid for on paths that never download.
-  const { default: DownloadEngineNodejs } = await import(
-    'ipull/dist/download/download-engine/engine/download-engine-nodejs.js'
-  )
-  const engine = await DownloadEngineNodejs.createFromOptions({
+  const { downloadFile } = await import('ipull')
+  const engine = await downloadFile({
     url,
     savePath,
-    fileName,
     parallelStreams: 4,
     skipExisting: true,
+    cliProgress: false,
   })
   return engine
 }
