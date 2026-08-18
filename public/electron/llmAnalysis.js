@@ -1074,6 +1074,13 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
   const blocks = [] // accumulated content blocks for the assistant message
   let stopReason = null
   const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
+  // Anthropic reports usage across two events: message_start carries the
+  // initial input_tokens, message_delta carries a running output_tokens
+  // count. Captured so we can forward the same llmChat:usage event the
+  // Gemma path sends, keeping the live GUI indicator consistent regardless
+  // of provider.
+  let inputTokens = null
+  let outputTokens = null
 
   let sseBuffer = ''
   for await (const chunk of resp.data) {
@@ -1093,6 +1100,12 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
         continue
       }
       switch (payload.type) {
+        case 'message_start': {
+          const u = payload.message?.usage
+          if (u?.input_tokens != null) inputTokens = u.input_tokens
+          if (u?.output_tokens != null) outputTokens = u.output_tokens
+          break
+        }
         case 'content_block_start': {
           const idx = payload.index
           const cb = payload.content_block
@@ -1144,6 +1157,7 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
         }
         case 'message_delta': {
           if (payload.delta?.stop_reason) stopReason = payload.delta.stop_reason
+          if (payload.usage?.output_tokens != null) outputTokens = payload.usage.output_tokens
           break
         }
         case 'message_stop':
@@ -1152,6 +1166,15 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
           break
       }
     }
+  }
+
+  if (inputTokens != null || outputTokens != null) {
+    send('llmChat:usage', {
+      sessionId,
+      promptTokens: inputTokens,
+      completionTokens: outputTokens,
+      totalTokens: (inputTokens || 0) + (outputTokens || 0),
+    })
   }
 
   // Strip any internal fields, drop empties.
