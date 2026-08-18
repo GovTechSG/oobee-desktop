@@ -89,7 +89,21 @@ const MAX_HISTORY_MESSAGES = 18
 // triggering again, so the cache actually gets reused between trims.
 const MAX_HISTORY_CHARS = 55_000
 const HISTORY_TARGET_CHARS = 30_000
-const REQUEST_TIMEOUT_MS = 180_000
+// Two-tier timeout, not one flat ceiling from request start. llama-server
+// sends nothing at all over the SSE stream during prompt processing/prefill
+// — we have no visibility into that phase's progress — so a request that's
+// genuinely still working can go quiet for minutes before the first token
+// (we measured 230s of prefill in one hop). FIRST_CHUNK_TIMEOUT_MS is a
+// generous flat ceiling for that silent phase (a real hang before any
+// output starts). Once streaming begins, each individual chunk arrives in
+// tens-to-hundreds of ms even on slow hardware — a gap of IDLE_TIMEOUT_MS
+// with zero new chunks means the generation has genuinely stalled, not just
+// "is slow but still working". The timer is rearmed with IDLE_TIMEOUT_MS on
+// every chunk received, so a hop that's actively streaming (even a very
+// slow one — we've measured legitimate hops over 450s) is never killed for
+// simply taking a long time; only a real stall trips it.
+const FIRST_CHUNK_TIMEOUT_MS = 600_000
+const IDLE_TIMEOUT_MS = 120_000
 
 // Context window sizing — same tiered heuristic we used with node-llama-cpp,
 // because the RAM math is the same underneath. Gemma 4's hybrid attention
@@ -459,9 +473,18 @@ async function streamGemmaChat({
   for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
     trimGemmaHistory(session.gemma.messages)
     const requestAbort = new AbortController()
-    const timeoutId = setTimeout(() => {
-      requestAbort.abort(new Error(`timeout after ${REQUEST_TIMEOUT_MS}ms`))
-    }, REQUEST_TIMEOUT_MS)
+    // Starts armed with the generous first-chunk ceiling (covers silent
+    // prefill); rearmed with the much shorter idle window on every chunk
+    // received once streaming begins — see the constants' doc comment above.
+    let timeoutId = setTimeout(() => {
+      requestAbort.abort(new Error(`no response from llama-server within ${FIRST_CHUNK_TIMEOUT_MS}ms (stuck before first token)`))
+    }, FIRST_CHUNK_TIMEOUT_MS)
+    const armIdleTimeout = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        requestAbort.abort(new Error(`no new tokens for ${IDLE_TIMEOUT_MS}ms (generation appears stalled)`))
+      }, IDLE_TIMEOUT_MS)
+    }
     const onUserAbort = () => requestAbort.abort(new Error('aborted by user'))
     abort.signal.addEventListener('abort', onUserAbort, { once: true })
 
@@ -550,6 +573,11 @@ async function streamGemmaChat({
 
       try {
         for await (const chunk of readChatSSE(res)) {
+          // Any received chunk is proof the request is still actively
+          // progressing (prefill finished and/or a new token arrived) --
+          // rearm with the short idle window instead of leaving the long
+          // first-chunk ceiling in effect for the rest of the hop.
+          armIdleTimeout()
           if (chunk.usage) usage = chunk.usage
           const choice = chunk.choices?.[0]
           if (!choice) continue
@@ -577,7 +605,7 @@ async function streamGemmaChat({
       } catch (e) {
         if (abort.signal.aborted || requestAbort.signal.aborted) {
           log(
-            `session ${sessionId} aborted mid-response${requestAbort.signal.aborted && !abort.signal.aborted ? ` (timeout after ${REQUEST_TIMEOUT_MS}ms)` : ''}`,
+            `session ${sessionId} aborted mid-response${requestAbort.signal.aborted && !abort.signal.aborted ? ' (timeout: generation stalled or never started)' : ''}`,
           )
           return
         }
