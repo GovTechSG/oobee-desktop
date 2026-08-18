@@ -10,9 +10,14 @@ const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmMode
 const { searchWcag } = require('./wcagCorpus')
 const { getWcagIndexPath } = require('./constants')
 
-const MAX_DOM_CHARS = 30_000
+// Cap full-page DOM payloads aggressively so one get_page_dom call does not
+// dominate subsequent prompt tokens in tool loops.
+const MAX_DOM_CHARS = 12_000
 const MAX_ELEMENT_CONTEXT_CHARS = 10_000
 const MAX_ELEMENT_CONTEXT_DEPTH = 5
+// Keep per-occurrence HTML snippets compact; selector/xpath + message carry
+// most triage value, while full outerHTML often causes token bloat.
+const MAX_OCCURRENCE_HTML_CHARS = 800
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 const MAX_ELEM_SCREENSHOT_BYTES = 1 * 1024 * 1024
 const MAX_ELEM_SCREENSHOTS_PER_CALL = 4
@@ -212,6 +217,12 @@ function pick(obj, keys) {
   const out = {}
   for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k]
   return out
+}
+
+function truncateText(text, maxChars) {
+  if (typeof text !== 'string') return text
+  if (text.length <= maxChars) return text
+  return `${text.slice(0, maxChars)}\n…[truncated]`
 }
 
 // --- CSS selector helpers for get_page_computed_styles ---
@@ -532,10 +543,12 @@ function runTool(session, name, input) {
       const occurrences = []
       for (const p of pagesAffected) {
         for (const it of p.items || []) {
+          const html = typeof it.html === 'string' ? it.html : ''
           occurrences.push({
             url: p.url,
             pageTitle: p.pageTitle,
-            html: it.html,
+            html: truncateText(html, MAX_OCCURRENCE_HTML_CHARS),
+            htmlTruncated: html.length > MAX_OCCURRENCE_HTML_CHARS,
             message: it.message,
             xpath: it.xpath,
             screenshotPath: it.screenshotPath || '',

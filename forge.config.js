@@ -1,5 +1,6 @@
 const os = require("os");
 const path = require("path");
+const fs = require("fs");
 
 // Bundle the correct llama-server binary for the target platform+arch as an
 // extraResource. The `make-*` scripts in package.json set TARGET_PLATFORM /
@@ -10,14 +11,34 @@ const path = require("path");
 //
 // TARGET_* env vars let a macOS developer package for win32-arm64 (or vice
 // versa) without ending up with the host's binary in the bundle.
+function normalizeArch(raw) {
+  const arch = String(raw || '').toLowerCase();
+  if (arch === 'x86' || arch === 'i386' || arch === 'i686') return 'ia32';
+  if (arch === 'x86_64' || arch === 'amd64') return 'x64';
+  if (arch === 'aarch64') return 'arm64';
+  return arch;
+}
+
+function candidateTargetKeys(platform, arch) {
+  const keys = [`${platform}-${arch}`];
+  if (platform === 'win32' && (arch === 'arm64' || arch === 'ia32')) {
+    keys.push('win32-x64');
+  }
+  return [...new Set(keys)];
+}
+
+function resolveLlamaBinaryDir(platform, arch) {
+  const candidates = candidateTargetKeys(platform, arch).map((key) =>
+    path.join(__dirname, 'resources', key, 'llama-server')
+  );
+  const existing = candidates.find((dir) => fs.existsSync(dir));
+  if (existing) return existing;
+  return candidates[0];
+}
+
 const targetPlatform = process.env.TARGET_PLATFORM || process.platform;
-const targetArch = process.env.TARGET_ARCH || process.env.npm_config_arch || os.arch();
-const llamaBinaryDir = path.join(
-  __dirname,
-  "resources",
-  `${targetPlatform}-${targetArch}`,
-  "llama-server"
-);
+const targetArch = normalizeArch(process.env.TARGET_ARCH || process.env.npm_config_arch || os.arch());
+const llamaBinaryDir = resolveLlamaBinaryDir(targetPlatform, targetArch);
 
 module.exports = {
   packagerConfig: {
