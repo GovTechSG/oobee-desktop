@@ -14,11 +14,63 @@
 const os = require('os')
 const path = require('path')
 const fs = require('fs-extra')
+const { execFileSync } = require('child_process')
 const { getModelPath, getMmprojPath } = require('./llmModelManager')
 const llamaServer = require('./llamaServer')
 
 const log = (...args) => console.log('[llmGemma]', ...args)
 const warn = (...args) => console.warn('[llmGemma]', ...args)
+
+// win32-x64 runs llama.cpp's Vulkan backend, which — unlike the two
+// unified-memory targets we ship for (darwin-arm64 Metal, win32-arm64 Adreno
+// OpenCL, where GPU and CPU share one physical RAM pool) — can be backed by
+// a discrete GPU with its own separate VRAM pool. With `-ngl 999` (full GPU
+// offload, see buildArgs in llamaServer.js), VRAM capacity is what weights +
+// mmproj + KV cache actually have to fit inside on that target; system RAM
+// can be a very misleading proxy there (e.g. 64 GB system RAM with a 4 GB
+// discrete GPU would wrongly size a huge context that doesn't fit on-GPU).
+//
+// Detect dedicated VRAM via the registry rather than WMI's
+// Win32_VideoController.AdapterRAM, which is a well-known-unreliable 32-bit
+// field that wraps/misreports for GPUs with >4 GB VRAM on many drivers.
+// HardwareInformation.qwMemorySize is a 64-bit value under each display
+// adapter's driver subkey and is accurate for modern discrete GPUs.
+// Class GUID {4d36e968-e325-11ce-bfc1-08002be10318} = "Display adapters".
+// Cached for the process lifetime (queried once) — same rationale as
+// resolveContextSize() below: this reflects the machine's hardware, not
+// something that should be re-probed on every message send.
+let cachedVramBytes // undefined = not probed yet; null = probed, unavailable
+function getWindowsDedicatedVramBytes() {
+  if (process.platform !== 'win32' || process.arch !== 'x64') return null
+  if (cachedVramBytes !== undefined) return cachedVramBytes
+  try {
+    const psScript = [
+      '$ErrorActionPreference = "SilentlyContinue"',
+      '$base = "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}"',
+      'Get-ChildItem $base | ForEach-Object {',
+      '  $v = (Get-ItemProperty -Path $_.PsPath -Name "HardwareInformation.qwMemorySize" -ErrorAction SilentlyContinue)."HardwareInformation.qwMemorySize"',
+      '  if ($v) { Write-Output $v }',
+      '}',
+    ].join('; ')
+    const out = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', psScript],
+      { timeout: 5000, encoding: 'utf8', windowsHide: true },
+    )
+    const values = out
+      .split(/\r?\n/)
+      .map((line) => Number(line.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    // Multiple entries can appear (integrated + discrete GPU). llama.cpp's
+    // Vulkan device selection generally prefers the most capable device, so
+    // use the largest reported VRAM as our sizing budget.
+    cachedVramBytes = values.length > 0 ? Math.max(...values) : null
+  } catch (e) {
+    warn(`VRAM detection failed, falling back to system-RAM heuristic: ${e.message}`)
+    cachedVramBytes = null
+  }
+  return cachedVramBytes
+}
 
 // Token-budget guardrails for local inference stability. Large tool payloads
 // and long chat history can force multi-thousand-token prompt reprocessing on
@@ -54,10 +106,53 @@ const REQUEST_TIMEOUT_MS = 180_000
 // multiplied by slot count. So `-np 1` doesn't change this math; it only
 // fixes cache-slot-selection ambiguity, not memory footprint.
 function pickContextSize() {
+  const reservedGB = 8 // weights + mmproj + working set
+
+  // win32-x64 (Vulkan) can be a discrete GPU with its own VRAM pool separate
+  // from system RAM — size from detected VRAM there instead of system RAM.
+  // darwin-arm64 (Metal) and win32-arm64 (Adreno OpenCL) are both genuinely
+  // unified-memory architectures where system RAM is the correct proxy, so
+  // they fall through to the RAM-based tiering below unchanged.
+  const vramBytes = getWindowsDedicatedVramBytes()
+  if (vramBytes !== null) {
+    const vramGB = vramBytes / (1024 ** 3)
+    const vramHeadroomGB = vramGB - reservedGB
+
+    let size
+    if (vramHeadroomGB >= 20) size = 65536
+    else if (vramHeadroomGB >= 5) size = 32768
+    else if (vramHeadroomGB >= 1) size = 16384
+    else size = 8192
+
+    log(
+      `contextSize=${size} (VRAM=${vramGB.toFixed(1)}GB, vramHeadroom≈${vramHeadroomGB.toFixed(1)}GB) [win32-x64 Vulkan: sized from detected dedicated VRAM, not system RAM]`,
+    )
+    if (vramGB < 6) {
+      warn(
+        `detected dedicated VRAM is only ${vramGB.toFixed(1)}GB — Gemma weights plus mmproj will likely spill off-GPU and run slowly. Consider using the Anthropic Claude provider instead.`,
+      )
+    }
+    return size
+  }
+
   const totalGB = os.totalmem() / (1024 ** 3)
   const freeGB = os.freemem() / (1024 ** 3)
-  const reservedGB = 8 // weights + mmproj + working set
-  const headroomGB = Math.max(freeGB - reservedGB, totalGB - reservedGB - 4)
+  // Extra safety padding on top of reservedGB, used only by the total-RAM
+  // floor branch below (the fallback for when freemem() itself is
+  // unreliable — see note above). Reduced from 4 -> 2 on 2026-08-19 after
+  // two empirical findings on a 31.6 GB Snapdragon X unified-memory
+  // machine: (a) real peak usage under heavy scan+chat load topped out at
+  // ~21 GB, leaving >10 GB genuinely free — more margin than the old 4 GB
+  // padding assumed; (b) an A/B hop comparison at the SAME allocated
+  // `-c 32768` ceiling showed decode/prefill slowdown tracks actual
+  // conversation depth in use (prompt_tokens), not the size of the
+  // allocated ceiling itself (hop1 ~3800 tokens: prefill 95.5 tok/s, decode
+  // 7.57 tok/s; hop2 ~10600 tokens, same ceiling: prefill 29.6 tok/s,
+  // decode 5.20 tok/s — see llmGemma hop usage logs from that session). So
+  // a larger ceiling does not itself introduce the overhead this padding
+  // was originally guarding against; only real usage depth does.
+  const safetyMarginGB = 2
+  const headroomGB = Math.max(freeGB - reservedGB, totalGB - reservedGB - safetyMarginGB)
 
   let size
   if (headroomGB >= 20) size = 65536
