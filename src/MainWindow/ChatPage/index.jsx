@@ -224,6 +224,12 @@ const ChatPage = () => {
   // llama-server's own `tg` timing starts from the first generated token.
   const streamStatsRef = useRef({ requestStartTime: null, startTime: null, tokenCount: 0 })
   const [streamStats, setStreamStats] = useState(null) // { elapsedSec, tokenCount, tokensPerSec }
+  // Authoritative token usage from the model backend (llama-server for
+  // Gemma, Anthropic's API for Claude), forwarded via llmChat:usage. Unlike
+  // streamStats.tokenCount (a client-side per-chunk approximation), this is
+  // the real prompt/completion/total token count for the most recently
+  // completed hop — updates once per hop, not continuously.
+  const [tokenUsage, setTokenUsage] = useState(null) // { promptTokens, completionTokens, totalTokens }
 
   const modelReady = provider !== 'gemma' || modelStatus?.downloaded === true
 
@@ -448,6 +454,11 @@ const ChatPage = () => {
       setIsStreaming(false)
     })
 
+    window.services.onLlmChatUsage(({ sessionId: sid, promptTokens, completionTokens, totalTokens }) => {
+      if (sid !== sessionId) return
+      setTokenUsage({ promptTokens, completionTokens, totalTokens })
+    })
+
     window.services.onLlmChatError(({ sessionId: sid, message }) => {
       if (sid !== sessionId) return
       streamingIndexRef.current = null
@@ -540,6 +551,7 @@ const ChatPage = () => {
     streamingIndexRef.current = null
     streamStatsRef.current = { requestStartTime: Date.now(), startTime: null, tokenCount: 0 }
     setStreamStats({ elapsedSec: 0, tokenCount: 0, tokensPerSec: null })
+    setTokenUsage(null)
     stickToBottomRef.current = true
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
@@ -1088,6 +1100,9 @@ const ChatPage = () => {
           {streamStats.tokensPerSec === null
             ? `${streamStats.elapsedSec.toFixed(1)}s · processing…`
             : `${streamStats.elapsedSec.toFixed(1)}s · ~${streamStats.tokensPerSec.toFixed(1)} tok/s`}
+          {tokenUsage?.totalTokens != null
+            ? ` · ${tokenUsage.totalTokens.toLocaleString()} tokens`
+            : ''}
         </div>
       )}
 
