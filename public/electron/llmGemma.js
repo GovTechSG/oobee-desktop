@@ -25,7 +25,18 @@ const warn = (...args) => console.warn('[llmGemma]', ...args)
 // each tool hop, which degrades throughput and increases CPU pressure.
 const MAX_TOOL_RESULT_CHARS = 12_000
 const MAX_HISTORY_MESSAGES = 18
+// Ceiling that triggers a trim, and a lower target we cut back to once
+// triggered (hysteresis). llama-server caches the KV state for whatever
+// prefix it last decoded (see llamaServer.js buildArgs) and reuses it when
+// the next request's messages[] shares that prefix. If we trimmed down to
+// just-under-MAX_HISTORY_CHARS every time (the old behaviour), a single
+// large tool result would push us back over the ceiling almost every hop —
+// each trim changes the prefix, which invalidates the cache and forces a
+// full reprocess. Cutting deep to HISTORY_TARGET_CHARS instead means the
+// trimmed prefix has real headroom to grow across several more hops before
+// triggering again, so the cache actually gets reused between trims.
 const MAX_HISTORY_CHARS = 55_000
+const HISTORY_TARGET_CHARS = 30_000
 const REQUEST_TIMEOUT_MS = 180_000
 
 // Context window sizing — same tiered heuristic we used with node-llama-cpp,
@@ -36,6 +47,12 @@ const REQUEST_TIMEOUT_MS = 180_000
 // + ~2 GB llama-server/Electron working set = ~10 GB. On macOS `freemem()`
 // under-reports because inactive memory shows as "used"; fall back to
 // `totalmem() - reserved - 4 GB safety` and pick the larger.
+// Note: `reservedGB` assumes effectively single-slot KV memory usage. This
+// held true even before we pinned llama-server to `-np 1` (see buildArgs in
+// llamaServer.js) because logs showed `kv_unified = 'true'` under the old
+// n_slots=4 default too — the KV buffer is shared across slots, not
+// multiplied by slot count. So `-np 1` doesn't change this math; it only
+// fixes cache-slot-selection ambiguity, not memory footprint.
 function pickContextSize() {
   const totalGB = os.totalmem() / (1024 ** 3)
   const freeGB = os.freemem() / (1024 ** 3)
@@ -186,25 +203,33 @@ function trimGemmaHistory(messages) {
   const system = messages[0]
   const tail = messages.slice(1)
 
+  // Hysteresis gate: only trim when actually over the ceiling. Scanning here
+  // is cheap and a no-op below the ceiling, so this is safe to call every hop.
+  const systemChars = estimateMessageChars(system)
+  const totalChars = tail.reduce((n, m) => n + estimateMessageChars(m), systemChars)
+  if (tail.length <= MAX_HISTORY_MESSAGES && totalChars <= MAX_HISTORY_CHARS) return
+
   const kept = []
-  let chars = estimateMessageChars(system)
+  let chars = systemChars
   for (let i = tail.length - 1; i >= 0; i--) {
     const msg = tail[i]
     const msgChars = estimateMessageChars(msg)
     if (kept.length >= MAX_HISTORY_MESSAGES) break
-    if (kept.length > 0 && chars + msgChars > MAX_HISTORY_CHARS) break
+    // Cut back to the lower HISTORY_TARGET_CHARS floor, not just under the
+    // ceiling, so the resulting prefix is stable for several future hops.
+    if (kept.length > 0 && chars + msgChars > HISTORY_TARGET_CHARS) break
     kept.unshift(msg)
     chars += msgChars
   }
 
   while (kept.length > 0 && kept[0]?.role === 'tool') kept.shift()
 
-  // Keep one stable system prompt plus a bounded recent tail; this preserves
-  // recency while preventing unbounded prompt growth across tool loops.
   const next = [system, ...kept]
-  if (next.length < messages.length) {
-    const dropped = messages.length - next.length
-    log(`trimmed gemma history: dropped ${dropped} old message(s), kept ${next.length}`)
+  const dropped = messages.length - next.length
+  if (dropped > 0) {
+    log(
+      `trimmed gemma history: dropped ${dropped} old message(s), kept ${next.length} (cut to ${HISTORY_TARGET_CHARS} char floor so prefix stays stable for llama-server's prompt cache)`,
+    )
     messages.splice(0, messages.length, ...next)
   }
 }
@@ -333,6 +358,11 @@ async function streamGemmaChat({
         tools,
         tool_choice: 'auto',
         stream: true,
+        // Explicit belt-and-braces: llama-server defaults this to true, but
+        // we rely on it heavily now (single slot + hysteresis-trimmed
+        // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
+        // so make it non-negotiable rather than trusting the server default.
+        cache_prompt: true,
         ...samplingKnobs,
       }),
       })
