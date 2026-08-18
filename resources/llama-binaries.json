@@ -1,0 +1,19 @@
+{
+  "_comment": "Pinned llama.cpp release. Fetched by scripts/fetch-llama-binaries.js into resources/<platform>-<arch>/llama-server/ and bundled into the packaged app by forge.config.js. To bump: pick a newer tag from https://github.com/ggml-org/llama.cpp/releases, update `size` from that release's asset metadata, then re-run `node scripts/fetch-llama-binaries.js`.",
+  "tag": "b10483",
+  "baseUrl": "https://github.com/ggml-org/llama.cpp/releases/download",
+  "platforms": {
+    "darwin-arm64": {
+      "asset": "llama-b10483-bin-macos-arm64.tar.gz",
+      "size": 11083305
+    },
+    "win32-x64": {
+      "asset": "llama-b10483-bin-win-vulkan-x64.zip",
+      "size": 34820201
+    },
+    "win32-arm64": {
+      "asset": "llama-b10483-bin-win-opencl-adreno-arm64.zip",
+      "size": 12959988
+    }
+  }
+}
