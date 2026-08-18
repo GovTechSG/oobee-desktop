@@ -205,6 +205,17 @@ const ChatPage = () => {
   const stickToBottomRef = useRef(true)
   const inputRef = useRef(null)
   const streamingIndexRef = useRef(null)
+  // Live "elapsed / tok-per-sec" indicator, similar to what most local-model
+  // chat UIs show while streaming. Computed entirely client-side from chunk
+  // arrival timing — no backend changes, no dependency on llama-server
+  // exposing exact token counts over the OpenAI-compatible endpoint. Each
+  // `onLlmChatChunk` event already corresponds to one non-empty text delta
+  // (llmGemma.js only sends after its template-token filter yields non-empty
+  // output), so counting events is a reasonable proxy for "tokens generated"
+  // — labelled with a “~” in the UI since it's an approximation, not the
+  // authoritative count llama-server logs server-side.
+  const streamStatsRef = useRef({ startTime: null, tokenCount: 0 })
+  const [streamStats, setStreamStats] = useState(null) // { elapsedSec, tokenCount, tokensPerSec }
 
   const modelReady = provider !== 'gemma' || modelStatus?.downloaded === true
 
@@ -349,6 +360,14 @@ const ChatPage = () => {
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
       if (sid !== sessionId) return
+      // First chunk of the turn marks the start of actual generation (as
+      // opposed to time spent waiting for the model / running tools before
+      // the first token) — mirrors how llama-server's own tg timing starts
+      // from the first generated token, not from request start.
+      if (streamStatsRef.current.startTime === null) {
+        streamStatsRef.current.startTime = Date.now()
+      }
+      streamStatsRef.current.tokenCount += 1
       setMessages((prev) => {
         const next = [...prev]
         const idx = streamingIndexRef.current
@@ -446,6 +465,31 @@ const ChatPage = () => {
     return () => clearInterval(id)
   }, [isStreaming])
 
+  // Tick the live elapsed/tok-per-sec display every 200ms while streaming.
+  // Reads from streamStatsRef (updated synchronously in onLlmChatChunk above)
+  // rather than triggering a state update on every single chunk, which would
+  // re-render on every token — too frequent for fast local generation.
+  useEffect(() => {
+    if (!isStreaming) {
+      setStreamStats(null)
+      return
+    }
+    const id = setInterval(() => {
+      const { startTime, tokenCount } = streamStatsRef.current
+      if (startTime === null) {
+        setStreamStats(null) // still waiting for the first token
+        return
+      }
+      const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.001)
+      setStreamStats({
+        elapsedSec,
+        tokenCount,
+        tokensPerSec: tokenCount / elapsedSec,
+      })
+    }, 200)
+    return () => clearInterval(id)
+  }, [isStreaming])
+
   const handleMessagesScroll = () => {
     const el = messagesContainerRef.current
     if (!el) return
@@ -474,6 +518,8 @@ const ChatPage = () => {
     setInput('')
     setDetailsOpen(false)
     streamingIndexRef.current = null
+    streamStatsRef.current = { startTime: null, tokenCount: 0 }
+    setStreamStats(null)
     stickToBottomRef.current = true
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
@@ -1016,6 +1062,12 @@ const ChatPage = () => {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {isStreaming && streamStats && (
+        <div className="chat-stream-stats" role="status" aria-live="off">
+          {streamStats.elapsedSec.toFixed(1)}s · ~{streamStats.tokensPerSec.toFixed(1)} tok/s
+        </div>
+      )}
 
       <form
         className="chat-composer"
