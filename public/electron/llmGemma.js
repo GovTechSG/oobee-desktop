@@ -477,6 +477,15 @@ async function streamGemmaChat({
       log(
         `hop=${hop + 1} usage: prompt_tokens=${usage.prompt_tokens} completion_tokens=${usage.completion_tokens} total_tokens=${usage.total_tokens} wallClockSec=${hopElapsedSec.toFixed(1)} measuredTokPerSec=${measuredTokPerSec}`,
       )
+      // Forward to the renderer so the live indicator can show real token
+      // counts next to the processing/tok-per-sec line, instead of only
+      // being visible in the main-process console.
+      send('llmChat:usage', {
+        sessionId,
+        promptTokens: usage.prompt_tokens ?? null,
+        completionTokens: usage.completion_tokens ?? null,
+        totalTokens: usage.total_tokens ?? null,
+      })
     }
 
     // Record the assistant turn. If it made tool calls, we still need the
