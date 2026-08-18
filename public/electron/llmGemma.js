@@ -76,6 +76,26 @@ function pickContextSize() {
   return size
 }
 
+// pickContextSize() reads live free RAM, which drifts by hundreds of MB to a
+// few GB just from normal OS/Electron/browser churn over a session. Calling
+// it fresh on every ensureModel() invocation (i.e. every user message send)
+// meant an ordinary RAM-reading drift across a tier boundary (5 GB / 20 GB
+// headroom) would change the computed contextSize turn-to-turn, make
+// llamaServer.ensure()'s sameConfig() check see a "config change", and
+// forcibly restart the running server — including killing an in-flight
+// request mid-stream (Windows child_process.kill() always maps to an
+// abrupt TerminateProcess; this surfaced as `chat error: terminated` plus
+// `server exited (code=4294967295, signal=null)` in the field). The RAM
+// tier is meant to reflect the machine's RAM class once, not fluctuate
+// per turn, so cache it for the process lifetime instead of resampling.
+let cachedContextSize = null
+function resolveContextSize() {
+  if (cachedContextSize === null) {
+    cachedContextSize = pickContextSize()
+  }
+  return cachedContextSize
+}
+
 // Resolve model + mmproj paths and (re)start the llama-server subprocess
 // pointing at them. Idempotent: repeated calls for the same modelId don't
 // respawn; a different modelId does (llamaServer.ensure handles that).
@@ -97,7 +117,7 @@ async function ensureModel(modelId) {
   const { baseUrl } = await llamaServer.ensure({
     modelPath,
     mmprojPath: withMmproj ? mmprojPath : null,
-    contextSize: pickContextSize(),
+    contextSize: resolveContextSize(),
   })
   return { baseUrl, modelId }
 }
