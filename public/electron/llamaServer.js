@@ -196,6 +196,32 @@ function sameConfig(a, b) {
 // cache to halve decode bandwidth, all layers on GPU. `--jinja` is default
 // on in recent llama-server builds so the Gemma chat template baked into the
 // GGUF is used automatically.
+//
+// KV-cache / slot-reuse tuning (`-np 1`, `--cache-reuse`): llama-server
+// already has a per-slot prompt cache keyed on longest-common-prefix (LCP)
+// with whatever it last decoded — that's the "selected slot by LCP
+// similarity, f_sim_best=..." log line. It defaults to n_slots=4, which
+// exists for serving multiple concurrent conversations. This app only ever
+// runs one local Gemma conversation at a time, so multi-slot selection is
+// pure downside here: our one conversation can bounce between slots, and a
+// low f_sim_best match still "succeeds" (picks *a* slot) without actually
+// reusing our cached prefix — forcing a full prompt reprocess from token 0
+// (the long "prompt processing" phases + high CPU seen in practice).
+// `-np 1` pins everything to a single slot so the same physical KV cache is
+// always addressed — reuse becomes deterministic instead of heuristic.
+// `--cache-reuse 256` additionally lets llama-server reuse cached KV chunks
+// of >=256 tokens even when the new prompt only partially matches the
+// cached prefix (e.g. a tool result got appended) via context-shifting,
+// instead of requiring a byte-identical prefix to reuse anything.
+//
+// Memory note: this does NOT require retuning `pickContextSize()`'s RAM
+// tiers in llmGemma.js. Server logs already showed `kv_unified = 'true'`
+// even under the old n_slots=4 default, meaning the KV buffer was shared
+// across slots rather than multiplied by 4 — `n_ctx_slot` came out equal to
+// the full requested `-c` value, not divided. So the `reservedGB = 8`
+// headroom math in `pickContextSize()` was already calibrated against
+// effectively single-slot memory usage; `-np 1` mainly removes the LCP
+// slot-selection ambiguity, it isn't a meaningful memory win on its own.
 function buildArgs({ modelPath, mmprojPath, contextSize, port }) {
   const argv = [
     '-m', modelPath,
@@ -205,6 +231,8 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port }) {
     '-ctk', 'q8_0',
     '-ctv', 'q8_0',
     '-ngl', '999',
+    '-np', '1',
+    '--cache-reuse', '256',
     '--jinja',
     '--host', '127.0.0.1',
     '--port', String(port),
