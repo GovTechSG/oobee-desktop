@@ -374,6 +374,15 @@ async function streamGemmaChat({
       `hop=${hop + 1}/${MAX_TOOL_HOPS} messages=${session.gemma.messages.length} approxChars=${session.gemma.messages.reduce((n, m) => n + estimateMessageChars(m), 0)}`,
     )
 
+    // Wall-clock timing for this hop's request, paired with the server's own
+    // authoritative token counts (via stream_options.include_usage below) so
+    // we can log a measured tokens/sec per hop instead of relying only on
+    // the client-side approximation used for the live UI indicator. This is
+    // pure instrumentation — no inference/config behavior change — added to
+    // empirically test whether decode speed correlates with context depth
+    // (prompt_tokens) rather than guessing from Task Manager readings alone.
+    const hopRequestStart = Date.now()
+
     let res
     try {
       res = await fetch(`${baseUrl}/v1/chat/completions`, {
@@ -386,6 +395,12 @@ async function streamGemmaChat({
         tools,
         tool_choice: 'auto',
         stream: true,
+        // llama-server (OpenAI-compatible endpoint) supports the standard
+        // stream_options.include_usage field: the final SSE chunk gets an
+        // empty `choices` array plus a `usage` object with authoritative
+        // prompt_tokens/completion_tokens/total_tokens for this request.
+        // Diagnostic-only — does not change generation behavior.
+        stream_options: { include_usage: true },
         // Explicit belt-and-braces: llama-server defaults this to true, but
         // we rely on it heavily now (single slot + hysteresis-trimmed
         // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
@@ -412,9 +427,11 @@ async function streamGemmaChat({
     let content = '' // accumulated assistant text this hop
     const toolCalls = new Map() // index → { id, name, args }
     let finishReason = null
+    let usage = null // set from the final SSE chunk's usage field, if present
 
     try {
       for await (const chunk of readChatSSE(res)) {
+        if (chunk.usage) usage = chunk.usage
         const choice = chunk.choices?.[0]
         if (!choice) continue
         const delta = choice.delta || {}
@@ -448,6 +465,19 @@ async function streamGemmaChat({
 
     const tail = filter.flush()
     if (tail) send('llmChat:chunk', { sessionId, text: tail })
+
+    // Log the server's authoritative token counts + measured wall-clock
+    // tok/s for this hop, when available, so slowdowns can be correlated
+    // against real context depth (prompt_tokens) instead of guessed at.
+    if (usage) {
+      const hopElapsedSec = Math.max((Date.now() - hopRequestStart) / 1000, 0.001)
+      const measuredTokPerSec = usage.completion_tokens
+        ? (usage.completion_tokens / hopElapsedSec).toFixed(2)
+        : 'n/a'
+      log(
+        `hop=${hop + 1} usage: prompt_tokens=${usage.prompt_tokens} completion_tokens=${usage.completion_tokens} total_tokens=${usage.total_tokens} wallClockSec=${hopElapsedSec.toFixed(1)} measuredTokPerSec=${measuredTokPerSec}`,
+      )
+    }
 
     // Record the assistant turn. If it made tool calls, we still need the
     // assistant message that requested them so the follow-up POST is
