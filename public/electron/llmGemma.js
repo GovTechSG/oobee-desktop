@@ -370,9 +370,25 @@ async function streamGemmaChat({
     const onUserAbort = () => requestAbort.abort(new Error('aborted by user'))
     abort.signal.addEventListener('abort', onUserAbort, { once: true })
 
-    log(
-      `hop=${hop + 1}/${MAX_TOOL_HOPS} messages=${session.gemma.messages.length} approxChars=${session.gemma.messages.reduce((n, m) => n + estimateMessageChars(m), 0)}`,
-    )
+    const approxChars = session.gemma.messages.reduce((n, m) => n + estimateMessageChars(m), 0)
+    log(`hop=${hop + 1}/${MAX_TOOL_HOPS} messages=${session.gemma.messages.length} approxChars=${approxChars}`)
+
+    // Prompt processing (prefill) genuinely consumes/reads tokens before any
+    // are generated — llama-server's own console shows this as "prompt
+    // processing, n_tokens=..., progress=...". The authoritative usage
+    // object only arrives once the whole hop completes though, so without
+    // this the GUI showed nothing at all during what can be the longest
+    // part of a turn. Emit a rough estimate now (~4 chars/token, same
+    // heuristic used elsewhere for approximations) so the indicator has
+    // something during processing; it gets overwritten with the real
+    // count from the completed hop below.
+    send('llmChat:usage', {
+      sessionId,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: Math.round(approxChars / 4),
+      isEstimate: true,
+    })
 
     // Wall-clock timing for this hop's request, paired with the server's own
     // authoritative token counts (via stream_options.include_usage below) so
@@ -479,12 +495,15 @@ async function streamGemmaChat({
       )
       // Forward to the renderer so the live indicator can show real token
       // counts next to the processing/tok-per-sec line, instead of only
-      // being visible in the main-process console.
+      // being visible in the main-process console. isEstimate:false marks
+      // this as authoritative, overwriting the rough pre-request estimate
+      // sent at the top of this hop.
       send('llmChat:usage', {
         sessionId,
         promptTokens: usage.prompt_tokens ?? null,
         completionTokens: usage.completion_tokens ?? null,
         totalTokens: usage.total_tokens ?? null,
+        isEstimate: false,
       })
     }
 

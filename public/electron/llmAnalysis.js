@@ -1027,6 +1027,27 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
   const { cfg, systemPrompt, messages } = session
   const abort = new AbortController()
   session.abort = abort
+  const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
+
+  // Prompt processing consumes tokens before any are generated, and the
+  // authoritative usage (from message_start/message_delta below) only
+  // arrives once Anthropic starts streaming back. Emit a rough estimate now
+  // — same rationale as the Gemma path in llmGemma.js — so the live GUI
+  // indicator shows something during that wait instead of nothing.
+  try {
+    const approxChars = JSON.stringify(messages).length + systemPrompt.length
+    send('llmChat:usage', {
+      sessionId,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: Math.round(approxChars / 4),
+      isEstimate: true,
+    })
+  } catch (_) {
+    // best-effort — skip the estimate if messages aren't serializable for
+    // some reason (e.g. a circular ref); the authoritative usage still
+    // arrives normally once streaming starts.
+  }
 
   const body = {
     model: cfg.model,
@@ -1073,7 +1094,6 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
 
   const blocks = [] // accumulated content blocks for the assistant message
   let stopReason = null
-  const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
   // Anthropic reports usage across two events: message_start carries the
   // initial input_tokens, message_delta carries a running output_tokens
   // count. Captured so we can forward the same llmChat:usage event the
@@ -1174,6 +1194,7 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
       promptTokens: inputTokens,
       completionTokens: outputTokens,
       totalTokens: (inputTokens || 0) + (outputTokens || 0),
+      isEstimate: false,
     })
   }
 
