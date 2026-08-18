@@ -214,7 +214,15 @@ const ChatPage = () => {
   // output), so counting events is a reasonable proxy for "tokens generated"
   // — labelled with a “~” in the UI since it's an approximation, not the
   // authoritative count llama-server logs server-side.
-  const streamStatsRef = useRef({ startTime: null, tokenCount: 0 })
+  //
+  // `requestStartTime` marks when the user hit send — covers prompt
+  // processing / prefill and tool-call execution too (the phases that can
+  // take minutes on their own, per the long "prompt processing" runs seen in
+  // llama-server logs), not just the token-streaming phase. `startTime` marks
+  // the first generated token specifically, used only for the tok/s rate so
+  // that number isn't diluted by prefill/tool time — mirrors how
+  // llama-server's own `tg` timing starts from the first generated token.
+  const streamStatsRef = useRef({ requestStartTime: null, startTime: null, tokenCount: 0 })
   const [streamStats, setStreamStats] = useState(null) // { elapsedSec, tokenCount, tokensPerSec }
 
   const modelReady = provider !== 'gemma' || modelStatus?.downloaded === true
@@ -469,22 +477,34 @@ const ChatPage = () => {
   // Reads from streamStatsRef (updated synchronously in onLlmChatChunk above)
   // rather than triggering a state update on every single chunk, which would
   // re-render on every token — too frequent for fast local generation.
+  //
+  // Shows total elapsed (from send) throughout the whole turn, including
+  // prompt processing / prefill and tool-call execution — phases that were
+  // previously invisible here (the indicator only appeared once tokens
+  // started arriving), which is exactly when a slow prefill looks frozen.
+  // tok/s only appears once the first token has actually arrived.
   useEffect(() => {
     if (!isStreaming) {
       setStreamStats(null)
       return
     }
     const id = setInterval(() => {
-      const { startTime, tokenCount } = streamStatsRef.current
-      if (startTime === null) {
-        setStreamStats(null) // still waiting for the first token
+      const { requestStartTime, startTime, tokenCount } = streamStatsRef.current
+      if (requestStartTime === null) {
+        setStreamStats(null)
         return
       }
-      const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.001)
+      const totalElapsedSec = Math.max((Date.now() - requestStartTime) / 1000, 0.001)
+      if (startTime === null) {
+        // Still waiting for the first token (prompt processing / tool calls).
+        setStreamStats({ elapsedSec: totalElapsedSec, tokenCount: 0, tokensPerSec: null })
+        return
+      }
+      const genElapsedSec = Math.max((Date.now() - startTime) / 1000, 0.001)
       setStreamStats({
-        elapsedSec,
+        elapsedSec: totalElapsedSec,
         tokenCount,
-        tokensPerSec: tokenCount / elapsedSec,
+        tokensPerSec: tokenCount / genElapsedSec,
       })
     }, 200)
     return () => clearInterval(id)
@@ -518,8 +538,8 @@ const ChatPage = () => {
     setInput('')
     setDetailsOpen(false)
     streamingIndexRef.current = null
-    streamStatsRef.current = { startTime: null, tokenCount: 0 }
-    setStreamStats(null)
+    streamStatsRef.current = { requestStartTime: Date.now(), startTime: null, tokenCount: 0 }
+    setStreamStats({ elapsedSec: 0, tokenCount: 0, tokensPerSec: null })
     stickToBottomRef.current = true
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
@@ -1065,7 +1085,9 @@ const ChatPage = () => {
 
       {isStreaming && streamStats && (
         <div className="chat-stream-stats" role="status" aria-live="off">
-          {streamStats.elapsedSec.toFixed(1)}s · ~{streamStats.tokensPerSec.toFixed(1)} tok/s
+          {streamStats.tokensPerSec === null
+            ? `${streamStats.elapsedSec.toFixed(1)}s · processing…`
+            : `${streamStats.elapsedSec.toFixed(1)}s · ~${streamStats.tokensPerSec.toFixed(1)} tok/s`}
         </div>
       )}
 
