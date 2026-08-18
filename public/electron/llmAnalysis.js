@@ -357,7 +357,13 @@ function attrFilterMatches(value, filter) {
 }
 
 function elementMatchesLeaf(el, leaf, attrCache) {
-  if (leaf.tag && leaf.tag !== '*' && el.tag !== leaf.tag) return false
+  // Tag comparison must be case-insensitive: parseSimpleSelector() lowercases
+  // the selector's tag (e.g. "img"), but browser DOM `tagName` for HTML
+  // elements is uppercase ("IMG") — if the capture stores the raw tagName,
+  // a naive `el.tag !== leaf.tag` compare silently returns zero matches for
+  // every tag-qualified selector (`img[border="0"]`, `div.foo`, etc.),
+  // regardless of how many times the caller retries with the same selector.
+  if (leaf.tag && leaf.tag !== '*' && String(el.tag || '').toLowerCase() !== leaf.tag) return false
   if (leaf.id && el.id !== leaf.id) return false
   if (leaf.classes.length > 0) {
     if (!Array.isArray(el.classes)) return false
@@ -858,7 +864,7 @@ function runTool(session, name, input) {
         }
         const tagSample = leaf.tag && leaf.tag !== '*'
           ? elements
-              .filter((e) => e.tag === leaf.tag)
+              .filter((e) => String(e.tag || '').toLowerCase() === leaf.tag)
               .slice(0, 10)
               .map((e) => ({ selector: e.selector, outerHtmlPrefix: e.outerHtmlPrefix }))
           : []
