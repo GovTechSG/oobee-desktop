@@ -1,91 +1,39 @@
-// Local-model chat backend using node-llama-cpp with Google's Gemma 4 family
-// (E4B and 12B, both official QAT Q4_0 GGUFs from Google's own HuggingFace
-// repos — see llmModelManager.js for the exact repo/filenames). Mirrors the
-// streaming surface of the Anthropic path in llmAnalysis.js — the same tools
-// are exposed via `defineChatSessionFunction`, and the same IPC events
-// (`llmChat:chunk`, `llmChat:toolCall`, `llmChat:attachment`) fire so the
-// renderer stays provider-agnostic.
+// Local-model chat backend. Talks OpenAI-compatible HTTP to a bundled
+// `llama-server` subprocess (see llamaServer.js), which runs Google's Gemma 4
+// QAT Q4_0 GGUFs with mmproj vision. Mirrors the streaming surface of the
+// Anthropic path in llmAnalysis.js — the same IPC events (`llmChat:chunk`,
+// `llmChat:toolCall`, `llmChat:attachment`) fire so the renderer stays
+// provider-agnostic.
 //
-// node-llama-cpp v3 is ESM-only with top-level await; we `await import()` it
-// lazily to keep this a CommonJS module and to avoid loading the multi-GB
-// weights (or paying process startup cost) unless the user actually picks
-// Gemma.
+// History note: this module used to embed node-llama-cpp in-process. It was
+// replaced by a `llama-server` subprocess so (a) Windows-on-ARM64 gets real
+// GPU acceleration via the Adreno OpenCL backend that node-llama-cpp doesn't
+// ship, and (b) all platforms get real screenshot vision via `--mmproj`,
+// which node-llama-cpp v3 doesn't expose.
 
 const os = require('os')
 const path = require('path')
 const fs = require('fs-extra')
-const { getModelPath } = require('./llmModelManager')
+const { getModelPath, getMmprojPath } = require('./llmModelManager')
+const llamaServer = require('./llamaServer')
 
 const log = (...args) => console.log('[llmGemma]', ...args)
 const warn = (...args) => console.warn('[llmGemma]', ...args)
 
-let llamaSingleton = null
-// Keyed on the resolved GGUF path so switching between E4B and 12B disposes
-// the previous weights before loading the new ones — never hold two ~7 GB
-// models in RAM at once.
-let modelSingleton = null // { model, path, modelId }
-
-async function getLlamaModule() {
-  return await import('node-llama-cpp')
-}
-
-async function ensureModel(modelId) {
-  if (!modelId) throw new Error('ensureModel requires a modelId')
-  const modelPath = getModelPath(modelId)
-  if (!(await fs.pathExists(modelPath))) {
-    throw new Error(`Gemma model "${modelId}" not downloaded. Open the LLM Analysis page and download it first.`)
-  }
-  if (modelSingleton && modelSingleton.path === modelPath) return modelSingleton.model
-
-  // Different model requested — dispose the previous one before loading. Not
-  // doing this leaves both ~7 GB weight sets mapped and OOMs 16 GB machines.
-  if (modelSingleton) {
-    log(`unloading previous model (${modelSingleton.modelId}) before loading ${modelId}`)
-    try {
-      modelSingleton.model?.dispose?.()
-    } catch (e) {
-      warn(`dispose previous model failed: ${e.message}`)
-    }
-    modelSingleton = null
-  }
-
-  const { getLlama } = await getLlamaModule()
-  if (!llamaSingleton) {
-    log('initialising llama.cpp runtime')
-    llamaSingleton = await getLlama()
-  }
-  log(`loading model ${modelId} from ${modelPath}`)
-  const model = await llamaSingleton.loadModel({ modelPath })
-  modelSingleton = { model, path: modelPath, modelId }
-  return model
-}
-
-// Pick a context window that fits in the RAM headroom this machine actually
-// has. Gemma 4 E4B advertises 128 K, but a naive 128 K KV cache at f16 across
-// 34 layers is ~1 GB per 8 K tokens — plenty enough to OOM on a laptop still
-// holding a 5 GB model in RAM. We reserve ~7 GB (5 GB weights + 2 GB working)
-// then map the remainder to a small set of tiers.
-//
-// Gemma 4 uses hybrid attention: most layers have a 512-token sliding window,
-// only a few are global. Effective per-token KV cost is well below the naive
-// estimate, so these tiers are conservative on the safe side.
-// Baseline: 5.1 GB weights + ~2 GB llama.cpp/Electron working set = 7 GB. On
-// macOS `freemem()` is unreliably low because inactive memory shows as "used" —
-// so we fall back to `totalmem() - reserved - 4 GB safety` if freemem looks
-// pessimistic, and pick the larger of the two estimates.
+// Context window sizing — same tiered heuristic we used with node-llama-cpp,
+// because the RAM math is the same underneath. Gemma 4's hybrid attention
+// (mostly sliding-window 512, a few global layers) keeps the effective KV
+// cost well below the naive f16-across-all-layers estimate, so these tiers
+// are conservative on the safe side. Baseline: ~5–7 GB weights + ~1 GB mmproj
+// + ~2 GB llama-server/Electron working set = ~10 GB. On macOS `freemem()`
+// under-reports because inactive memory shows as "used"; fall back to
+// `totalmem() - reserved - 4 GB safety` and pick the larger.
 function pickContextSize() {
   const totalGB = os.totalmem() / (1024 ** 3)
   const freeGB = os.freemem() / (1024 ** 3)
-  const reservedGB = 7
+  const reservedGB = 8 // weights + mmproj + working set
   const headroomGB = Math.max(freeGB - reservedGB, totalGB - reservedGB - 4)
 
-  // Real global-attention KV cost is O(n²) on generated tokens, so we don't
-  // over-provision — 32 K covers the app's actual usage (system prompt + a few
-  // tool round-trips is <15 K) and stays fast on typical laptops.
-  //   headroom ≈ 21 GB (32 GB machine)  → 65 K
-  //   headroom ≈  5 GB (16 GB machine)  → 32 K
-  //   headroom ≈  1 GB (12 GB machine)  → 16 K
-  //   headroom ≤  0 GB (8 GB device — swapping likely) → 8 K
   let size
   if (headroomGB >= 20) size = 65536
   else if (headroomGB >= 5) size = 32768
@@ -97,77 +45,46 @@ function pickContextSize() {
   )
   if (totalGB < 10) {
     warn(
-      `total RAM is only ${totalGB.toFixed(1)}GB — the 5 GB Gemma weights plus Electron will likely swap. Consider using the Anthropic Claude provider instead.`,
+      `total RAM is only ${totalGB.toFixed(1)}GB — Gemma weights plus Electron will likely swap. Consider using the Anthropic Claude provider instead.`,
     )
   }
   return size
 }
 
-async function ensureChatSession(session) {
-  if (session.gemma?.chat) return session.gemma
-
-  const modelId = session.modelId || 'gemma-e4b'
-  const model = await ensureModel(modelId)
-  const { LlamaChatSession, Gemma4ChatWrapper } = await getLlamaModule()
-  // Perf tuning for Apple Silicon Metal (also safe/neutral on Windows/Linux):
-  //   batchSize=2048 – default is 512. Prefill of our long system prompt
-  //     (5 KB template + findings index + tool schemas) is what makes the
-  //     model feel unresponsive before the first token streams. Bigger
-  //     micro-batches give Metal enough parallelism to chew through it.
-  //   flashAttention=true – node-llama-cpp defaults to "auto" which usually
-  //     enables it on Metal; explicit true is a no-op there but locks the
-  //     memory-efficient path in.
-  //   KV cache K/V as q8_0 – halves the KV memory bandwidth during decode.
-  //     Well-vetted quality-wise; the `experimental` prefix is API-stability,
-  //     not accuracy. Bigger effect at longer contexts (our tool-loop chats).
-  const context = await model.createContext({
+// Resolve model + mmproj paths and (re)start the llama-server subprocess
+// pointing at them. Idempotent: repeated calls for the same modelId don't
+// respawn; a different modelId does (llamaServer.ensure handles that).
+async function ensureModel(modelId) {
+  if (!modelId) throw new Error('ensureModel requires a modelId')
+  const modelPath = getModelPath(modelId)
+  if (!(await fs.pathExists(modelPath))) {
+    throw new Error(
+      `Gemma model "${modelId}" not downloaded. Open the LLM Analysis page and download it first.`,
+    )
+  }
+  const mmprojPath = getMmprojPath(modelId)
+  const withMmproj = await fs.pathExists(mmprojPath)
+  if (!withMmproj) {
+    warn(
+      `mmproj file missing for ${modelId} (${mmprojPath}) — running text-only. Re-download the model to enable image analysis.`,
+    )
+  }
+  const { baseUrl } = await llamaServer.ensure({
+    modelPath,
+    mmprojPath: withMmproj ? mmprojPath : null,
     contextSize: pickContextSize(),
-    batchSize: 2048,
-    flashAttention: true,
-    experimentalKvCacheKeyType: 'q8_0',
-    experimentalKvCacheValueType: 'q8_0',
   })
-  const seq = context.getSequence()
-  // Force Gemma4ChatWrapper rather than letting resolveChatWrapper auto-pick.
-  // Even on Google's official QAT GGUFs (where the token-type metadata is
-  // correct), we still want an explicit wrapper so the tool-call scaffolding
-  // — `<|tool>declaration:` system-message injection and `<|tool_call>call:`
-  // grammar — is guaranteed. Auto-resolution can silently fall back to
-  // JinjaTemplateChatWrapper (no function-call scaffolding at all) if the
-  // baked-in Jinja doesn't compare byte-identical to Gemma4ChatWrapper's.
-  // Historical note: with unsloth's Q4_K_XL build, load-time also emitted
-  // `'<|tool_response>' was not control-type` warnings — those should be
-  // gone on Google's builds, but keep the explicit wrapper regardless.
-  const chat = new LlamaChatSession({
-    contextSequence: seq,
-    systemPrompt: session.systemPrompt,
-    chatWrapper: new Gemma4ChatWrapper(),
-  })
-  log(`chat wrapper: ${chat.chatWrapper?.constructor?.name || 'unknown'}`)
-  session.gemma = { chat, context }
-  return session.gemma
+  return { baseUrl, modelId }
 }
 
-// Gemma 4's chat template uses channel delimiters (`<channel|>reasoning`,
-// `<channel|>final`, plus `<|tool_response>` / `</s>` etc.) to bracket
-// thinking-mode reasoning and structured segments. node-llama-cpp normally
-// consumes these via the Jinja template baked into the GGUF. Historically
-// unsloth's Q4_K_XL build mis-classified some control tokens, letting a few
-// leak into the visible chunk stream as `<channel|>`, `<|message|>`, etc.
-// On Google's official Q4_0 QAT builds these tokens should be classified
-// correctly and never appear in the stream — but we keep this defensive
-// filter in place as insurance across future model swaps and llama.cpp
-// updates.
-//
-// Strip them with a small stateful filter: keep an unbounded tail buffer of
-// the *shortest string that could still be the start of a template token*
-// (a run of `<` `|` `/` letters etc.), flush the rest immediately, and drop
-// any full token that matches. This avoids cutting through a token when it
-// straddles two chunks.
+// Historical defensive filter: Gemma's chat template uses channel delimiters
+// (`<channel|>reasoning`, `<|tool_response>`, etc.) that llama-server should
+// consume server-side with `--jinja`. If any leak through we strip them here.
+// Kept across the node-llama-cpp → llama-server migration as belt-and-braces.
 const GEMMA_TEMPLATE_TOKEN_RE = new RegExp(
   [
-    '<channel\\|>[a-zA-Z_]*',      // <channel|>final, <channel|>reasoning, …
-    '<\\|channel\\|>[a-zA-Z_]*',   // Harmony-style variant just in case
+    '<channel\\|>[a-zA-Z_]*',
+    '<\\|channel\\|>[a-zA-Z_]*',
     '<\\|message\\|>',
     '<\\|start\\|>',
     '<\\|end\\|>',
@@ -182,8 +99,6 @@ const GEMMA_TEMPLATE_TOKEN_RE = new RegExp(
   ].join('|'),
   'g',
 )
-// Any suffix ending mid-token — we hold back this much and re-inspect on the
-// next chunk. Bounded to 32 chars to keep the buffer small.
 const GEMMA_TEMPLATE_PARTIAL_RE = /<[^>]{0,31}$/
 function createTemplateTokenFilter() {
   let carry = ''
@@ -207,19 +122,61 @@ function createTemplateTokenFilter() {
   }
 }
 
-// Convert an Anthropic-style tool_use JSON Schema to the subset that
-// node-llama-cpp's GBNF grammar builder accepts. The schemas in llmPrompts.js
-// are simple enough — no $refs, no oneOf, no format constraints — so they pass
-// through directly. Guard against Anthropic-only tweaks anyway.
-function sanitiseSchema(schema) {
-  if (!schema || typeof schema !== 'object') return { type: 'object', properties: {} }
-  const out = { type: 'object', properties: {}, required: schema.required || undefined }
-  for (const [k, v] of Object.entries(schema.properties || {})) {
-    const prop = { ...v }
-    if (prop.default !== undefined) delete prop.default // GBNF ignores defaults
-    out.properties[k] = prop
+// Convert the shared tool schemas (Anthropic shape) into OpenAI `tools[]`.
+function toOpenAITools(toolSchemas) {
+  return toolSchemas.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema || { type: 'object', properties: {} },
+    },
+  }))
+}
+
+// Build the user message content array. Text-only when there are no image
+// attachments; a content array with image_url parts when there are. Data URIs
+// are passed verbatim — llama-server accepts `data:image/*;base64,…` for
+// mmproj-backed models.
+function buildUserContent(userMessage, attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return userMessage
+  const parts = []
+  for (const att of attachments) {
+    const url = `data:${att.mediaType};base64,${att.base64}`
+    parts.push({ type: 'image_url', image_url: { url } })
   }
-  return out
+  parts.push({ type: 'text', text: userMessage })
+  return parts
+}
+
+// SSE parser for /v1/chat/completions?stream=true. Yields parsed JSON delta
+// objects (the payload after `data: `), stopping at `data: [DONE]`.
+async function* readChatSSE(response) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buf = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    // Events are separated by a blank line; each event has one or more `data:` lines.
+    let sep
+    while ((sep = buf.indexOf('\n\n')) !== -1) {
+      const block = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of block.split('\n')) {
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '[DONE]') return
+        if (!payload) continue
+        try {
+          yield JSON.parse(payload)
+        } catch (e) {
+          warn(`SSE parse error: ${e.message} — payload=${payload.slice(0, 200)}`)
+        }
+      }
+    }
+  }
 }
 
 async function streamGemmaChat({
@@ -231,189 +188,245 @@ async function streamGemmaChat({
   runTool,
   toolSchemas,
 }) {
-  const { chat } = await ensureChatSession(session)
-  const { defineChatSessionFunction } = await getLlamaModule()
-
   const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
 
-  // node-llama-cpp v3 is text-only. Verified against the current API surface:
-  //   - LlamaModelOptions has no `mmproj` / `projectorPath` field
-  //     (https://node-llama-cpp.withcat.ai/api/type-aliases/LlamaModelOptions)
-  //   - chat.prompt() takes a string, no image parameter
-  //   - The library exposes no `llama-server` spawn helper either — running
-  //     llama.cpp's multimodal server as a sidecar would be entirely our own
-  //     child_process + HTTP client, plus a per-platform binary + ~992 MB
-  //     mmproj file to bundle or download.
-  //
-  // Native vision is tracked upstream as https://github.com/withcatai/node-llama-cpp/issues/88
-  // (targeted for v4.0.0, "In Progress", blocked on upstream libmtmd stabilising
-  // in llama.cpp). Once v4 lands with an mmproj loader we can pass the image
-  // directly here; until then, Anthropic Claude is the provider that can
-  // actually see attachments — Gemma only gets the metadata note below.
-  //
-  // Alternatives considered and rejected for now:
-  //   - Tesseract.js OCR: local, cheap, but text-only extraction (misses
-  //     colour / layout / icon-only issues) and adds a ~10 MB WASM dep for a
-  //     partial win.
-  //   - External llama-server sidecar with mmproj: real vision, but multi-
-  //     hundred-line packaging work per platform plus ~1 GB download; not
-  //     justified when v4 will supersede it.
-  let promptText = userMessage
-  if (Array.isArray(attachments) && attachments.length > 0) {
-    const notes = attachments
-      .map((a, i) => {
-        const bits = []
-        if (typeof a.occurrenceIndex === 'number') bits.push(`occurrence #${a.occurrenceIndex + 1}`)
-        if (a.pageTitle) bits.push(`page "${a.pageTitle}"`)
-        if (a.url) bits.push(a.url)
-        if (a.xpath) bits.push(`xpath ${a.xpath}`)
-        return `- Screenshot ${i + 1}: ${bits.join(', ') || 'unlabeled'}`
-      })
-      .join('\n')
-    promptText =
-      `${userMessage}\n\n---\n[Note: the user attached ${attachments.length} screenshot(s), but this local model runner is text-only and cannot view them. Reason from the HTML, xpath, and message provided. If you need visual context (colour contrast, layout, focus order), call get_page_screenshot which delivers the image to the user separately.]\n${notes}`
+  // First send: spin up (or reuse) the server, seed conversation state.
+  const { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b')
+  if (!session.gemma) {
+    session.gemma = { messages: [{ role: 'system', content: session.systemPrompt }] }
   }
 
-  // Build the function table. Each handler dispatches into the shared
-  // `runTool` implementation from llmAnalysis.js, then converts the result to
-  // a string (or emits attachments to the UI + returns just the JSON payload).
-  const functions = {}
-  for (const t of toolSchemas) {
-    const params = sanitiseSchema(t.input_schema)
-    functions[t.name] = defineChatSessionFunction({
-      description: t.description,
-      params,
-      handler: async (args) => {
-        const id = `gemma-${t.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        send('llmChat:toolCall', { sessionId, id, name: t.name, status: 'start' })
-        send('llmChat:toolCall', { sessionId, id, name: t.name, status: 'ready', input: args })
-        let result
-        try {
-          result = runTool(session, t.name, args || {})
-        } catch (e) {
-          send('llmChat:toolCall', {
-            sessionId,
-            id,
-            name: t.name,
-            status: 'error',
-            summary: e.message,
-          })
-          return JSON.stringify({ error: e.message })
-        }
-
-        // Full-page screenshot marker: Gemma can't consume base64 image blocks
-        // inside a function-call return, so we forward the image to the UI
-        // only and give the model a text pointer.
-        if (result && result.__imageContent) {
-          send('llmChat:toolCall', {
-            sessionId,
-            id,
-            name: t.name,
-            status: 'done',
-            summary: `screenshot: ${result.pageUrl} (${result.viewport})`,
-          })
-          return JSON.stringify({
-            pageUrl: result.pageUrl,
-            viewport: result.viewport,
-            note: 'Screenshot delivered to the user; describe the page or ask a follow-up.',
-          })
-        }
-
-        // Element-screenshot marker: attachments go to the UI, text payload to
-        // the model.
-        if (result && Array.isArray(result.__attachments)) {
-          for (const att of result.__attachments) {
-            send('llmChat:attachment', {
-              sessionId,
-              toolCallId: id,
-              occurrenceIndex: att.occurrenceIndex,
-              url: att.url,
-              pageTitle: att.pageTitle,
-              xpath: att.xpath,
-              dataUri: `data:${att.mediaType};base64,${att.base64}`,
-            })
-          }
-          send('llmChat:toolCall', {
-            sessionId,
-            id,
-            name: t.name,
-            status: 'done',
-            summary: `${result.__attachments.length} screenshot(s) attached`,
-          })
-          const payload = JSON.stringify(result.payload)
-          return payload.length > 40_000 ? payload.slice(0, 40_000) + '\n…[truncated]' : payload
-        }
-
-        const text = typeof result === 'string' ? result : JSON.stringify(result)
-        send('llmChat:toolCall', {
-          sessionId,
-          id,
-          name: t.name,
-          status: 'done',
-          summary: `${t.name} returned ${text.length} bytes`,
-        })
-        return text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text
-      },
-    })
-  }
+  session.gemma.messages.push({ role: 'user', content: buildUserContent(userMessage, attachments) })
 
   const abort = new AbortController()
   session.abort = abort
+
+  const tools = toOpenAITools(toolSchemas)
+  const toolByName = new Map(toolSchemas.map((t) => [t.name, t]))
+
+  // Gemma 4's model-card defaults (temp=1.0, topP=0.95, topK=64) are tuned for
+  // creative generation. This task is analytical — cite the exact WCAG SC,
+  // quote actual class names — so we tighten to reduce fabrication:
+  //   temperature 1.0 → 0.7  (still permits option enumeration; less drift)
+  //   top_p       0.95 → 0.9 (trims low-probability token tail)
+  //   top_k         64 → 40  (narrows candidate set)
+  const samplingKnobs = {
+    temperature: 0.7,
+    top_p: 0.9,
+    top_k: 40,
+    max_tokens: 4000,
+  }
+
+  // OpenAI-style tool loop. Each iteration streams tokens for the current
+  // assistant turn; if the server signals `finish_reason: 'tool_calls'` we
+  // run the tools, append their results, and loop. Terminate on `stop`
+  // (natural end) or `length` (hit max_tokens).
+  //
+  // The loop cap is a belt: pathological prompt/tool combinations shouldn't
+  // hang the UI indefinitely.
+  const MAX_TOOL_HOPS = 8
   const filter = createTemplateTokenFilter()
 
-  // Gemma 4's model-card defaults (temp=1.0, topP=0.95, topK=64) are tuned
-  // for creative generation. This task is analytical: pick the right tool,
-  // cite the exact WCAG SC, quote the actual class names from the ancestor
-  // HTML. High temperature encourages exactly the failure modes we saw
-  // (fabricated Tailwind classes, wrong spacing math, anchoring on visual
-  // size instead of the SC minimum). Tighten:
-  //   temperature 1.0 → 0.7  (still permits option enumeration; less drift)
-  //   topP        0.95 → 0.9 (trims low-probability token tail)
-  //   topK          64 → 40  (node-llama-cpp default; narrows candidate set)
-  // Grammar-constrained function calls remain valid regardless — this only
-  // affects natural-language content and argument selection.
-  try {
-    await chat.prompt(promptText, {
-      functions,
+  for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
       signal: abort.signal,
-      temperature: 0.7,
-      topP: 0.9,
-      topK: 40,
-      maxTokens: 4000,
-      onTextChunk: (text) => {
-        const cleaned = filter.push(text)
-        if (cleaned) send('llmChat:chunk', { sessionId, text: cleaned })
-      },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: session.modelId || 'gemma-e4b',
+        messages: session.gemma.messages,
+        tools,
+        tool_choice: 'auto',
+        stream: true,
+        ...samplingKnobs,
+      }),
     })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
+    }
+
+    let content = '' // accumulated assistant text this hop
+    const toolCalls = new Map() // index → { id, name, args }
+    let finishReason = null
+
+    try {
+      for await (const chunk of readChatSSE(res)) {
+        const choice = chunk.choices?.[0]
+        if (!choice) continue
+        const delta = choice.delta || {}
+        if (typeof delta.content === 'string' && delta.content.length) {
+          content += delta.content
+          const cleaned = filter.push(delta.content)
+          if (cleaned) send('llmChat:chunk', { sessionId, text: cleaned })
+        }
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0
+            let acc = toolCalls.get(idx)
+            if (!acc) {
+              acc = { id: tc.id || `tc-${Date.now()}-${idx}`, name: '', args: '' }
+              toolCalls.set(idx, acc)
+            }
+            if (tc.id) acc.id = tc.id
+            if (tc.function?.name) acc.name = tc.function.name
+            if (typeof tc.function?.arguments === 'string') acc.args += tc.function.arguments
+          }
+        }
+        if (choice.finish_reason) finishReason = choice.finish_reason
+      }
+    } catch (e) {
+      if (abort.signal.aborted) {
+        log(`session ${sessionId} aborted mid-response`)
+        return
+      }
+      throw e
+    }
+
     const tail = filter.flush()
     if (tail) send('llmChat:chunk', { sessionId, text: tail })
-  } catch (e) {
-    if (abort.signal.aborted) {
-      log(`session ${sessionId} aborted mid-response`)
-      return
+
+    // Record the assistant turn. If it made tool calls, we still need the
+    // assistant message that requested them so the follow-up POST is
+    // conversation-consistent.
+    if (toolCalls.size > 0) {
+      const calls = Array.from(toolCalls.values()).map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: c.args || '{}' },
+      }))
+      session.gemma.messages.push({
+        role: 'assistant',
+        content: content || null,
+        tool_calls: calls,
+      })
+
+      // Dispatch each tool call. Same IPC events as before so the renderer
+      // shows the same tool-call chip lifecycle.
+      for (const call of calls) {
+        let args = {}
+        try {
+          args = call.function.arguments ? JSON.parse(call.function.arguments) : {}
+        } catch (e) {
+          warn(`tool ${call.function.name} sent invalid JSON args: ${call.function.arguments}`)
+        }
+        const toolResult = await runToolCall({
+          session,
+          sessionId,
+          toolByName,
+          runTool,
+          call,
+          args,
+          send,
+        })
+        session.gemma.messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: toolResult,
+        })
+      }
+      continue // let the model consume the tool results
     }
-    throw e
+
+    // No tool call — this is the final assistant turn.
+    if (content) {
+      session.gemma.messages.push({ role: 'assistant', content })
+    }
+    if (finishReason && finishReason !== 'stop' && finishReason !== 'length') {
+      warn(`unexpected finish_reason: ${finishReason}`)
+    }
+    return
   }
+
+  warn(`hit MAX_TOOL_HOPS=${MAX_TOOL_HOPS} — bailing to avoid an infinite tool loop`)
+}
+
+// Execute a single tool call and return the string that goes back to the
+// model. Emits `llmChat:toolCall` / `llmChat:attachment` events so the
+// renderer sees the same lifecycle as the Anthropic path.
+async function runToolCall({ session, sessionId, toolByName, runTool, call, args, send }) {
+  const name = call.function.name
+  const id = call.id
+  const known = toolByName.get(name)
+  if (!known) {
+    send('llmChat:toolCall', { sessionId, id, name, status: 'error', summary: 'unknown tool' })
+    return JSON.stringify({ error: `unknown tool: ${name}` })
+  }
+
+  send('llmChat:toolCall', { sessionId, id, name, status: 'start' })
+  send('llmChat:toolCall', { sessionId, id, name, status: 'ready', input: args })
+
+  let result
+  try {
+    result = runTool(session, name, args)
+  } catch (e) {
+    send('llmChat:toolCall', { sessionId, id, name, status: 'error', summary: e.message })
+    return JSON.stringify({ error: e.message })
+  }
+
+  // Full-page screenshot marker. OpenAI tool responses are string-content only,
+  // so we can't hand the image back to the model via the tool result — forward
+  // it to the UI and give the model a text pointer instead. (User-attached
+  // screenshots on the *outgoing* user message still get real vision via
+  // image_url content parts — see buildUserContent above.)
+  if (result && result.__imageContent) {
+    send('llmChat:toolCall', {
+      sessionId,
+      id,
+      name,
+      status: 'done',
+      summary: `screenshot: ${result.pageUrl} (${result.viewport})`,
+    })
+    return JSON.stringify({
+      pageUrl: result.pageUrl,
+      viewport: result.viewport,
+      note: 'Screenshot delivered to the user; describe the page or ask a follow-up.',
+    })
+  }
+
+  // Element-screenshot marker: attachments go to the UI, JSON payload to the
+  // model. Same size cap as before (40 KB) to keep the context window from
+  // filling up on findings-index dumps.
+  if (result && Array.isArray(result.__attachments)) {
+    for (const att of result.__attachments) {
+      send('llmChat:attachment', {
+        sessionId,
+        toolCallId: id,
+        occurrenceIndex: att.occurrenceIndex,
+        url: att.url,
+        pageTitle: att.pageTitle,
+        xpath: att.xpath,
+        dataUri: `data:${att.mediaType};base64,${att.base64}`,
+      })
+    }
+    send('llmChat:toolCall', {
+      sessionId,
+      id,
+      name,
+      status: 'done',
+      summary: `${result.__attachments.length} screenshot(s) attached`,
+    })
+    const payload = JSON.stringify(result.payload)
+    return payload.length > 40_000 ? payload.slice(0, 40_000) + '\n…[truncated]' : payload
+  }
+
+  const text = typeof result === 'string' ? result : JSON.stringify(result)
+  send('llmChat:toolCall', {
+    sessionId,
+    id,
+    name,
+    status: 'done',
+    summary: `${name} returned ${text.length} bytes`,
+  })
+  return text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text
 }
 
 function unloadModel() {
-  if (modelSingleton?.model?.dispose) {
-    try {
-      modelSingleton.model.dispose()
-    } catch (e) {
-      warn(`dispose model failed: ${e.message}`)
-    }
-  }
-  modelSingleton = null
+  return llamaServer.stop()
 }
 
 function disposeSession(session) {
   if (!session?.gemma) return
-  try {
-    session.gemma.context?.dispose?.()
-  } catch (e) {
-    warn(`dispose context failed: ${e.message}`)
-  }
   session.gemma = null
 }
 

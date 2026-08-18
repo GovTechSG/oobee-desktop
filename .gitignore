@@ -142,3 +142,12 @@ dist
 
 # WCAG RAG index (large binary vector store, generated artifact)
 /public/electron/wcag-index/
+
+# llama-server binaries (fetched at build time from llama.cpp releases —
+# see resources/llama-binaries.json for the pinned tag).
+/resources/darwin-arm64/
+/resources/darwin-x64/
+/resources/win32-x64/
+/resources/win32-arm64/
+/resources/linux-x64/
+/resources/linux-arm64/
