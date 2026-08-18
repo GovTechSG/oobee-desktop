@@ -454,9 +454,9 @@ const ChatPage = () => {
       setIsStreaming(false)
     })
 
-    window.services.onLlmChatUsage(({ sessionId: sid, promptTokens, completionTokens, totalTokens }) => {
+    window.services.onLlmChatUsage(({ sessionId: sid, promptTokens, completionTokens, totalTokens, isEstimate }) => {
       if (sid !== sessionId) return
-      setTokenUsage({ promptTokens, completionTokens, totalTokens })
+      setTokenUsage({ promptTokens, completionTokens, totalTokens, isEstimate: !!isEstimate })
     })
 
     window.services.onLlmChatError(({ sessionId: sid, message }) => {
@@ -1101,7 +1101,7 @@ const ChatPage = () => {
             ? `${streamStats.elapsedSec.toFixed(1)}s · processing…`
             : `${streamStats.elapsedSec.toFixed(1)}s · ~${streamStats.tokensPerSec.toFixed(1)} tok/s`}
           {tokenUsage?.totalTokens != null
-            ? ` · ${tokenUsage.totalTokens.toLocaleString()} tokens`
+            ? ` · ${tokenUsage.isEstimate ? '~' : ''}${tokenUsage.totalTokens.toLocaleString()} tokens`
             : ''}
         </div>
       )}
