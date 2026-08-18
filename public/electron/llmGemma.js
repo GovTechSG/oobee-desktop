@@ -336,6 +336,12 @@ async function streamGemmaChat({
         ...samplingKnobs,
       }),
       })
+    } catch (e) {
+      if (abort.signal.aborted || requestAbort.signal.aborted) {
+        log(`session ${sessionId} aborted before response stream opened`)
+        return
+      }
+      throw e
     } finally {
       clearTimeout(timeoutId)
       abort.signal.removeEventListener('abort', onUserAbort)

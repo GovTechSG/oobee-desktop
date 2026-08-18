@@ -1520,9 +1520,19 @@ function init({ mainWindow, getResultsFolderPath }) {
 
   ipcMain.on('llmChat:abort', (_event, sessionId) => {
     const session = sessions.get(sessionId)
-    if (session?.abort) {
-      log(`aborting session ${sessionId}`)
-      session.abort.abort()
+    if (!session?.abort) return
+    if (session.abort.signal?.aborted) return
+
+    log(`aborting session ${sessionId}`)
+    session.abort.abort()
+
+    // llama-server can keep running the current decode task briefly even
+    // after the client stream is aborted. For local Gemma, stop the process
+    // immediately so the user's Stop action is deterministic.
+    if (session.provider === 'gemma') {
+      unloadGemmaModel()
+        .then(() => log(`stopped local llama-server for aborted session ${sessionId}`))
+        .catch((e) => warn(`failed to stop local llama-server on abort: ${e.message}`))
     }
   })
 
