@@ -20,6 +20,13 @@ const llamaServer = require('./llamaServer')
 const log = (...args) => console.log('[llmGemma]', ...args)
 const warn = (...args) => console.warn('[llmGemma]', ...args)
 
+// Token-budget guardrails for local inference stability. Large tool payloads
+// and long chat history can force multi-thousand-token prompt reprocessing on
+// each tool hop, which degrades throughput and increases CPU pressure.
+const MAX_TOOL_RESULT_CHARS = 12_000
+const MAX_HISTORY_MESSAGES = 18
+const MAX_HISTORY_CHARS = 55_000
+
 // Context window sizing — same tiered heuristic we used with node-llama-cpp,
 // because the RAM math is the same underneath. Gemma 4's hybrid attention
 // (mostly sliding-window 512, a few global layers) keeps the effective KV
@@ -149,6 +156,63 @@ function buildUserContent(userMessage, attachments) {
   return parts
 }
 
+function estimateContentChars(content) {
+  if (typeof content === 'string') return content.length
+  if (Array.isArray(content)) {
+    let total = 0
+    for (const part of content) {
+      if (part?.type === 'text' && typeof part.text === 'string') total += part.text.length
+      else if (part?.type === 'image_url') total += 64
+      else total += 32
+    }
+    return total
+  }
+  if (content == null) return 0
+  try {
+    return JSON.stringify(content).length
+  } catch (_) {
+    return 0
+  }
+}
+
+function estimateMessageChars(msg) {
+  if (!msg) return 0
+  return estimateContentChars(msg.content) + (Array.isArray(msg.tool_calls) ? 200 : 0)
+}
+
+function trimGemmaHistory(messages) {
+  if (!Array.isArray(messages) || messages.length <= 2) return
+  const system = messages[0]
+  const tail = messages.slice(1)
+
+  const kept = []
+  let chars = estimateMessageChars(system)
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const msg = tail[i]
+    const msgChars = estimateMessageChars(msg)
+    if (kept.length >= MAX_HISTORY_MESSAGES) break
+    if (kept.length > 0 && chars + msgChars > MAX_HISTORY_CHARS) break
+    kept.unshift(msg)
+    chars += msgChars
+  }
+
+  while (kept.length > 0 && kept[0]?.role === 'tool') kept.shift()
+
+  // Keep one stable system prompt plus a bounded recent tail; this preserves
+  // recency while preventing unbounded prompt growth across tool loops.
+  const next = [system, ...kept]
+  if (next.length < messages.length) {
+    const dropped = messages.length - next.length
+    log(`trimmed gemma history: dropped ${dropped} old message(s), kept ${next.length}`)
+    messages.splice(0, messages.length, ...next)
+  }
+}
+
+function truncateToolResult(text) {
+  if (text.length <= MAX_TOOL_RESULT_CHARS) return text
+  return text.slice(0, MAX_TOOL_RESULT_CHARS) + '\n…[truncated]'
+}
+
 // SSE parser for /v1/chat/completions?stream=true. Yields parsed JSON delta
 // objects (the payload after `data: `), stopping at `data: [DONE]`.
 async function* readChatSSE(response) {
@@ -214,7 +278,7 @@ async function streamGemmaChat({
     temperature: 0.7,
     top_p: 0.9,
     top_k: 40,
-    max_tokens: 4000,
+    max_tokens: 2000,
   }
 
   // OpenAI-style tool loop. Each iteration streams tokens for the current
@@ -228,6 +292,7 @@ async function streamGemmaChat({
   const filter = createTemplateTokenFilter()
 
   for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
+    trimGemmaHistory(session.gemma.messages)
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       signal: abort.signal,
@@ -385,7 +450,7 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
   }
 
   // Element-screenshot marker: attachments go to the UI, JSON payload to the
-  // model. Same size cap as before (40 KB) to keep the context window from
+  // model. Keep payloads compact so follow-up turns don't balloon prompt size.
   // filling up on findings-index dumps.
   if (result && Array.isArray(result.__attachments)) {
     for (const att of result.__attachments) {
@@ -407,7 +472,7 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
       summary: `${result.__attachments.length} screenshot(s) attached`,
     })
     const payload = JSON.stringify(result.payload)
-    return payload.length > 40_000 ? payload.slice(0, 40_000) + '\n…[truncated]' : payload
+    return truncateToolResult(payload)
   }
 
   const text = typeof result === 'string' ? result : JSON.stringify(result)
@@ -418,7 +483,7 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
     status: 'done',
     summary: `${name} returned ${text.length} bytes`,
   })
-  return text.length > 40_000 ? text.slice(0, 40_000) + '\n…[truncated]' : text
+  return truncateToolResult(text)
 }
 
 function unloadModel() {

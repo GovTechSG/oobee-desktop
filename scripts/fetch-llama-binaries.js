@@ -30,16 +30,39 @@ const argSet = new Set(argv)
 const wantAll = argSet.has('--all')
 const force = argSet.has('--force')
 
+function normalizeArch(raw) {
+  const arch = String(raw || '').toLowerCase()
+  if (arch === 'x86' || arch === 'i386' || arch === 'i686') return 'ia32'
+  if (arch === 'x86_64' || arch === 'amd64') return 'x64'
+  if (arch === 'aarch64') return 'arm64'
+  return arch
+}
+
+function normalizeTargetKey(raw) {
+  const input = String(raw || '').trim().toLowerCase()
+  if (!input.includes('-')) return input
+  const [platform, arch] = input.split('-', 2)
+  return `${platform}-${normalizeArch(arch)}`
+}
+
+function pickFallbackTarget(targetKey, platforms) {
+  const [platform, arch] = targetKey.split('-', 2)
+  if (platform !== 'win32') return null
+  if (arch === 'arm64' && platforms['win32-x64']) return 'win32-x64'
+  if (arch === 'ia32' && platforms['win32-x64']) return 'win32-x64'
+  return null
+}
+
 // `--target <platform-arch>` OR TARGET_PLATFORM / TARGET_ARCH env vars override
 // the current process. Needed for cross-arch builds (a macOS developer
 // packaging for win32-arm64 shouldn't fetch the macOS binary).
 function resolveTargetKey() {
   const flagIdx = argv.indexOf('--target')
-  if (flagIdx !== -1 && argv[flagIdx + 1]) return argv[flagIdx + 1]
+  if (flagIdx !== -1 && argv[flagIdx + 1]) return normalizeTargetKey(argv[flagIdx + 1])
   if (process.env.TARGET_PLATFORM && process.env.TARGET_ARCH) {
-    return `${process.env.TARGET_PLATFORM}-${process.env.TARGET_ARCH}`
+    return `${process.env.TARGET_PLATFORM}-${normalizeArch(process.env.TARGET_ARCH)}`
   }
-  return `${process.platform}-${process.arch}`
+  return `${process.platform}-${normalizeArch(process.arch)}`
 }
 
 function log(...m) {
@@ -51,11 +74,18 @@ async function main() {
   const { tag, baseUrl, platforms } = manifest
 
   const targetKey = resolveTargetKey()
+  const fallbackTarget = pickFallbackTarget(targetKey, platforms)
   const targets = wantAll
     ? Object.keys(platforms)
     : platforms[targetKey]
       ? [targetKey]
+      : fallbackTarget
+        ? [fallbackTarget]
       : []
+
+  if (!wantAll && !platforms[targetKey] && fallbackTarget) {
+    log(`no pinned binary for ${targetKey}; falling back to ${fallbackTarget}`)
+  }
 
   if (targets.length === 0) {
     log(
