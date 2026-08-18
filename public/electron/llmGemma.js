@@ -332,6 +332,14 @@ async function streamGemmaChat({
   // hang the UI indefinitely.
   const MAX_TOOL_HOPS = 8
   const filter = createTemplateTokenFilter()
+  // Bounded retry for the empty-final-turn case below: local Gemma
+  // occasionally emits a single EOS-only completion (0 tokens generated,
+  // finish_reason=stop) right after a tool result it can't act on further
+  // (e.g. a get_page_screenshot marker with no real vision attached — see
+  // runToolCall's __imageContent branch). One nudge-and-retry recovers most
+  // of these instead of hard-failing the whole turn.
+  const MAX_EMPTY_RESPONSE_RETRIES = 1
+  let emptyResponseRetries = 0
 
   for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
     trimGemmaHistory(session.gemma.messages)
@@ -464,7 +472,19 @@ async function streamGemmaChat({
     }
 
     if (!content.trim()) {
-      throw new Error('Model returned an empty response. Please retry.')
+      if (emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+        emptyResponseRetries++
+        warn(
+          `hop ${hop + 1} produced an empty response (finish_reason=${finishReason}) — nudging the model to continue instead of failing immediately`,
+        )
+        session.gemma.messages.push({
+          role: 'user',
+          content:
+            'You stopped without giving an answer. Please provide your response now based on what you already know from the tool results above — do not call another tool unless you genuinely still need one.',
+        })
+        continue
+      }
+      throw new Error('Model returned an empty response after retrying. Please try again.')
     }
 
     // No tool call — this is the final assistant turn.
