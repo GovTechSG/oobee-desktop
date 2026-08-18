@@ -21,6 +21,29 @@ const { app } = require('electron')
 const log = (...m) => console.log('[llamaServer]', ...m)
 const warn = (...m) => console.warn('[llamaServer]', ...m)
 
+function normalizeArch(raw) {
+  const arch = String(raw || '').toLowerCase()
+  if (arch === 'x86' || arch === 'i386' || arch === 'i686') return 'ia32'
+  if (arch === 'x86_64' || arch === 'amd64') return 'x64'
+  if (arch === 'aarch64') return 'arm64'
+  return arch || process.arch
+}
+
+function targetKeysForCurrentRuntime() {
+  const platform = process.platform
+  const arch = normalizeArch(process.arch)
+  const keys = [`${platform}-${arch}`]
+
+  // Windows-on-ARM64 can run x64 binaries via emulation, so use x64 as a
+  // fallback if the native arm64 binary is missing.
+  if (platform === 'win32') {
+    if (arch === 'arm64') keys.push('win32-x64')
+    if (arch === 'ia32') keys.push('win32-x64')
+  }
+
+  return [...new Set(keys)]
+}
+
 // forge.config.js copies `resources/<platform>-<arch>/llama-server/` into the
 // packaged app's Resources folder, so at runtime it's always at
 // `<resourcesPath>/llama-server`. In dev, use the repo-relative layout instead.
@@ -28,20 +51,98 @@ function resolveBinaryDir() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'llama-server')
   }
-  return path.join(
+  const roots = targetKeysForCurrentRuntime().map((key) => path.join(
     __dirname,
     '..',
     '..',
     'resources',
-    `${process.platform}-${process.arch}`,
+    key,
     'llama-server',
-  )
+  ))
+
+  for (const dir of roots) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return roots[0]
 }
 
 function resolveBinaryPath() {
   const dir = resolveBinaryDir()
   const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
   return path.join(dir, exe)
+}
+
+function resolveBinaryCandidates() {
+  const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  if (app.isPackaged) {
+    return [path.join(process.resourcesPath, 'llama-server', exe)]
+  }
+  return targetKeysForCurrentRuntime().map((key) =>
+    path.join(__dirname, '..', '..', 'resources', key, 'llama-server', exe),
+  )
+}
+
+let attemptedDevFetch = false
+function runNodeScript(script, args, { cwd, env }) {
+  return new Promise((resolve, reject) => {
+    // Do not use spawnSync in Electron main process: binary bootstrap may need
+    // download/extract and a synchronous child blocks the UI event loop.
+    const child = spawn(process.execPath, [script, ...args], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+    })
+
+    const pipeLogs = (stream, level) => {
+      stream.setEncoding('utf8')
+      let buf = ''
+      stream.on('data', (chunk) => {
+        buf += chunk
+        let nl
+        while ((nl = buf.indexOf('\n')) !== -1) {
+          const line = buf.slice(0, nl).trim()
+          buf = buf.slice(nl + 1)
+          if (line) level(`[fetch-llama-binaries] ${line}`)
+        }
+      })
+      stream.on('end', () => {
+        const tail = buf.trim()
+        if (tail) level(`[fetch-llama-binaries] ${tail}`)
+      })
+    }
+    pipeLogs(child.stdout, log)
+    pipeLogs(child.stderr, warn)
+
+    child.once('error', reject)
+    child.once('close', (code) => resolve(code ?? 1))
+  })
+}
+
+async function tryFetchBinaryInDev() {
+  if (app.isPackaged || attemptedDevFetch) return
+  // One-shot guard: avoid repeated download attempts in a bad-network loop.
+  attemptedDevFetch = true
+
+  const script = path.join(__dirname, '..', '..', 'scripts', 'fetch-llama-binaries.js')
+  if (!fs.existsSync(script)) return
+
+  const cwd = path.join(__dirname, '..', '..')
+  for (const key of targetKeysForCurrentRuntime()) {
+    log(`llama-server binary missing; attempting dev fetch for ${key}`)
+    const exitCode = await runNodeScript(script, ['--target', key], {
+      cwd,
+      env: process.env,
+    })
+    if (exitCode === 0) {
+      const found = resolveBinaryCandidates().find((candidate) => fs.existsSync(candidate))
+      if (found) {
+        log(`downloaded llama-server for ${key}`)
+        return
+      }
+    } else {
+      warn(`fetch for ${key} failed with exit code ${exitCode}`)
+    }
+  }
 }
 
 // Ask the OS for a free ephemeral port. Small TOCTOU window between close()
@@ -129,10 +230,18 @@ async function ensure({ modelPath, mmprojPath, contextSize }) {
     await stop()
   }
 
-  const bin = resolveBinaryPath()
+  let bin = resolveBinaryPath()
   if (!fs.existsSync(bin)) {
+    await tryFetchBinaryInDev()
+    const found = resolveBinaryCandidates().find((candidate) => fs.existsSync(candidate))
+    if (found) bin = found
+  }
+
+  if (!fs.existsSync(bin)) {
+    const searched = resolveBinaryCandidates().join(', ')
     throw new Error(
       `llama-server binary not found at ${bin}. ` +
+        `Searched: ${searched}. ` +
         `In dev, run 'node scripts/fetch-llama-binaries.js' first. ` +
         `In a packaged build, verify forge.config.js copied the right platform folder into resources.`,
     )
