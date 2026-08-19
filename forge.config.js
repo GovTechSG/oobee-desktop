@@ -143,7 +143,13 @@ module.exports = {
               );
             } else {
               fs.rmSync(stagedDir, { recursive: true, force: true });
-              fs.cpSync(correctDir, stagedDir, { recursive: true });
+              // verbatimSymlinks: true keeps the tarball's sibling-relative
+              // symlinks (`libggml.dylib -> libggml.0.dylib`) intact. Without
+              // it, Node rewrites relative targets against the source path,
+              // producing links that escape the .app bundle — which trips
+              // @electron/universal's mach-o walker during the universal
+              // stitch (the "number of mach-o files" mismatch).
+              fs.cpSync(correctDir, stagedDir, { recursive: true, verbatimSymlinks: true });
               console.log(`[forge.config] swapped in ${platform}-${arch} llama-server binary for this packaging pass`);
             }
           }
@@ -161,7 +167,7 @@ module.exports = {
               if (stagedDir) {
                 const arm64Dest = path.join(path.dirname(stagedDir), 'llama-server-arm64');
                 fs.rmSync(arm64Dest, { recursive: true, force: true });
-                fs.cpSync(arm64Dir, arm64Dest, { recursive: true });
+                fs.cpSync(arm64Dir, arm64Dest, { recursive: true, verbatimSymlinks: true });
                 console.log('[forge.config] bundled win32-arm64 llama-server alongside x64 for Prism-emulation fallback');
               }
             } else {
