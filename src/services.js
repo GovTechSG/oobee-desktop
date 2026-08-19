@@ -87,7 +87,7 @@ const startScan = async (scanDetails) => {
     scanArgs.savePageScreenshot = true
     scanArgs.saveComputedStyles = true
     scanArgs.htmlMaxBytes = 0
-    scanArgs.parentHtmlDepth = 2
+    scanArgs.parentHtmlDepth = 1
     scanArgs.isLLMAnalysis = true
   }
 

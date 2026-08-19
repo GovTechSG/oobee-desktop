@@ -356,7 +356,19 @@ async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
   if (mmprojPath && !fs.existsSync(mmprojPath)) throw new Error(`mmproj not found: ${mmprojPath}`)
 
   const config = { modelPath, mmprojPath: mmprojPath || null, contextSize, cpuOnly: !!cpuOnly }
+  // `current` is assigned synchronously right after spawn, *before* the
+  // health check below resolves (so a concurrent caller sees it and can
+  // reuse the same process instead of double-spawning). That means a
+  // second `ensure()` call racing the first one (e.g. two chat messages
+  // sent back-to-back right after the model finished downloading) could
+  // previously return `current.baseUrl` for a server that was still
+  // loading — the caller's very next fetch to that URL then failed with
+  // "fetch failed" (ECONNREFUSED) because nothing was listening yet.
+  // Awaiting `current.ready` here makes every caller — the one that
+  // started the server and any that raced in behind it — wait for the
+  // same readiness gate before getting a baseUrl back.
   if (current && sameConfig(current.config, config)) {
+    await current.ready
     return { baseUrl: current.baseUrl }
   }
 
@@ -436,21 +448,25 @@ async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
     })
   })
 
-  current = { config, proc, baseUrl, exitPromise }
+  const entry = { config, proc, baseUrl, exitPromise, ready: null }
+  current = entry
 
-  try {
-    const healthAbort = new AbortController()
-    // If the process dies while we're waiting for /health, abort the poll so we
-    // fail fast instead of hitting the 60s timeout.
-    exitPromise.then(() => healthAbort.abort())
-    await waitForHealth(baseUrl, { signal: healthAbort.signal })
-    log(`server ready`)
-  } catch (e) {
-    // If health failed, make sure the process is gone before returning.
-    await stop().catch(() => {})
-    throw new Error(`llama-server failed to start: ${e.message}`)
-  }
+  entry.ready = (async () => {
+    try {
+      const healthAbort = new AbortController()
+      // If the process dies while we're waiting for /health, abort the poll so we
+      // fail fast instead of hitting the 60s timeout.
+      exitPromise.then(() => healthAbort.abort())
+      await waitForHealth(baseUrl, { signal: healthAbort.signal })
+      log(`server ready`)
+    } catch (e) {
+      // If health failed, make sure the process is gone before returning.
+      await stop().catch(() => {})
+      throw new Error(`llama-server failed to start: ${e.message}`)
+    }
+  })()
 
+  await entry.ready
   return { baseUrl }
 }
 

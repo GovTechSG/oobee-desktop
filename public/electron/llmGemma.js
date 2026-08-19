@@ -475,7 +475,10 @@ async function streamGemmaChat({
   const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
 
   // First send: spin up (or reuse) the server, seed conversation state.
-  const { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b', session.cpuOnly)
+  // `let` (not `const`): a connection-level failure mid-session (see the
+  // reconnect retry in the request loop below) re-ensures the server and
+  // may hand back a fresh baseUrl if it had crashed and was respawned.
+  let { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b', session.cpuOnly)
   if (!session.gemma) {
     // Note: Gemma 4's documented `<|think|>` thinking-mode trigger was
     // tried here and confirmed (via live testing, multiple hops, raw
@@ -616,6 +619,9 @@ async function streamGemmaChat({
       })
     }
     llamaServer.events.on('promptProgress', onPromptProgress)
+    // Set once we've already auto-reconnected for this hop, so a second
+    // consecutive connection failure gives up instead of retrying forever.
+    let connectionRetried = false
     try {
       for (let loadingRetry = 0; ; loadingRetry++) {
         try {
@@ -647,6 +653,25 @@ async function streamGemmaChat({
           if (abort.signal.aborted || requestAbort.signal.aborted) {
             log(`session ${sessionId} aborted before response stream opened`)
             return
+          }
+          // Network-level failure reaching llama-server (Node/undici's
+          // generic "fetch failed", usually wrapping ECONNREFUSED) — most
+          // commonly the process crashed shortly after passing its health
+          // check (see llamaServer.js's ensure()) or exited between turns
+          // for an unrelated reason (GPU driver hiccup, OOM). Previously
+          // this surfaced straight to the user as "fetch failed", and the
+          // fix in practice was just clicking Send/a rule again — which
+          // works because `ensureModel` respawns the server if `current`
+          // was cleared. Do that same recovery automatically once instead
+          // of making the user retry by hand.
+          if (!connectionRetried) {
+            connectionRetried = true
+            warn(`connection to llama-server failed (${e.message}); re-ensuring server and retrying once`)
+            send('llmChat:status', { sessionId, message: 'Lost connection to local model, reconnecting…' })
+            const reensured = await ensureModel(session.modelId || 'gemma-e4b', session.cpuOnly)
+            baseUrl = reensured.baseUrl
+            loadingRetry -= 1 // don't consume a model-loading retry slot for this
+            continue
           }
           throw e
         }
