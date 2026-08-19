@@ -6,7 +6,9 @@ const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
+const { streamOpenAICompatibleChat, disposeSession: disposeOpenAISession } = require('./llmOpenAICompatible')
 const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmModelManager')
+const { readUserDataFromFile, writeUserDetailsToFile } = require('./userDataManager')
 const { searchWcag } = require('./wcagCorpus')
 const { getWcagIndexPath } = require('./constants')
 
@@ -1426,11 +1428,12 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId }) => {
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!scanId) throw new Error('Missing scanId')
-      const chosenProvider = provider === 'gemma' ? 'gemma' : 'anthropic'
+      const chosenProvider =
+        provider === 'gemma' ? 'gemma' : provider === 'openai' ? 'openai' : 'anthropic'
       // Only Gemma cares about modelId. Default to E4B if the renderer
       // forgets to send one — it's the smaller/faster of the two Gemma
       // options and safe for low-resource devices.
@@ -1454,17 +1457,37 @@ function init({ mainWindow, getResultsFolderPath }) {
       // The full findings index is ~30 KB, useful as Anthropic prompt-cache
       // pre-warming. Local Gemma has an ~8 K token context by default, so we
       // trim it and let the model fetch rule details via list_findings /
-      // get_finding_detail on demand.
+      // get_finding_detail on demand. The generic OpenAI-compatible provider
+      // could be pointed at anything from a small local model to a large
+      // cloud one, so it gets the same trimmed prompt as Gemma by default —
+      // safer default than assuming cloud-scale context.
       const promptSummary =
-        chosenProvider === 'gemma' ? { ...summary, findingsIndex: null } : summary
+        chosenProvider === 'anthropic' ? summary : { ...summary, findingsIndex: null }
       const systemPrompt = buildSystemPrompt({ summary: promptSummary })
       // Dispose any prior session state for this id (e.g. provider switch).
       const prior = sessions.get(sessionId)
-      if (prior) disposeGemmaSession(prior)
+      if (prior) {
+        disposeGemmaSession(prior)
+        disposeOpenAISession(prior)
+      }
+      // For the openai provider, load the user's Configure-modal settings
+      // fresh at session start so a just-saved change takes effect on the
+      // next chat without requiring an app restart.
+      let customConfig = null
+      if (chosenProvider === 'openai') {
+        const userData = readUserDataFromFile()
+        customConfig = {
+          baseUrl: userData.customLlmBaseUrl || '',
+          apiKey: userData.customLlmApiKey || '',
+          model: userData.customLlmModel || '',
+        }
+      }
       sessions.set(sessionId, {
         scanId,
         provider: chosenProvider,
         modelId: chosenModelId,
+        cpuOnly: !!cpuOnly,
+        customConfig,
         storagePath,
         artifacts,
         summary,
@@ -1472,9 +1495,10 @@ function init({ mainWindow, getResultsFolderPath }) {
         cfg: null, // lazy — only load when the user actually sends a message
         messages: [],
         gemma: null,
+        openai: null,
         abort: null,
       })
-      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}` : ''}`)
+      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}`)
       return { ok: true, summary, provider: chosenProvider, modelId: chosenModelId }
     } catch (e) {
       warn(`start failed: ${e.message}`)
@@ -1514,6 +1538,16 @@ function init({ mainWindow, getResultsFolderPath }) {
     try {
       if (session.provider === 'gemma') {
         await streamGemmaChat({
+          session,
+          mainWindow,
+          sessionId,
+          userMessage,
+          attachments: parsedAttachments,
+          runTool,
+          toolSchemas: GEMMA_TOOL_SCHEMAS,
+        })
+      } else if (session.provider === 'openai') {
+        await streamOpenAICompatibleChat({
           session,
           mainWindow,
           sessionId,
@@ -1602,9 +1636,39 @@ function init({ mainWindow, getResultsFolderPath }) {
       log(`disposing session ${sessionId}`)
       if (session.abort) session.abort.abort()
       disposeGemmaSession(session)
+      disposeOpenAISession(session)
       sessions.delete(sessionId)
     }
     // unloadGemmaModel()
+  })
+
+  // Configure modal persistence for the "OpenAI Compatible LLM" provider.
+  // Stored via the same generic user-settings file userDataManager already
+  // uses for other local preferences (proxy settings, export dir, etc.) —
+  // consistent with existing app conventions rather than a new storage
+  // mechanism. Note: like those other settings, this is plaintext on disk,
+  // not OS-keychain-backed; acceptable for a single-user local desktop app,
+  // but worth knowing if the endpoint's API key is sensitive.
+  ipcMain.handle('llmChat:getCustomProviderConfig', async () => {
+    const userData = readUserDataFromFile()
+    return {
+      baseUrl: userData.customLlmBaseUrl || '',
+      apiKey: userData.customLlmApiKey || '',
+      model: userData.customLlmModel || '',
+    }
+  })
+
+  ipcMain.handle('llmChat:setCustomProviderConfig', async (_event, { baseUrl, apiKey, model }) => {
+    try {
+      writeUserDetailsToFile({
+        customLlmBaseUrl: typeof baseUrl === 'string' ? baseUrl.trim() : '',
+        customLlmApiKey: typeof apiKey === 'string' ? apiKey.trim() : '',
+        customLlmModel: typeof model === 'string' ? model.trim() : '',
+      })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
   })
 }
 
