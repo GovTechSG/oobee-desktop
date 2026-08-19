@@ -15,7 +15,7 @@ const path = require('path')
 const fs = require('fs')
 const net = require('net')
 const os = require('os')
-const { spawn } = require('child_process')
+const { spawn, execSync } = require('child_process')
 const { EventEmitter } = require('events')
 const { app } = require('electron')
 
@@ -67,18 +67,44 @@ function targetKeysForCurrentRuntime() {
   return [...new Set(keys)]
 }
 
-// When a Windows process is running under WOW64/Prism emulation (e.g. an x64
-// build executing on real ARM64 hardware), Windows reports the *emulated*
-// architecture via PROCESSOR_ARCHITECTURE but sets PROCESSOR_ARCHITEW6432 to
-// the TRUE native architecture. Node's process.arch mirrors
-// PROCESSOR_ARCHITECTURE (i.e. it's fooled by the emulation too), so this is
-// the only reliable way to detect the real CPU from inside an emulated
-// process. Returns null on non-Windows or when not running under emulation.
+// When a Windows process is running under Prism emulation (e.g. an x64
+// build executing on real ARM64 hardware), Node's process.arch mirrors
+// PROCESSOR_ARCHITECTURE, i.e. it reports the *emulated* architecture and is
+// fooled by the emulation just like the rest of the process's view of
+// itself. Returns null on non-Windows or when running natively (no
+// emulation, or emulation state couldn't be determined).
+//
+// Verified empirically on a real Snapdragon (ARM64) Windows machine: neither
+// PROCESSOR_ARCHITEW6432 nor the presence of `%SystemRoot%\SysArm32` are
+// reliable signals here — unlike classic WOW64 (32-bit-on-64-bit), Windows
+// 11's newer "Prism" x64-on-ARM64 emulation does not set either of those.
+// The one signal that *does* work reliably (confirmed by spawning a genuine
+// x64 node.exe under emulation and checking from inside it) is a WMI query:
+// `Win32_ComputerSystem.SystemType` reports the true hardware
+// ("ARM64-based PC") regardless of the querying process's own emulation
+// state, because CIM/WMI queries are serviced by a system-level provider,
+// not answered from the calling process's own view of itself.
+//
+// Cached after first call since hardware architecture can't change at
+// runtime and spawning powershell costs ~200-500ms.
+let cachedRealWindowsArch
 function detectRealWindowsArch() {
   if (process.platform !== 'win32') return null
-  const real = process.env.PROCESSOR_ARCHITEW6432
-  if (!real) return null
-  return normalizeArch(real)
+  if (normalizeArch(process.arch) === 'arm64') return 'arm64' // already native, no query needed
+
+  if (cachedRealWindowsArch !== undefined) return cachedRealWindowsArch
+
+  try {
+    const out = execSync(
+      'powershell -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_ComputerSystem).SystemType"',
+      { timeout: 5000, windowsHide: true },
+    ).toString()
+    cachedRealWindowsArch = /ARM64/i.test(out) ? 'arm64' : null
+  } catch (e) {
+    warn(`detectRealWindowsArch: WMI query failed (${e && e.message ? e.message : e}); assuming native ${process.arch}`)
+    cachedRealWindowsArch = null
+  }
+  return cachedRealWindowsArch
 }
 
 // forge.config.js copies `resources/<platform>-<arch>/llama-server/` into the
