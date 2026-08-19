@@ -130,32 +130,59 @@ const SUGGESTED_QUESTIONS = [
   'Are there any color-contrast violations I should worry about?',
 ]
 
-// Storage key holds the full option id (`anthropic` / `gemma-e4b` /
-// `gemma-e4b-cpu` / `gemma-12b` / `gemma-12b-cpu` / `openai-compatible`).
-// The `-cpu` suffix is a UI-only variant of the same underlying Gemma model:
-// it reuses the exact same downloaded weights/mmproj, just runs llama-server
-// with -ngl 0 (CPU-only) instead of full GPU offload — see llamaServer.js
-// buildArgs. Windows-only in the UI (see isWindows gating below) since it
-// exists specifically to work around the Adreno OpenCL backend sometimes
-// underperforming CPU on Snapdragon X hardware (community-benchmarked in
-// ggml-org/llama.cpp discussion #8273).
+// Storage key holds the plain provider id (`anthropic` / `gemma` /
+// `openai-compatible`). Which specific local Gemma model size to use
+// (E2B/E4B/12B) is a separate persisted choice (see GEMMA_MODEL_STORAGE_KEY
+// below), selected inside the Configure modal rather than the main
+// dropdown — the main dropdown just shows "Local" for any Gemma size, same
+// as it shows one "Anthropic Claude" entry regardless of which Claude
+// model the user's config points at.
 const PROVIDER_STORAGE_KEY = 'llmProvider'
-const BASE_OPTIONS = ['anthropic', 'gemma-e4b', 'gemma-12b', 'openai-compatible']
-const VALID_OPTIONS = new Set([
-  ...BASE_OPTIONS,
-  'gemma-e4b-cpu',
-  'gemma-12b-cpu',
-])
+const BASE_OPTIONS = ['anthropic', 'gemma', 'openai-compatible']
+const VALID_OPTIONS = new Set(BASE_OPTIONS)
 const optionToProvider = (id) => {
   if (id === 'anthropic') return 'anthropic'
   if (id === 'openai-compatible') return 'openai'
   return 'gemma'
 }
-const optionToModelId = (id) => {
-  if (id === 'anthropic' || id === 'openai-compatible') return null
-  return id.endsWith('-cpu') ? id.slice(0, -4) : id
+
+// CPU-only mode: a UI-only variant of the same underlying Gemma model —
+// reuses the exact same downloaded weights/mmproj, just runs llama-server
+// with -ngl 0 (CPU-only) instead of full GPU offload — see llamaServer.js
+// buildArgs. Windows-only in the UI (see isWindows gating below) since it
+// exists specifically to work around the Adreno OpenCL backend sometimes
+// underperforming CPU on Snapdragon X hardware (community-benchmarked in
+// ggml-org/llama.cpp discussion #8273). Previously encoded as a `-cpu`
+// suffix on the provider id (doubling the dropdown's entry count); now a
+// standalone checkbox next to the dropdown, orthogonal to model selection.
+const CPU_ONLY_STORAGE_KEY = 'llmCpuOnly'
+const readStoredCpuOnly = () => {
+  try {
+    return window.localStorage.getItem(CPU_ONLY_STORAGE_KEY) === '1'
+  } catch (_) {
+    return false
+  }
 }
-const optionToCpuOnly = (id) => id.endsWith('-cpu')
+
+// Thinking mode: opt-in step-by-step reasoning before the final answer.
+// Anthropic-only: uses Claude's native `thinking` Messages API param (see
+// streamAnthropicTurn in llmAnalysis.js). A Gemma 4 equivalent (`<|think|>`
+// system-prompt trigger + channel-tag parsing) was implemented and tested
+// live, but confirmed to have no effect — across multiple hops and a live
+// run, Gemma 4 E2B/E4B never produced any thinking-channel content via
+// llama-server, so that path was reverted rather than shipping a toggle
+// that silently does nothing. Not offered for the generic OpenAI
+// Compatible Provider either — no reliable way to know whether an
+// arbitrary user-configured endpoint supports a reasoning mode, let alone
+// which convention it uses.
+const THINKING_STORAGE_KEY = 'llmThinking'
+const readStoredThinking = () => {
+  try {
+    return window.localStorage.getItem(THINKING_STORAGE_KEY) === '1'
+  } catch (_) {
+    return false
+  }
+}
 
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -169,16 +196,56 @@ const formatBytes = (bytes) => {
   return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+// Legacy pre-"Local" values looked like `gemma-e4b` (optionally with a
+// `-cpu` suffix from the even older per-variant dropdown entries). Detects
+// those so both readStoredOption and readStoredGemmaModelId below can
+// migrate a user's existing preference instead of silently resetting it.
+const LEGACY_GEMMA_OPTION_RE = /^gemma-(e2b|e4b|12b)(-cpu)?$/
+
 const readStoredOption = () => {
   try {
     const raw = window.localStorage.getItem(PROVIDER_STORAGE_KEY)
-    // Migrate the legacy value `gemma` (which used to select the sole E4B build)
-    // to the new fully-qualified id so the user's saved preference survives.
-    if (raw === 'gemma') return 'gemma-e4b'
+    // Any legacy per-size Gemma value (bare or `-cpu` suffixed) collapses to
+    // the single 'gemma' ("Local") option now.
+    if (raw === 'gemma' || LEGACY_GEMMA_OPTION_RE.test(String(raw))) return 'gemma'
     return VALID_OPTIONS.has(raw) ? raw : 'anthropic'
   } catch (_) {
     return 'anthropic'
   }
+}
+
+// One-time migration: if the persisted provider id was one of the old
+// `-cpu` suffixed values, carry that preference over to the new standalone
+// CPU_ONLY_STORAGE_KEY so users don't silently lose their setting.
+const readStoredCpuOnlyWithMigration = () => {
+  try {
+    const raw = window.localStorage.getItem(PROVIDER_STORAGE_KEY)
+    if (typeof raw === 'string' && raw.endsWith('-cpu')) return true
+  } catch (_) {
+    // fall through to the plain stored value
+  }
+  return readStoredCpuOnly()
+}
+
+// Which Gemma model size (E2B/E4B/12B) to run — now chosen inside the
+// Configure modal (see #chat-model-options-form below) rather than as a
+// separate main-dropdown entry per size.
+const GEMMA_MODEL_STORAGE_KEY = 'llmGemmaModelId'
+const readStoredGemmaModelId = () => {
+  try {
+    const raw = window.localStorage.getItem(GEMMA_MODEL_STORAGE_KEY)
+    if (typeof raw === 'string' && LEGACY_GEMMA_OPTION_RE.test(raw.replace(/-cpu$/, ''))) {
+      return raw.replace(/-cpu$/, '')
+    }
+    // Migrate from the legacy main-dropdown value if this key was never set.
+    const legacyRaw = window.localStorage.getItem(PROVIDER_STORAGE_KEY)
+    if (typeof legacyRaw === 'string' && LEGACY_GEMMA_OPTION_RE.test(legacyRaw)) {
+      return legacyRaw.replace(/-cpu$/, '')
+    }
+  } catch (_) {
+    // fall through to the default below
+  }
+  return 'gemma-e4b'
 }
 
 const ChatPage = () => {
@@ -188,12 +255,20 @@ const ChatPage = () => {
 
   const [selectedOption, setSelectedOption] = useState(readStoredOption)
   const provider = optionToProvider(selectedOption)
-  const chosenModelId = optionToModelId(selectedOption)
-  const cpuOnly = optionToCpuOnly(selectedOption)
+  // Which Gemma model size is actually selected (E2B/E4B/12B) — chosen
+  // inside the Configure modal, not the main dropdown (see
+  // GEMMA_MODEL_STORAGE_KEY doc comment above).
+  const [gemmaModelId, setGemmaModelId] = useState(readStoredGemmaModelId)
+  const chosenModelId = provider === 'gemma' ? gemmaModelId : null
+  const [cpuOnly, setCpuOnly] = useState(readStoredCpuOnlyWithMigration)
+  // Shown for both local Gemma and Anthropic Claude (each via a different
+  // mechanism — see THINKING_STORAGE_KEY doc comment above); hidden for the
+  // OpenAI Compatible Provider.
+  const [thinking, setThinking] = useState(readStoredThinking)
   const [providerAvailability, setProviderAvailability] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
   const providerInitialisedRef = useRef(false)
-  // CPU-only Gemma variants are Windows-only (see BASE_OPTIONS doc comment
+  // CPU-only mode is Windows-only (see CPU_ONLY_STORAGE_KEY doc comment
   // above) — gated on the existing getIsWindows bridge already used
   // elsewhere in the app (services.js).
   const [isWindows, setIsWindows] = useState(false)
@@ -205,6 +280,19 @@ const ChatPage = () => {
   const [showConfigureModal, setShowConfigureModal] = useState(false)
   const [configDraft, setConfigDraft] = useState({ baseUrl: '', apiKey: '', model: '' })
   const [configSaveError, setConfigSaveError] = useState(null)
+  // Configure modal for Gemma model selection + CPU-only toggle, and
+  // Anthropic's Thinking toggle — mirrors the OpenAI Compatible Provider
+  // Configure pattern above. Unlike that modal, these controls don't need a
+  // manual "Save" click, but they DO need to *defer* applying (clearing
+  // messages/summary + restarting the session) until the modal closes
+  // rather than on every change — applying immediately caused the whole
+  // page to visibly reflow/shift while the user was still deciding inside
+  // the modal.
+  const [showModelOptionsModal, setShowModelOptionsModal] = useState(false)
+  const [gemmaModelIdDraft, setGemmaModelIdDraft] = useState('gemma-e4b')
+  const [cpuOnlyDraft, setCpuOnlyDraft] = useState(false)
+  const [thinkingDraft, setThinkingDraft] = useState(false)
+  const wasModelOptionsModalOpenRef = useRef(false)
   // A new sessionId is minted on every provider/model switch — the backend
   // disposes the previous state and treats it as a fresh session.
   const [sessionEpoch, setSessionEpoch] = useState(0)
@@ -284,7 +372,7 @@ const ChatPage = () => {
         ? !!customConfig?.baseUrl && !!customConfig?.model
         : true
 
-  // Windows-only gate for the CPU-only Gemma variants (see BASE_OPTIONS doc
+  // Windows-only gate for CPU-only mode (see CPU_ONLY_STORAGE_KEY doc
   // comment). getIsWindows already exists and is used elsewhere (services.js).
   useEffect(() => {
     let cancelled = false
@@ -338,19 +426,28 @@ const ChatPage = () => {
               ? anthropicOk
               : selectedOption === 'openai-compatible'
                 ? true
-                : models.find((m) => m.id === optionToModelId(selectedOption))
-                    ?.supported !== false
+                : models.find((m) => m.id === gemmaModelId)?.supported !== false
           if (!currentSupported) {
-            // Prefer Anthropic when available; otherwise the first supported
-            // local model; falling back to the smallest even if unsupported.
-            const fallback = anthropicOk
-              ? 'anthropic'
-              : models.find((m) => m.supported)?.id || models[0]?.id || 'gemma-e4b'
-            try {
-              window.localStorage.setItem(PROVIDER_STORAGE_KEY, fallback)
-            } catch (_) {}
-            setSelectedOption(fallback)
-            setSessionEpoch((e) => e + 1)
+            if (anthropicOk) {
+              try {
+                window.localStorage.setItem(PROVIDER_STORAGE_KEY, 'anthropic')
+              } catch (_) {}
+              setSelectedOption('anthropic')
+              setSessionEpoch((e) => e + 1)
+            } else {
+              // No cloud fallback available — switch to (or stay on) Local,
+              // but make sure the selected Gemma model size is actually one
+              // this machine can run; fall back to the smallest even if
+              // unsupported, same as before.
+              const fallbackModelId = models.find((m) => m.supported)?.id || models[0]?.id || 'gemma-e4b'
+              try {
+                window.localStorage.setItem(PROVIDER_STORAGE_KEY, 'gemma')
+                window.localStorage.setItem(GEMMA_MODEL_STORAGE_KEY, fallbackModelId)
+              } catch (_) {}
+              setSelectedOption('gemma')
+              setGemmaModelId(fallbackModelId)
+              setSessionEpoch((e) => e + 1)
+            }
           }
         }
       } catch (_) {
@@ -417,10 +514,6 @@ const ChatPage = () => {
 
   const changeOption = (next) => {
     if (!VALID_OPTIONS.has(next) || next === selectedOption) return
-    const prevModelId = optionToModelId(selectedOption)
-    const nextModelId = optionToModelId(next)
-    const isSameUnderlyingGemmaModel =
-      prevModelId && nextModelId && prevModelId === nextModelId
     try {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, next)
     } catch (_) {
@@ -432,18 +525,64 @@ const ChatPage = () => {
     setStreamError(null)
     setDetailsOpen(true)
     setSummary(null)
-    // Keep status when toggling CPU/GPU variants of the same base model
-    // (e.g. gemma-e4b <-> gemma-e4b-cpu) so we don't flash a false
-    // download prompt for files that are already on disk.
-    if (!isSameUnderlyingGemmaModel) {
-      // Clear stale download panel state so we don't briefly show the
-      // previous model's progress bar before the new status probe returns.
-      setModelStatus(null)
-      setDownloadError(null)
-      setDownloadProgress(null)
-    }
+    // Every option change is now a genuinely different model/provider (CPU-
+    // only mode is a separate toggle that doesn't touch this), so always
+    // clear stale download panel state to avoid briefly showing the
+    // previous model's progress bar before the new status probe returns.
+    setModelStatus(null)
+    setDownloadError(null)
+    setDownloadProgress(null)
     setSessionEpoch((e) => e + 1)
   }
+
+  // CPU-only mode, thinking mode, and which Gemma model size to run are all
+  // independent of the main provider/model dropdown, but all three still
+  // require a fresh backend session to take effect (CPU-only and model-
+  // size both restart llama-server in the new configuration; thinking
+  // changes the request shape for Anthropic).
+  // Rather than restarting on every individual control change (which caused
+  // a visible page reflow while the Configure modal was still open), the
+  // controls only update local draft state; this effect detects the modal
+  // closing and applies all changes together in one reset.
+  useEffect(() => {
+    if (wasModelOptionsModalOpenRef.current && !showModelOptionsModal) {
+      const cpuOnlyChanged = cpuOnlyDraft !== cpuOnly
+      const thinkingChanged = thinkingDraft !== thinking
+      const gemmaModelChanged = gemmaModelIdDraft !== gemmaModelId
+      if (cpuOnlyChanged || thinkingChanged || gemmaModelChanged) {
+        try {
+          if (cpuOnlyChanged) window.localStorage.setItem(CPU_ONLY_STORAGE_KEY, cpuOnlyDraft ? '1' : '0')
+          if (thinkingChanged) window.localStorage.setItem(THINKING_STORAGE_KEY, thinkingDraft ? '1' : '0')
+          if (gemmaModelChanged) window.localStorage.setItem(GEMMA_MODEL_STORAGE_KEY, gemmaModelIdDraft)
+        } catch (_) {
+          // localStorage disabled — ignore
+        }
+        if (cpuOnlyChanged) setCpuOnly(cpuOnlyDraft)
+        if (thinkingChanged) setThinking(thinkingDraft)
+        if (gemmaModelChanged) setGemmaModelId(gemmaModelIdDraft)
+        setMessages([])
+        setStartError(null)
+        setStreamError(null)
+        setDetailsOpen(true)
+        setSummary(null)
+        // A different Gemma model size means a genuinely different download
+        // (different file, different disk state) — clear the stale download
+        // panel state the same way changeOption does, so we don't briefly
+        // show the previous model's progress bar.
+        if (gemmaModelChanged) {
+          setModelStatus(null)
+          setDownloadError(null)
+          setDownloadProgress(null)
+        }
+        setSessionEpoch((e) => e + 1)
+      }
+    }
+    wasModelOptionsModalOpenRef.current = showModelOptionsModal
+    // Only meant to react to the modal's open/closed transition itself —
+    // the draft/current values are read from the latest closure each time
+    // this effect re-runs on that transition, not tracked as separate deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModelOptionsModal])
 
   useEffect(() => {
     if (!scanId) {
@@ -460,6 +599,7 @@ const ChatPage = () => {
           provider,
           modelId: chosenModelId,
           cpuOnly,
+          thinking,
         })
         if (cancelled) return
         if (res && res.ok) {
@@ -474,7 +614,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [sessionId, scanId, provider, chosenModelId, cpuOnly, modelReady])
+  }, [sessionId, scanId, provider, chosenModelId, cpuOnly, thinking, modelReady])
 
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
@@ -497,6 +637,27 @@ const ChatPage = () => {
         } else {
           next[idx] = { ...next[idx], content: (next[idx].content || '') + text }
         }
+        return next
+      })
+    })
+
+    // Thinking-mode reasoning text (Gemma's channel-tag parsing or
+    // Anthropic's native thinking_delta — see THINKING_STORAGE_KEY doc
+    // comment). Accumulated onto the same streaming assistant message as a
+    // separate `reasoning` field, rendered as its own collapsible section
+    // (see the render below) rather than mixed into `content`.
+    window.services.onLlmChatThinking(({ sessionId: sid, text }) => {
+      if (sid !== sessionId) return
+      if (!text) return
+      setMessages((prev) => {
+        const next = [...prev]
+        let idx = streamingIndexRef.current
+        if (idx === null || idx === undefined || !next[idx] || next[idx].role !== 'assistant') {
+          streamingIndexRef.current = next.length
+          next.push({ role: 'assistant', content: '', toolCalls: [], reasoning: '' })
+          idx = streamingIndexRef.current
+        }
+        next[idx] = { ...next[idx], reasoning: (next[idx].reasoning || '') + text }
         return next
       })
     })
@@ -924,52 +1085,19 @@ const ChatPage = () => {
             {(() => {
               const anthropicUnavailable =
                 providerAvailability?.anthropic?.available === false
-              const opts = [
-                <option
-                  key="anthropic"
-                  value="anthropic"
-                  disabled={anthropicUnavailable}
-                >
+              return [
+                <option key="anthropic" value="anthropic" disabled={anthropicUnavailable}>
                   {anthropicUnavailable
                     ? 'Anthropic Claude (cloud) — not configured'
                     : 'Anthropic Claude (cloud)'}
                 </option>,
-              ]
-              for (const m of availableModels) {
-                const sizeSuffix = m.sizeBytes ? ` — ${formatBytes(m.sizeBytes)}` : ''
-                const unsupportedSuffix = m.supported === false ? ' (unsupported)' : ''
-                opts.push(
-                  <option
-                    key={m.id}
-                    value={m.id}
-                    disabled={m.supported === false}
-                    title={m.supported === false ? m.unsupportedReason || '' : ''}
-                  >
-                    {`${m.label} (local)${sizeSuffix}${unsupportedSuffix}`}
-                  </option>,
-                )
-                // CPU-only variant of the same model — Windows only (see
-                // BASE_OPTIONS doc comment). Shares the same download/support
-                // gating as the GPU variant since it's the exact same weights.
-                if (isWindows) {
-                  opts.push(
-                    <option
-                      key={`${m.id}-cpu`}
-                      value={`${m.id}-cpu`}
-                      disabled={m.supported === false}
-                      title={m.supported === false ? m.unsupportedReason || '' : ''}
-                    >
-                      {`${m.label} (local) (CPU-only mode)${sizeSuffix}${unsupportedSuffix}`}
-                    </option>,
-                  )
-                }
-              }
-              opts.push(
+                <option key="gemma" value="gemma">
+                  Local
+                </option>,
                 <option key="openai-compatible" value="openai-compatible">
                   OpenAI Compatible Provider
                 </option>,
-              )
-              return opts
+              ]
             })()}
           </select>
           {selectedOption === 'openai-compatible' && (
@@ -985,17 +1113,20 @@ const ChatPage = () => {
               Configure
             </button>
           )}
-          {(() => {
-            const selected = availableModels.find((m) => m.id === chosenModelId)
-            if (selected && selected.supported === false && selected.unsupportedReason) {
-              return (
-                <span className="chat-provider-unsupported-hint">
-                  {selected.unsupportedReason}
-                </span>
-              )
-            }
-            return null
-          })()}
+          {(provider === 'gemma' || provider === 'anthropic') && (
+            <button
+              type="button"
+              className="chat-configure-link"
+              onClick={() => {
+                setGemmaModelIdDraft(gemmaModelId)
+                setCpuOnlyDraft(cpuOnly)
+                setThinkingDraft(thinking)
+                setShowModelOptionsModal(true)
+              }}
+            >
+              Configure
+            </button>
+          )}
         </div>
       </div>
 
@@ -1087,6 +1218,105 @@ const ChatPage = () => {
             </>
           }
           setShowModal={setShowConfigureModal}
+        />
+      )}
+
+      {showModelOptionsModal && (
+        <Modal
+          id="chat-model-options-modal"
+          showModal={showModelOptionsModal}
+          showHeader={true}
+          modalTitle={provider === 'gemma' ? 'Configure Local Gemma' : 'Configure Claude'}
+          modalSizeClass="modal-dialog-centered"
+          modalBody={
+            <div id="chat-model-options-form">
+              {provider === 'gemma' && (
+                <div className="chat-model-select-group">
+                  <label htmlFor="chat-gemma-model-select">
+                    <strong>Local model size</strong>
+                  </label>
+                  <p className="chat-toggle-hint">
+                    Smaller models reply faster but are less capable; larger models need more RAM
+                    but give better answers. Models greyed out below need more RAM than this
+                    machine has.
+                  </p>
+                  <select
+                    id="chat-gemma-model-select"
+                    value={gemmaModelIdDraft}
+                    onChange={(e) => setGemmaModelIdDraft(e.target.value)}
+                    disabled={isStreaming || isDownloading}
+                  >
+                    {availableModels.map((m) => {
+                      const sizeSuffix = m.sizeBytes ? ` — ${formatBytes(m.sizeBytes)}` : ''
+                      const unsupportedSuffix = m.supported === false ? ' (unsupported)' : ''
+                      return (
+                        <option
+                          key={m.id}
+                          value={m.id}
+                          disabled={m.supported === false}
+                          title={m.supported === false ? m.unsupportedReason || '' : ''}
+                        >
+                          {`${m.label}${sizeSuffix}${unsupportedSuffix}`}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  {(() => {
+                    const draftModel = availableModels.find((m) => m.id === gemmaModelIdDraft)
+                    if (!draftModel) return null
+                    return (
+                      <p className="chat-toggle-hint chat-model-select-description">
+                        {draftModel.description}
+                        {draftModel.supported === false && draftModel.unsupportedReason
+                          ? ` ${draftModel.unsupportedReason}.`
+                          : ''}
+                      </p>
+                    )
+                  })()}
+                </div>
+              )}
+              {provider === 'gemma' && isWindows && (
+                <label className="chat-toggle-control chat-toggle-control-modal">
+                  <span className="chat-toggle-control-row">
+                    <input
+                      type="checkbox"
+                      checked={cpuOnlyDraft}
+                      onChange={(e) => setCpuOnlyDraft(e.target.checked)}
+                      disabled={isStreaming || isDownloading}
+                    />
+                    <strong>CPU-only mode</strong>
+                  </span>
+                  <p className="chat-toggle-hint">
+                    Runs the model on CPU instead of GPU. Community benchmarks show this can be
+                    faster than the Adreno GPU backend on some Snapdragon X hardware.
+                  </p>
+                </label>
+              )}
+              {provider === 'anthropic' && (
+                <label className="chat-toggle-control chat-toggle-control-modal">
+                  <span className="chat-toggle-control-row">
+                    <input
+                      type="checkbox"
+                      checked={thinkingDraft}
+                      onChange={(e) => setThinkingDraft(e.target.checked)}
+                      disabled={isStreaming || isDownloading}
+                    />
+                    <strong>Thinking</strong>
+                  </span>
+                  <p className="chat-toggle-hint">
+                    Lets the model reason step-by-step before answering. Can improve accuracy on
+                    complex questions, but is slower and uses more tokens.
+                  </p>
+                </label>
+              )}
+            </div>
+          }
+          modalFooter={
+            <Button type="btn-primary" onClick={() => setShowModelOptionsModal(false)}>
+              Close
+            </Button>
+          }
+          setShowModal={setShowModelOptionsModal}
         />
       )}
 
@@ -1217,6 +1447,12 @@ const ChatPage = () => {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat-message chat-message-${m.role}`}>
+            {m.role === 'assistant' && m.reasoning && (
+              <details className="chat-reasoning">
+                <summary>Thinking</summary>
+                <div className="chat-reasoning-body">{m.reasoning}</div>
+              </details>
+            )}
             {m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0 && (
               <div className="chat-tool-calls">
                 {m.toolCalls.map((tc) => {

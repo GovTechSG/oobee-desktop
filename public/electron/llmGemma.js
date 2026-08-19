@@ -243,10 +243,19 @@ async function ensureModel(modelId, cpuOnly) {
 // (`<channel|>reasoning`, `<|tool_response>`, etc.) that llama-server should
 // consume server-side with `--jinja`. If any leak through we strip them here.
 // Kept across the node-llama-cpp → llama-server migration as belt-and-braces.
+//
+// Gemma 4 added a "thinking" mode with its own channel marker convention that
+// is asymmetric from the older style above: opener `<|channel>thought` (pipe
+// only on the left) vs. closer `<channel|>` (pipe only on the right) — see
+// the model card's "Thinking Mode Configuration" section. Neither side of
+// that pair matches the older `<\|channel\|>` (pipes on both sides) pattern,
+// so without this addition any leaked thinking markers would render as raw
+// text in the chat instead of being stripped.
 const GEMMA_TEMPLATE_TOKEN_RE = new RegExp(
   [
     '<channel\\|>[a-zA-Z_]*',
     '<\\|channel\\|>[a-zA-Z_]*',
+    '<\\|channel>[a-zA-Z_]*',
     '<\\|message\\|>',
     '<\\|start\\|>',
     '<\\|end\\|>',
@@ -468,6 +477,11 @@ async function streamGemmaChat({
   // First send: spin up (or reuse) the server, seed conversation state.
   const { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b', session.cpuOnly)
   if (!session.gemma) {
+    // Note: Gemma 4's documented `<|think|>` thinking-mode trigger was
+    // tried here and confirmed (via live testing, multiple hops, raw
+    // output sampling) to have NO effect on this model/llama-server combo
+    // — zero thinking-channel content was ever produced, so "Thinking" is
+    // Anthropic-only for now (see the UI toggle in ChatPage/index.jsx).
     session.gemma = { messages: [{ role: 'system', content: session.systemPrompt }] }
   }
 
@@ -489,7 +503,16 @@ async function streamGemmaChat({
     temperature: 0.7,
     top_p: 0.9,
     top_k: 40,
-    max_tokens: 2000,
+    // Was 2000 — field report: a hop hit finish_reason='length' at exactly
+    // 2000 completion_tokens while the visible answer was only one short
+    // sentence. Bumped to match the Anthropic path's max_tokens (4000) so
+    // ordinary detailed answers have real headroom instead of hitting a
+    // hard wall mid-explanation. (A "thinking" mode budget bump was tried
+    // here and reverted — see streamGemmaChat's session.gemma init comment;
+    // Gemma 4 E2B/E4B never produced any thinking-channel content via
+    // llama-server in live testing, so there's no reasoning pass to budget
+    // extra headroom for.)
+    max_tokens: 4000,
   }
 
   // OpenAI-style tool loop. Each iteration streams tokens for the current
@@ -784,6 +807,24 @@ async function streamGemmaChat({
     }
 
     // No tool call — this is the final assistant turn.
+    if (finishReason === 'length') {
+      // Hit max_tokens before the model naturally finished. Log the visible
+      // content length alongside completion_tokens so a large gap between
+      // them (like the field case that motivated this: completion_tokens=
+      // 2000 vs. a one-sentence visible answer) is easy to spot in the
+      // console — that gap points at hidden-channel content (e.g. Gemma 4
+      // "thinking") consuming the budget rather than genuine long output.
+      warn(
+        `hop ${hop + 1} hit max_tokens (finish_reason='length'): visible content=${content.length} chars vs completion budget=${samplingKnobs.max_tokens} tokens`,
+      )
+      // Shown to the user only — NOT appended to the persisted `content`
+      // that goes into session.gemma.messages, so the model's own history
+      // doesn't end up containing a note it never actually wrote (which
+      // could confuse it into thinking it authored that note in a later turn).
+      const cutoffNote =
+        '\n\n*(Response was cut short — reached the model’s output length limit. Try asking a more focused follow-up question.)*'
+      send('llmChat:chunk', { sessionId, text: cutoffNote })
+    }
     session.gemma.messages.push({ role: 'assistant', content })
     if (finishReason && finishReason !== 'stop' && finishReason !== 'length') {
       warn(`unexpected finish_reason: ${finishReason}`)
