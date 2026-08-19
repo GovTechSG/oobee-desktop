@@ -68,7 +68,7 @@
   }
 
   // Small inline "Configure" trigger next to the provider dropdown (only
-  // shown for the OpenAI Compatible LLM option). Styled with the same
+  // shown for the OpenAI Compatible Provider option). Styled with the same
   // purple used by the primary buttons/modal so it doesn't look like an
   // unstyled native button next to the themed dropdown.
   .chat-configure-link {
@@ -157,7 +157,7 @@
     font-size: 0.9rem;
   }
 
-  // "Configure OpenAI Compatible LLM" modal form. Was previously unstyled
+  // "Configure OpenAI Compatible Provider" modal form. Was previously unstyled
   // (bare label/input elements stacked with default browser spacing) —
   // laid out here as a consistent label-above-input stack matching the
   // rest of the chat page's form styling (rounded inputs, purple focus
@@ -984,6 +984,13 @@
     font-variant-numeric: tabular-nums;
     color: #6b7280;
     text-align: right;
+  }
+
+  // Persisted variant shown after a response finishes (see lastTurnStats in
+  // index.jsx) — same layout as the live indicator, slightly muted so it
+  // doesn't compete visually with the (currently disabled) composer.
+  .chat-stream-stats-final {
+    color: #9ca3af;
   }
 
   .chat-stream-status {
