@@ -41,17 +41,29 @@ function resolveLlamaBinaryDir(platform, arch) {
 // x64, once for arm64 — before merging the two into a single fat app via
 // @electron/universal. `packagerConfig.extraResource` below is evaluated
 // once at config-load time, so it always points at whichever TARGET_ARCH the
-// npm script happened to export (arm64) — that's correct for the arm64 pass
-// but wrong for the x64 pass, silently shipping an arm64 llama-server binary
-// inside the x64 half of the universal app.
+// npm script happened to export — correct for that pass but wrong for the
+// other, silently shipping the wrong arch's llama-server inside one half of
+// the universal app.
 //
-// Fix: after each pass copies extraResource, re-resolve the correct binary
-// for the pass's *actual* `arch` (passed in by the hook) and swap it in if it
-// doesn't match what got statically copied. `@electron/universal`'s
-// `x64ArchFiles: '*'` (below) then lipo-merges the two arch-correct
-// `llama-server` executables into one universal binary, so the OS picks the
-// right slice at runtime regardless of which Electron arch is running —
-// no changes needed in llamaServer.js's runtime resolution.
+// Fix, part 1: after each pass copies extraResource, re-resolve the correct
+// binary for the pass's *actual* `arch` (passed in by the hook) and swap it
+// in. `@electron/universal`'s `x64ArchFiles: '*'` (below) then lipo-merges
+// the two arch-correct `llama-server` executables into one universal binary.
+//
+// Fix, part 2 (darwin only): llama.cpp ships `libggml-metal.*.dylib` in the
+// arm64 archive but not x64 (Apple's Metal is Intel-Mac capable, but llama.cpp
+// only compiles a Metal backend for arm64). @electron/universal@2.x aborts
+// the merge with a "number of mach-o files is not the same" mismatch as soon
+// as the two per-arch trees have different file sets — and its `x64ArchFiles`
+// glob is checked *after* the strict set-equality guard, so it can't rescue
+// us here (v3's `singleArchFiles` could, but @electron/packager pins
+// `^2.0.1`). So each per-arch pass overlays the *other* arch's staged tree
+// as a base and then this arch's tree on top: shared libs come from the
+// current arch, each arch's unique files ride along on the other side as
+// unused sidecars. The Metal dylib on the x64 slice is never dlopened at
+// runtime (x64 llama-server isn't linked against libggml-metal), so it's
+// dead weight but harmless; identical bytes mean SHAs match and universal
+// treats it as an already-merged file (no lipo, no arch downgrade).
 function findStagedLlamaServerDir(root) {
   const stack = [root];
   while (stack.length) {
@@ -135,7 +147,59 @@ module.exports = {
       (stagingPath, electronVersion, platform, arch, callback) => {
         try {
           const correctDir = resolveLlamaBinaryDir(platform, arch);
-          if (path.resolve(correctDir) !== path.resolve(llamaBinaryDir)) {
+          const isDarwinUniversalPass =
+            platform === 'darwin' && (normalizeArch(arch) === 'x64' || normalizeArch(arch) === 'arm64');
+
+          if (isDarwinUniversalPass) {
+            // Rebuild the staged tree so each darwin slice ends up with the
+            // same file set (see the module-level comment above). First copy
+            // the current arch's tree fresh, then top up with any file the
+            // other arch has that this one doesn't (the arm64 libggml-metal
+            // chain). Done as a two-step "correct-arch first, then sidecar"
+            // rather than a single overlay because Node's fs.cpSync throws
+            // EEXIST when verbatimSymlinks:true is combined with an existing
+            // destination directory — but the sidecar entries we want to
+            // add never overlap with correctDir by construction, so we can
+            // walk the other arch and copy the missing entries manually
+            // (preserving symlink targets verbatim via readlink/symlink).
+            const otherArch = normalizeArch(arch) === 'x64' ? 'arm64' : 'x64';
+            const otherDir = resolveLlamaBinaryDir('darwin', otherArch);
+            const stagedDir = findStagedLlamaServerDir(stagingPath);
+            if (!stagedDir) {
+              console.warn(
+                `[forge.config] could not locate staged llama-server dir under ${stagingPath} to fix up for darwin-${arch}`
+              );
+            } else {
+              fs.rmSync(stagedDir, { recursive: true, force: true });
+              fs.cpSync(correctDir, stagedDir, { recursive: true, verbatimSymlinks: true });
+              let sidecarCount = 0;
+              if (fs.existsSync(otherDir)) {
+                const owned = new Set(fs.readdirSync(correctDir));
+                for (const entry of fs.readdirSync(otherDir, { withFileTypes: true })) {
+                  if (owned.has(entry.name)) continue;
+                  const src = path.join(otherDir, entry.name);
+                  const dst = path.join(stagedDir, entry.name);
+                  if (entry.isSymbolicLink()) {
+                    fs.symlinkSync(fs.readlinkSync(src), dst);
+                  } else if (entry.isDirectory()) {
+                    fs.cpSync(src, dst, { recursive: true, verbatimSymlinks: true });
+                  } else {
+                    fs.copyFileSync(src, dst);
+                  }
+                  sidecarCount++;
+                }
+              } else {
+                console.warn(
+                  `[forge.config] darwin-${otherArch} llama-server not found at ${otherDir} — ` +
+                    'universal file-set check will likely fail. ' +
+                    `Run: cross-env TARGET_PLATFORM=darwin TARGET_ARCH=${otherArch} node scripts/fetch-llama-binaries.js`
+                );
+              }
+              console.log(
+                `[forge.config] staged darwin-${arch} llama-server + ${sidecarCount} sidecar entries from ${otherArch}`
+              );
+            }
+          } else if (path.resolve(correctDir) !== path.resolve(llamaBinaryDir)) {
             const stagedDir = findStagedLlamaServerDir(stagingPath);
             if (!stagedDir) {
               console.warn(
@@ -143,12 +207,6 @@ module.exports = {
               );
             } else {
               fs.rmSync(stagedDir, { recursive: true, force: true });
-              // verbatimSymlinks: true keeps the tarball's sibling-relative
-              // symlinks (`libggml.dylib -> libggml.0.dylib`) intact. Without
-              // it, Node rewrites relative targets against the source path,
-              // producing links that escape the .app bundle — which trips
-              // @electron/universal's mach-o walker during the universal
-              // stitch (the "number of mach-o files" mismatch).
               fs.cpSync(correctDir, stagedDir, { recursive: true, verbatimSymlinks: true });
               console.log(`[forge.config] swapped in ${platform}-${arch} llama-server binary for this packaging pass`);
             }
