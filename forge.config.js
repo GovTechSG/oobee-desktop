@@ -40,15 +40,11 @@ const targetPlatform = process.env.TARGET_PLATFORM || process.platform;
 const targetArch = normalizeArch(process.env.TARGET_ARCH || process.env.npm_config_arch || os.arch());
 const llamaBinaryDir = resolveLlamaBinaryDir(targetPlatform, targetArch);
 
-// PRE_RELEASE builds swap the purple app icon for a grey one so QA and staged
-// installs are visually distinguishable from the shipped app. The grey icons
-// are generated on-the-fly by scripts/generate-prerelease-icons.js (invoked
-// from the make-* npm scripts) into .cache/prerelease-icons/.
+// PRE_RELEASE builds swap the purple app icon for a pre-generated grey one so
+// QA and staged installs are visually distinguishable from the shipped app.
 const preReleaseFlag = String(process.env.PRE_RELEASE || '').toLowerCase();
 const isPreRelease = preReleaseFlag === '1' || preReleaseFlag === 'true' || preReleaseFlag === 'yes';
-const iconBaseName = isPreRelease
-  ? path.join('.cache', 'prerelease-icons', 'oobee-logo')
-  : 'public/oobee-logo';
+const iconBaseName = isPreRelease ? 'public/oobee-logo-prerelease' : 'public/oobee-logo';
 
 module.exports = {
   packagerConfig: {
