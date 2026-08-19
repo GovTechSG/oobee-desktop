@@ -243,6 +243,33 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
     return regexForFilepath.test(input)
   }
 
+  // "Choose report folder" — lets a user jump straight into LLM chat against
+  // a previously-generated LLM analysis report, skipping a fresh scan
+  // entirely. Only folders containing the LLM analysis JSON artifacts
+  // (produced by a prior 'LLM analysis' scan) are accepted; the main
+  // process validates this and mints a fresh scanId for the chosen folder.
+  const chooseExistingReportForChat = async () => {
+    try {
+      const folderPath = await window.services.selectFile({
+        properties: ['openDirectory'],
+      })
+      if (!folderPath) return // user cancelled the folder picker
+
+      const result = await window.services.registerExistingReportFolder(folderPath)
+      if (!result || !result.success) {
+        setPrevUrlErrorMessage(
+          (result && result.error) || 'Unable to use the selected folder.'
+        )
+        return
+      }
+
+      setCompletedScanId(result.scanId)
+      navigate('/llm_chat', { state: { scanId: result.scanId } })
+    } catch (error) {
+      setPrevUrlErrorMessage('Unable to use the selected folder.')
+    }
+  }
+
   const startScan = async (scanDetails) => {
     scanDetails.browser = browser
     const timeOfScan = new Date()
@@ -268,7 +295,10 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         setPrevUrlErrorMessage('File is not a local html or sitemap file.')
         return
       }
-    } else if (scanDetails.scanType === 'Custom flow') {
+    } else if (
+      scanDetails.scanType === 'Custom flow' ||
+      scanDetails.scanType === 'LLM analysis'
+    ) {
       if (
         !isValidHttpUrl(scanDetails.scanUrl) &&
         !isValidFilepath(scanDetails.scanUrl)
@@ -396,6 +426,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             setScanButtonIsClicked={setScanButtonIsClicked}
             isAbortingScan={isAbortingScan}
             llmAnalysisEnabled={llmAnalysisEnabled}
+            onChooseExistingReport={chooseExistingReportForChat}
           />
         </div>
         {showBasicAuthModal && (
