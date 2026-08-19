@@ -889,6 +889,11 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
       name,
       status: 'done',
       summary: `screenshot: ${result.pageUrl} (${result.viewport})`,
+      result: JSON.stringify(
+        { pageUrl: result.pageUrl, viewport: result.viewport, note: 'image attached to conversation' },
+        null,
+        2,
+      ),
     })
     return JSON.stringify({
       pageUrl: result.pageUrl,
@@ -912,24 +917,28 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
         dataUri: `data:${att.mediaType};base64,${att.base64}`,
       })
     }
+    const prettyPayload = JSON.stringify(result.payload, null, 2)
     send('llmChat:toolCall', {
       sessionId,
       id,
       name,
       status: 'done',
       summary: `${result.__attachments.length} screenshot(s) attached`,
+      result: prettyPayload.length > 40_000 ? prettyPayload.slice(0, 40_000) + '\n…[truncated]' : prettyPayload,
     })
     const payload = JSON.stringify(result.payload)
     return truncateToolResult(payload)
   }
 
   const text = typeof result === 'string' ? result : JSON.stringify(result)
+  const pretty = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
   send('llmChat:toolCall', {
     sessionId,
     id,
     name,
     status: 'done',
     summary: `${name} returned ${text.length} bytes`,
+    result: pretty.length > 40_000 ? pretty.slice(0, 40_000) + '\n…[truncated]' : pretty,
   })
   return truncateToolResult(text)
 }
