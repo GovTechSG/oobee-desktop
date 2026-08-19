@@ -33,14 +33,34 @@ const startScan = async (scanDetails) => {
     scanMetadata,
     customChecks,
     wcagAaa,
+    customFlowFirst,
   } = scanDetails
 
   currentScanUrl = scanUrl
   currentScanType = selectedScanType
 
-  // LLM analysis is a single-page website crawl whose JSON output feeds the chat UI.
+  // LLM analysis keeps the UI-level scanType as 'LLM analysis' (so post-scan
+  // navigation routes to /llm_chat) but the CLI-level `-c` flag depends on
+  // the input mode — the CLI can't handle a file:// URL under `-c website`
+  // (it treats it as a relative path and stats
+  // `<cwd>/file:/<abs-path>`, errors with ENOENT, exits with the
+  // systemError code). Map each mode to its CLI value explicitly:
+  //   • customFlowFirst        → `custom`   (interactive browser recording)
+  //   • file:// URL            → `localfile`
+  //   • otherwise              → `website`  (single-page crawl)
+  // In every branch the LLM env-var bundle below (saveDom /
+  // savePageScreenshot / saveComputedStyles / htmlMaxBytes / parentHtmlDepth
+  // / isLLMAnalysis) still applies via the isLLMAnalysis check, so the
+  // captured pages come through with everything the chat UI needs.
   const isLLMAnalysis = selectedScanType === 'LLM analysis'
-  const resolvedScanType = isLLMAnalysis ? 'website' : scanTypes[selectedScanType]
+  const isFileUrl = typeof scanUrl === 'string' && /^file:/i.test(scanUrl.trim())
+  const resolvedScanType = isLLMAnalysis
+    ? customFlowFirst
+      ? 'custom'
+      : isFileUrl
+        ? 'localfile'
+        : 'website'
+    : scanTypes[selectedScanType]
 
   const scanArgs = {
     scanType: resolvedScanType,
