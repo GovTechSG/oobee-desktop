@@ -148,6 +148,8 @@ contextBridge.exposeInMainWorld("services", {
       const filePath = await ipcRenderer.invoke("selectFile", options);
       return filePath;
     },
+    registerExistingReportFolder: async (folderPath) =>
+      ipcRenderer.invoke("registerExistingReportFolder", folderPath),
     getIsWindows: async () => ipcRenderer.invoke("isWindows"),
     checkNeedsElevation: async () => ipcRenderer.invoke("checkNeedsElevation"),
     getProxySettings: async () => ipcRenderer.invoke("getProxySettings"),
