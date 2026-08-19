@@ -1,7 +1,7 @@
 {
   "name": "purplea11ydesktop",
   "productName": "Oobee",
-  "version": "0.11.9",
+  "version": "0.11.13",
   "private": true,
   "author": "Government Technology Agency <info@tech.gov.sg>",
   "dependencies": {
@@ -9,7 +9,7 @@
     "axios": "^1.18.0",
     "fs-extra": "^11.1.1",
     "marked": "^18.0.4",
-    "node": "^21.2.0",
+    "node": "^24.19.0",
     "pako": "^2.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -31,7 +31,8 @@
     "make": "react-scripts build && electron-forge make",
     "make-mac": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && react-scripts build && electron-forge make --arch=universal --platform darwin",
     "make-mac-arm64-only": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && react-scripts build && electron-forge make --arch=arm64 --platform darwin",
-    "make-win": "react-scripts build && electron-forge make --arch=x64 --platform win32"
+    "make-win": "react-scripts build && electron-forge make --arch=x64 --platform win32",
+    "make-win-arm64": "react-scripts build && electron-forge make --arch=arm64 --platform win32"
   },
   "config": {
     "forge": "forge.config.js"
@@ -64,7 +65,7 @@
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.3.3",
-    "electron": "^39.8.5",
+    "electron": "^43.0.0",
     "playwright": "^1.55.1",
     "react-scripts": "^5.0.1"
   },
