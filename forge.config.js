@@ -40,9 +40,19 @@ const targetPlatform = process.env.TARGET_PLATFORM || process.platform;
 const targetArch = normalizeArch(process.env.TARGET_ARCH || process.env.npm_config_arch || os.arch());
 const llamaBinaryDir = resolveLlamaBinaryDir(targetPlatform, targetArch);
 
+// PRE_RELEASE builds swap the purple app icon for a grey one so QA and staged
+// installs are visually distinguishable from the shipped app. The grey icons
+// are generated on-the-fly by scripts/generate-prerelease-icons.js (invoked
+// from the make-* npm scripts) into .cache/prerelease-icons/.
+const preReleaseFlag = String(process.env.PRE_RELEASE || '').toLowerCase();
+const isPreRelease = preReleaseFlag === '1' || preReleaseFlag === 'true' || preReleaseFlag === 'yes';
+const iconBaseName = isPreRelease
+  ? path.join('.cache', 'prerelease-icons', 'oobee-logo')
+  : 'public/oobee-logo';
+
 module.exports = {
   packagerConfig: {
-    icon: 'public/oobee-logo',
+    icon: iconBaseName,
     // Declares the `oobee://` URL scheme in macOS Info.plist so Launch
     // Services routes browser clicks (`oobee://unlock-llm/<uuid>`) into
     // the running app. Windows/Linux use runtime registration in main.js.
