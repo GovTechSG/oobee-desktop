@@ -1053,14 +1053,22 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
 
   const body = {
     model: cfg.model,
-    max_tokens: 4000,
+    // Extended thinking requires max_tokens to comfortably exceed the
+    // thinking budget_tokens below, on top of the actual answer length —
+    // give it real headroom instead of the plain 4000 baseline.
+    max_tokens: session.thinking ? 8000 : 4000,
     // Triage is analytical + citation-grounded, not creative writing. The
     // Anthropic default of 1.0 encourages exploration but also over-
     // prescription and fabricated details. 0.4 keeps enough variety to
     // enumerate alternative fixes while cutting drift on class names,
     // WCAG citations, and numeric thresholds. Anthropic recommends
     // temperature XOR top_p — leave top_p unset.
-    temperature: 0.4,
+    //
+    // Extended thinking is an exception: Anthropic's API requires
+    // temperature=1 (the only supported value) whenever `thinking` is
+    // enabled, and disallows top_p/top_k entirely — so we skip our usual
+    // 0.4 override in that case.
+    temperature: session.thinking ? 1 : 0.4,
     system: [
       {
         type: 'text',
@@ -1071,6 +1079,11 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
     messages,
     tools: TOOL_SCHEMAS,
     stream: true,
+    // Anthropic's extended thinking: model reasons step-by-step in a
+    // separate `thinking` content block (streamed via thinking_delta below)
+    // before producing its final answer. budget_tokens is the reasoning
+    // token allowance, distinct from max_tokens (the overall cap).
+    ...(session.thinking ? { thinking: { type: 'enabled', budget_tokens: 4096 } } : {}),
   }
 
   const resp = await axios.post(`${cfg.baseURL}/messages`, body, {
@@ -1142,6 +1155,17 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
               _inputJson: '',
             }
             send('llmChat:toolCall', { sessionId, name: cb.name, id: cb.id, status: 'start' })
+          } else if (cb.type === 'thinking') {
+            // Extended thinking block — streamed separately from the answer
+            // via thinking_delta/signature_delta below. The signature must
+            // be preserved verbatim when this block is replayed back to the
+            // API in a later turn (tool-use continuations), so we keep it
+            // on the block rather than discarding it.
+            blocks[idx] = { type: 'thinking', thinking: '', signature: '' }
+          } else if (cb.type === 'redacted_thinking') {
+            // Opaque (encrypted) thinking block — no text to stream, must be
+            // passed back to the API unmodified on later turns.
+            blocks[idx] = { type: 'redacted_thinking', data: cb.data }
           }
           break
         }
@@ -1154,6 +1178,11 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
             send('llmChat:chunk', { sessionId, text: delta.text })
           } else if (delta.type === 'input_json_delta') {
             blocks[idx]._inputJson = (blocks[idx]._inputJson || '') + (delta.partial_json || '')
+          } else if (delta.type === 'thinking_delta') {
+            blocks[idx].thinking += delta.thinking || ''
+            send('llmChat:thinking', { sessionId, text: delta.thinking || '' })
+          } else if (delta.type === 'signature_delta') {
+            blocks[idx].signature = (blocks[idx].signature || '') + (delta.signature || '')
           }
           break
         }
@@ -1428,7 +1457,7 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly }) => {
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly, thinking }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!scanId) throw new Error('Missing scanId')
@@ -1487,6 +1516,13 @@ function init({ mainWindow, getResultsFolderPath }) {
         provider: chosenProvider,
         modelId: chosenModelId,
         cpuOnly: !!cpuOnly,
+        // Opt-in step-by-step reasoning. Meaningful for both providers but
+        // via completely different mechanisms — Anthropic's native `thinking`
+        // API param (see streamAnthropicTurn) vs. Gemma's `<|think|>` system-
+        // prompt trigger + channel-tag parsing (see llmGemma.js). Ignored by
+        // the generic openai-compatible provider, which has no reliable way
+        // to know what the target server supports.
+        thinking: !!thinking,
         customConfig,
         storagePath,
         artifacts,
@@ -1498,7 +1534,7 @@ function init({ mainWindow, getResultsFolderPath }) {
         openai: null,
         abort: null,
       })
-      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}`)
+      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}${thinking ? ' (thinking enabled)' : ''}`)
       return { ok: true, summary, provider: chosenProvider, modelId: chosenModelId }
     } catch (e) {
       warn(`start failed: ${e.message}`)

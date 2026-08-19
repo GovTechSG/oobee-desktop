@@ -67,6 +67,110 @@
     }
   }
 
+  // CPU-only mode / Thinking mode toggles — live inside the "Configure"
+  // modal for Gemma/Anthropic (see #chat-model-options-form below). Changes
+  // are held as draft state and only applied (clearing the conversation +
+  // restarting the session) when the modal closes, not on every click.
+  .chat-toggle-control {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: #374151;
+    cursor: pointer;
+    user-select: none;
+
+    input[type='checkbox'] {
+      accent-color: #7c3aed;
+      cursor: pointer;
+    }
+    &:has(input:disabled) {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  #chat-model-options-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+
+    // Modal variant: checkbox + bold title sit on one row (vertically
+    // centered, so the text doesn't look "recessed" below the checkbox),
+    // with the hint paragraph on its own row below, indented to line up
+    // under the title text rather than under the checkbox.
+    .chat-toggle-control-modal {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.3rem;
+
+      .chat-toggle-control-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      strong {
+        font-size: 0.85rem;
+        color: #111827;
+      }
+    }
+    .chat-toggle-hint {
+      margin: 0 0 0 1.6rem;
+      font-size: 0.78rem;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+
+    // Gemma model-size <select> — not a checkbox row, so its hint text
+    // isn't indented under a checkbox like .chat-toggle-hint normally is.
+    .chat-model-select-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+
+      label strong {
+        font-size: 0.85rem;
+        color: #111827;
+      }
+      > .chat-toggle-hint {
+        margin-left: 0;
+        margin-bottom: 0.5rem;
+      }
+      select {
+        appearance: none;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.4rem 1.75rem 0.4rem 0.6rem;
+        font: inherit;
+        font-size: 0.85rem;
+        color: #111827;
+        background-color: #fff;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M5 6 0 0h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.6rem center;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        cursor: pointer;
+
+        &:focus-visible {
+          outline: 2px solid #7c3aed;
+          outline-offset: 1px;
+        }
+        &:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        option:disabled {
+          color: #9ca3af;
+        }
+      }
+      .chat-model-select-description {
+        margin-left: 0;
+        font-style: italic;
+      }
+    }
+  }
+
   // Small inline "Configure" trigger next to the provider dropdown (only
   // shown for the OpenAI Compatible Provider option). Styled with the same
   // purple used by the primary buttons/modal so it doesn't look like an
@@ -717,6 +821,51 @@
       }
     }
 
+    // Collapsible "Thinking" panel — Gemma's channel-tag reasoning or
+    // Anthropic's extended-thinking blocks (see onLlmChatThinking in
+    // index.jsx). Styled distinctly from tool calls (muted/italic) since
+    // it's exploratory reasoning, not a discrete action.
+    .chat-reasoning {
+      margin-bottom: 0.35rem;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 6px;
+      background: rgba(124, 58, 237, 0.04);
+      font-size: 0.78rem;
+
+      > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 0.3rem 0.6rem;
+        color: #6d28d9;
+        font-weight: 600;
+        user-select: none;
+
+        &::-webkit-details-marker {
+          display: none;
+        }
+        &::before {
+          content: '▸';
+          display: inline-block;
+          margin-right: 0.35rem;
+          font-size: 0.7rem;
+          transition: transform 0.15s ease;
+        }
+      }
+      &[open] > summary::before {
+        transform: rotate(90deg);
+      }
+
+      .chat-reasoning-body {
+        border-top: 1px solid rgba(0, 0, 0, 0.06);
+        padding: 0.4rem 0.6rem 0.5rem;
+        color: #4b5563;
+        font-style: italic;
+        white-space: pre-wrap;
+        max-height: 16rem;
+        overflow-y: auto;
+      }
+    }
+
     .chat-tool-calls {
       display: flex;
       flex-direction: column;
@@ -724,7 +873,6 @@
       margin-bottom: 0.35rem;
       font-size: 0.75rem;
       color: #6b7280;
-
       .chat-tool-call {
         border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 6px;
