@@ -67,6 +67,37 @@
     }
   }
 
+  // Small inline "Configure" trigger next to the provider dropdown (only
+  // shown for the OpenAI Compatible LLM option). Styled with the same
+  // purple used by the primary buttons/modal so it doesn't look like an
+  // unstyled native button next to the themed dropdown.
+  .chat-configure-link {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #7c3aed;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+
+    &:hover {
+      color: #6d28d9;
+    }
+    &:focus-visible {
+      outline: 2px solid #7c3aed;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
   .chat-model-download {
     background: #f5f3ff;
     border: 1px solid #ddd6fe;
@@ -124,6 +155,79 @@
     padding: 0.75rem 1rem;
     margin-bottom: 0.75rem;
     font-size: 0.9rem;
+  }
+
+  // "Configure OpenAI Compatible LLM" modal form. Was previously unstyled
+  // (bare label/input elements stacked with default browser spacing) —
+  // laid out here as a consistent label-above-input stack matching the
+  // rest of the chat page's form styling (rounded inputs, purple focus
+  // ring, uniform vertical rhythm).
+  #chat-configure-form {
+    display: flex;
+    flex-direction: column;
+
+    .chat-configure-hint {
+      margin: 0 0 1rem;
+      color: #4b5563;
+      font-size: 0.85rem;
+      line-height: 1.45;
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #ede9fe;
+        color: #5b21b6;
+        padding: 0 0.25rem;
+        border-radius: 3px;
+        font-size: 0.85em;
+      }
+    }
+
+    label {
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #6b7280;
+      margin: 0 0 0.3rem;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.7rem;
+      margin: 0 0 1rem;
+      font: inherit;
+      font-size: 0.9rem;
+      color: #111827;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+      &::placeholder {
+        color: #9ca3af;
+      }
+      &:focus {
+        outline: none;
+        border-color: #7c3aed;
+        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+      }
+      &:last-of-type {
+        margin-bottom: 0;
+      }
+    }
+
+    .chat-configure-security-note {
+      margin: 0.25rem 0 0;
+      color: #6b7280;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .chat-error-banner {
+      margin-top: 1rem;
+      margin-bottom: 0;
+    }
   }
 
   .summary-card {
