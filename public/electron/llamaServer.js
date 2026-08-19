@@ -187,7 +187,8 @@ function sameConfig(a, b) {
   return (
     a.modelPath === b.modelPath &&
     (a.mmprojPath || null) === (b.mmprojPath || null) &&
-    a.contextSize === b.contextSize
+    a.contextSize === b.contextSize &&
+    !!a.cpuOnly === !!b.cpuOnly
   )
 }
 
@@ -196,6 +197,24 @@ function sameConfig(a, b) {
 // cache to halve decode bandwidth, all layers on GPU. `--jinja` is default
 // on in recent llama-server builds so the Gemma chat template baked into the
 // GGUF is used automatically.
+//
+// `-fa off` was tried (2026-08-19) to test a hypothesis that flash attention
+// was forcing prompt processing (prefill) to fall back to CPU on win32-arm64
+// (Adreno OpenCL) -- field data showed prefill at 0% GPU / 80% CPU vs decode
+// at 53% GPU / 80% CPU, and a warmup warning ("flash attention is enabled /
+// please report this on github as an issue",
+// https://github.com/ggml-org/llama.cpp/pull/16837#issuecomment-3461676118)
+// suggested a rough edge on this backend. Result: `-fa off` made llama-server
+// fail to create the context outright (`failed to create context with
+// model...`, exit code 1) -- reverted immediately. Root cause: quantized KV
+// cache (`-ctk q8_0 -ctv q8_0` below) is only implemented via the
+// flash-attention kernel path in this llama.cpp build; disabling `-fa` while
+// keeping quantized KV types is an unsupported combination, not just a
+// slower one. `-fa` is therefore a hard requirement here, not an
+// independently-toggleable lever -- the 0%-GPU-during-prefill question
+// remains open and would need `-ctk/-ctv f16` (full KV cache, more memory)
+// to test flash-attention on/off in isolation, which is a separate
+// memory/quality tradeoff of its own.
 //
 // KV-cache / slot-reuse tuning (`-np 1`, `--cache-reuse`): llama-server
 // already has a per-slot prompt cache keyed on longest-common-prefix (LCP)
@@ -222,7 +241,7 @@ function sameConfig(a, b) {
 // headroom math in `pickContextSize()` was already calibrated against
 // effectively single-slot memory usage; `-np 1` mainly removes the LCP
 // slot-selection ambiguity, it isn't a meaningful memory win on its own.
-function buildArgs({ modelPath, mmprojPath, contextSize, port }) {
+function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
   const argv = [
     '-m', modelPath,
     '-c', String(contextSize),
@@ -230,7 +249,13 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port }) {
     '-fa', 'on',
     '-ctk', 'q8_0',
     '-ctv', 'q8_0',
-    '-ngl', '999',
+    // CPU-only mode (user-selected "(CPU-only mode)" model option, Windows
+    // only): -ngl 0 keeps every layer on CPU instead of the GPU backend.
+    // Community benchmarking (ggml-org/llama.cpp discussion #8273) found
+    // llama.cpp's ARM-optimized CPU kernels frequently match or beat the
+    // Adreno OpenCL backend on Snapdragon X hardware for standard Q4_0
+    // models, so this is a real alternative, not just a fallback.
+    '-ngl', cpuOnly ? '0' : '999',
     '-np', '1',
     '--cache-reuse', '256',
     '--jinja',
@@ -243,12 +268,12 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port }) {
   return argv
 }
 
-async function ensure({ modelPath, mmprojPath, contextSize }) {
+async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
   if (!modelPath) throw new Error('llamaServer.ensure requires modelPath')
   if (!fs.existsSync(modelPath)) throw new Error(`model not found: ${modelPath}`)
   if (mmprojPath && !fs.existsSync(mmprojPath)) throw new Error(`mmproj not found: ${mmprojPath}`)
 
-  const config = { modelPath, mmprojPath: mmprojPath || null, contextSize }
+  const config = { modelPath, mmprojPath: mmprojPath || null, contextSize, cpuOnly: !!cpuOnly }
   if (current && sameConfig(current.config, config)) {
     return { baseUrl: current.baseUrl }
   }
