@@ -135,19 +135,44 @@ module.exports = {
       (stagingPath, electronVersion, platform, arch, callback) => {
         try {
           const correctDir = resolveLlamaBinaryDir(platform, arch);
-          if (path.resolve(correctDir) === path.resolve(llamaBinaryDir)) {
-            return callback();
+          if (path.resolve(correctDir) !== path.resolve(llamaBinaryDir)) {
+            const stagedDir = findStagedLlamaServerDir(stagingPath);
+            if (!stagedDir) {
+              console.warn(
+                `[forge.config] could not locate staged llama-server dir under ${stagingPath} to fix up for ${platform}-${arch}`
+              );
+            } else {
+              fs.rmSync(stagedDir, { recursive: true, force: true });
+              fs.cpSync(correctDir, stagedDir, { recursive: true });
+              console.log(`[forge.config] swapped in ${platform}-${arch} llama-server binary for this packaging pass`);
+            }
           }
-          const stagedDir = findStagedLlamaServerDir(stagingPath);
-          if (!stagedDir) {
-            console.warn(
-              `[forge.config] could not locate staged llama-server dir under ${stagingPath} to fix up for ${platform}-${arch}`
-            );
-            return callback();
+
+          // Windows x64 builds run natively on x64 hardware, but also run
+          // under Prism/WOW64 emulation on real ARM64 hardware — where the
+          // emulated x64 binary works but loses out on native performance.
+          // Bundle the arm64 binary too, as a sibling `llama-server-arm64`
+          // folder, so llamaServer.js can detect real ARM64 hardware at
+          // runtime (PROCESSOR_ARCHITEW6432) and prefer the native binary.
+          if (platform === 'win32' && normalizeArch(arch) === 'x64') {
+            const arm64Dir = resolveLlamaBinaryDir('win32', 'arm64');
+            if (fs.existsSync(arm64Dir)) {
+              const stagedDir = findStagedLlamaServerDir(stagingPath);
+              if (stagedDir) {
+                const arm64Dest = path.join(path.dirname(stagedDir), 'llama-server-arm64');
+                fs.rmSync(arm64Dest, { recursive: true, force: true });
+                fs.cpSync(arm64Dir, arm64Dest, { recursive: true });
+                console.log('[forge.config] bundled win32-arm64 llama-server alongside x64 for Prism-emulation fallback');
+              }
+            } else {
+              console.warn(
+                `[forge.config] win32-arm64 llama-server binary not found at ${arm64Dir} — ` +
+                  'ARM64 hardware running this x64 build will fall back to emulated x64. ' +
+                  'Run: node scripts/fetch-llama-binaries.js --target win32-arm64'
+              );
+            }
           }
-          fs.rmSync(stagedDir, { recursive: true, force: true });
-          fs.cpSync(correctDir, stagedDir, { recursive: true });
-          console.log(`[forge.config] swapped in ${platform}-${arch} llama-server binary for this packaging pass`);
+
           callback();
         } catch (err) {
           callback(err);
