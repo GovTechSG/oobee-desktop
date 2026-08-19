@@ -339,20 +339,30 @@ const InitScanForm = ({
     }
   }
 
-  // 'LLM analysis' always resolves to a single-page website crawl
-  // server-side (see services.js) regardless of URL vs local-file input, so
-  // unlike the other scan types, switching input mode here never needs to
-  // change displayScanType/advancedOptions.scanType — it stays 'LLM
-  // analysis' the whole time.
+  // All three options keep the UI-level scanType as 'LLM analysis' so
+  // post-scan navigation routes to /llm_chat. `customFlowFirst` is the
+  // marker that tells services.js to flip the CLI-level `-c` flag to
+  // `custom` (interactive browser recording) while keeping the LLM env-var
+  // bundle applied. Cleared when the user picks a non-flow option so state
+  // doesn't leak between selections.
   const chooseUrlInputMode = () => {
     setIsFileOptionChecked(false)
     setScanUrl(staticHttpUrl)
+    setAdvancedOptions((prev) => ({ ...prev, customFlowFirst: false }))
     setShowInputModeModal(false)
   }
 
   const chooseLocalFileInputMode = () => {
     setIsFileOptionChecked(true)
     setScanUrl(staticFilePath)
+    setAdvancedOptions((prev) => ({ ...prev, customFlowFirst: false }))
+    setShowInputModeModal(false)
+  }
+
+  const chooseCustomFlowInputMode = () => {
+    setIsFileOptionChecked(false)
+    setScanUrl(staticHttpUrl)
+    setAdvancedOptions((prev) => ({ ...prev, customFlowFirst: true }))
     setShowInputModeModal(false)
   }
 
@@ -393,7 +403,12 @@ const InitScanForm = ({
                 aria-describedby="toggle-url-file-tooltip"
                 ref={toggleUrlFileRef}
               >
-                {isFileOptionChecked ? 'FILE' : 'URL'}
+                {isFileOptionChecked
+                  ? 'FILE'
+                  : advancedOptions.scanType === SCAN_TYPE.LLM_ANALYSIS &&
+                    advancedOptions.customFlowFirst
+                    ? 'CUSTOM'
+                    : 'URL'}
               </button>
               <ToolTip
                 description={
@@ -577,10 +592,21 @@ const InitScanForm = ({
               <button
                 type="button"
                 className="btn-secondary modal-full-button llm-input-mode-option"
+                onClick={chooseCustomFlowInputMode}
+              >
+                <strong>Custom flow</strong>
+                <span>
+                  Record a navigation flow (login, multi-step form, etc.) before
+                  running the LLM analysis on the captured pages.
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary modal-full-button llm-input-mode-option"
                 onClick={chooseLocalFileInputMode}
               >
                 <strong>Local file</strong>
-                <span>Choose an HTML or PDF file on this computer to scan.</span>
+                <span>Choose an HTML file for this scan.</span>
               </button>
             </div>
           }
