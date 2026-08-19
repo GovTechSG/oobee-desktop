@@ -1,8 +1,14 @@
 const os = require("os");
 
+// PRE_RELEASE builds swap the purple app icon for a pre-generated grey one so
+// QA and staged installs are visually distinguishable from the shipped app.
+const preReleaseFlag = String(process.env.PRE_RELEASE || '').toLowerCase();
+const isPreRelease = preReleaseFlag === '1' || preReleaseFlag === 'true' || preReleaseFlag === 'yes';
+const iconBaseName = isPreRelease ? 'public/oobee-logo-prerelease' : 'public/oobee-logo';
+
 module.exports = {
   packagerConfig: {
-    icon: 'public/oobee-logo',
+    icon: iconBaseName,
     osxUniversal: { // config options for `@electron/universal`
       x64ArchFiles: "*" // replace with any relevant glob pattern
     },
