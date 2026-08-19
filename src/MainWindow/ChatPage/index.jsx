@@ -1391,8 +1391,8 @@ const ChatPage = () => {
             Download {availableModels.find((m) => m.id === chosenModelId)?.label || 'Gemma model'}
           </h2>
           <p>
-            The local model runs entirely on your machine — no data leaves this device. First-time
-            download is{' '}
+            This model runs entirely on your device. Keep in mind that response times will depend
+            on your hardware. First-time download is{' '}
             {modelStatus?.expectedBytes
               ? formatBytes(modelStatus.expectedBytes)
               : 'a few GB'}{' '}

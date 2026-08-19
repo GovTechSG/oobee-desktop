@@ -176,7 +176,16 @@ async function listModels() {
       sizeBytes: 0,
       expectedBytes: m.totalBytes,
     }))
-    const supported = totalGb >= m.minRamGb * 0.9
+    // Strict check against minRamGb (no fudge factor): os.totalmem() on
+    // Windows already reports somewhat less than the nominal/marketed RAM
+    // (memory reserved for firmware/hardware is excluded), so a "16 GB"
+    // laptop typically reports ~15.x GB here. A previous `* 0.9` fudge
+    // factor compensated for that so hard, it let 12B (minRamGb: 16) show
+    // as supported on exactly-16GB machines — the opposite of the intended
+    // "needs 16+ GB" gate. Keep this strict; the natural under-reporting
+    // already accounts for the same headroom the fudge factor was meant to
+    // provide.
+    const supported = totalGb >= m.minRamGb
     out.push({
       id: m.id,
       label: m.label,
