@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import Button from '../../common/components/Button'
 import AdvancedScanOptions from './AdvancedScanOptions'
+import Modal from '../../common/components/Modal'
 import {
   scanTypes,
   viewportTypes,
@@ -53,6 +54,7 @@ const InitScanForm = ({
   setScanButtonIsClicked,
   isAbortingScan,
   llmAnalysisEnabled,
+  onChooseExistingReport,
 }) => {
   const [openPageLimitAdjuster, setOpenPageLimitAdjuster] = useState(false)
   const [pageWord, setPageWord] = useState('pages')
@@ -82,6 +84,11 @@ const InitScanForm = ({
   const [showToggleUrlFileTooltip, setShowToggleUrlFileTooltip] =
     useState(false)
   const toggleUrlFileRef = useRef(null)
+  // For 'LLM analysis' only: clicking the URL/File toggle opens a modal to
+  // choose between URL, Local File, or jumping straight into LLM chat with
+  // an existing report folder — rather than the plain two-state toggle used
+  // by every other scan type.
+  const [showInputModeModal, setShowInputModeModal] = useState(false)
 
   const viewportOptions = viewportTypes
   const deviceOptions = Object.keys(devices)
@@ -332,6 +339,30 @@ const InitScanForm = ({
     }
   }
 
+  // 'LLM analysis' always resolves to a single-page website crawl
+  // server-side (see services.js) regardless of URL vs local-file input, so
+  // unlike the other scan types, switching input mode here never needs to
+  // change displayScanType/advancedOptions.scanType — it stays 'LLM
+  // analysis' the whole time.
+  const chooseUrlInputMode = () => {
+    setIsFileOptionChecked(false)
+    setScanUrl(staticHttpUrl)
+    setShowInputModeModal(false)
+  }
+
+  const chooseLocalFileInputMode = () => {
+    setIsFileOptionChecked(true)
+    setScanUrl(staticFilePath)
+    setShowInputModeModal(false)
+  }
+
+  const chooseExistingReportFolder = async () => {
+    setShowInputModeModal(false)
+    if (onChooseExistingReport) {
+      await onChooseExistingReport()
+    }
+  }
+
   return (
     <div id="init-scan-form">
       <label htmlFor="url-input" id="url-bar-label">
@@ -352,16 +383,24 @@ const InitScanForm = ({
             >
               <button
                 type="button"
-                onClick={toggleScanType}
+                onClick={() => {
+                  if (advancedOptions.scanType === SCAN_TYPE.LLM_ANALYSIS) {
+                    setShowInputModeModal(true)
+                  } else {
+                    toggleScanType()
+                  }
+                }}
                 aria-describedby="toggle-url-file-tooltip"
                 ref={toggleUrlFileRef}
               >
                 {isFileOptionChecked ? 'FILE' : 'URL'}
               </button>
               <ToolTip
-                description={`Toggle to ${
-                  isFileOptionChecked ? 'URL' : 'file'
-                } input`}
+                description={
+                  advancedOptions.scanType === SCAN_TYPE.LLM_ANALYSIS
+                    ? 'Choose URL, local file, or an existing report'
+                    : `Toggle to ${isFileOptionChecked ? 'URL' : 'file'} input`
+                }
                 id="toggle-url-file-tooltip"
                 showToolTip={showToggleUrlFileTooltip}
               />
@@ -462,7 +501,18 @@ const InitScanForm = ({
       <AdvancedScanOptions
         scanTypeOptions={
           isFileOptionChecked
-            ? [SCAN_TYPE.LOCAL_FILE, SCAN_TYPE.SITEMAP, SCAN_TYPE.CUSTOM_FLOW]
+            ? [
+                // LLM analysis stays selectable in file mode only when it's
+                // already the active scan type (chosen via the input-mode
+                // modal above) — other scan types never reach file mode
+                // with it active, so this can't leak into their dropdowns.
+                ...(displayScanType === SCAN_TYPE.LLM_ANALYSIS
+                  ? [SCAN_TYPE.LLM_ANALYSIS]
+                  : []),
+                SCAN_TYPE.LOCAL_FILE,
+                SCAN_TYPE.SITEMAP,
+                SCAN_TYPE.CUSTOM_FLOW,
+              ]
             : scanTypeOptions.filter((option) => option !== SCAN_TYPE.LOCAL_FILE)
         }
         fileTypesOptions={fileTypesOptions}
@@ -494,6 +544,48 @@ const InitScanForm = ({
         scanButtonIsClicked={scanButtonIsClicked}
         isFileOptionChecked={isFileOptionChecked}
       />
+
+      {showInputModeModal && (
+        <Modal
+          id="llm-input-mode-modal"
+          showModal={showInputModeModal}
+          showHeader={true}
+          modalTitle="How would you like to provide the page?"
+          modalSizeClass="modal-dialog-centered"
+          setShowModal={setShowInputModeModal}
+          modalBody={
+            <div id="llm-input-mode-options">
+              <button
+                type="button"
+                className="btn-secondary modal-full-button llm-input-mode-option"
+                onClick={chooseExistingReportFolder}
+              >
+                <strong>Choose report folder</strong>
+                <span>
+                  Reopen a previously generated LLM chat report and continue
+                  chatting, without scanning again.
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary modal-full-button llm-input-mode-option"
+                onClick={chooseUrlInputMode}
+              >
+                <strong>URL</strong>
+                <span>Enter a web page address to scan and chat about.</span>
+              </button>
+              <button
+                type="button"
+                className="btn-secondary modal-full-button llm-input-mode-option"
+                onClick={chooseLocalFileInputMode}
+              >
+                <strong>Local file</strong>
+                <span>Choose an HTML or PDF file on this computer to scan.</span>
+              </button>
+            </div>
+          }
+        />
+      )}
     </div>
   )
 }
