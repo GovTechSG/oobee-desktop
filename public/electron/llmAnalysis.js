@@ -1620,10 +1620,16 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:preloadModel', async (_event, modelId) => {
+  ipcMain.handle('llmChat:preloadModel', async (_event, modelId, cpuOnly) => {
     try {
       const chosen = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
-      await ensureGemmaModel(chosen)
+      // Forward cpuOnly so the preloaded server starts in the mode the user
+      // actually selected — without this, preload always spun up the GPU
+      // (-ngl 999) config, and the first real chat message would then detect
+      // the mismatch and force a full server restart into CPU mode (see
+      // llamaServer.js sameConfig/ensure), doubling the model load time on
+      // every CPU-only session start.
+      await ensureGemmaModel(chosen, !!cpuOnly)
       return { ok: true, modelId: chosen }
     } catch (e) {
       return { ok: false, error: e.message }
@@ -1642,7 +1648,7 @@ function init({ mainWindow, getResultsFolderPath }) {
     // unloadGemmaModel()
   })
 
-  // Configure modal persistence for the "OpenAI Compatible LLM" provider.
+  // Configure modal persistence for the "OpenAI Compatible Provider" option.
   // Stored via the same generic user-settings file userDataManager already
   // uses for other local preferences (proxy settings, export dir, etc.) —
   // consistent with existing app conventions rather than a new storage
