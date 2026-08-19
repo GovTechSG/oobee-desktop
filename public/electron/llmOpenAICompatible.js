@@ -1,4 +1,4 @@
-// Generic OpenAI-compatible chat backend for the "OpenAI Compatible LLM"
+// Generic OpenAI-compatible chat backend for the "OpenAI Compatible Provider"
 // provider option. Lets a user point the app at ANY server speaking the
 // standard `/chat/completions` streaming wire format — a self-hosted Ollama
 // / LM Studio / Open WebUI instance, a corporate LLM gateway, OpenRouter,
