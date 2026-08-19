@@ -7,6 +7,10 @@
       "asset": "llama-b10488-bin-macos-arm64.tar.gz",
       "size": 11087008
     },
+    "darwin-x64": {
+      "asset": "llama-b10488-bin-macos-x64.tar.gz",
+      "size": 11392805
+    },
     "win32-x64": {
       "asset": "llama-b10488-bin-win-vulkan-x64.zip",
       "size": 34837547

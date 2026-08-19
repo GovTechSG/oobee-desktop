@@ -28,12 +28,48 @@ function candidateTargetKeys(platform, arch) {
 }
 
 function resolveLlamaBinaryDir(platform, arch) {
-  const candidates = candidateTargetKeys(platform, arch).map((key) =>
+  const candidates = candidateTargetKeys(platform, normalizeArch(arch)).map((key) =>
     path.join(__dirname, 'resources', key, 'llama-server')
   );
   const existing = candidates.find((dir) => fs.existsSync(dir));
   if (existing) return existing;
   return candidates[0];
+}
+
+// `--arch=universal --platform darwin` (the `make-mac` script) makes
+// electron-forge invoke @electron/packager twice under the hood — once for
+// x64, once for arm64 — before merging the two into a single fat app via
+// @electron/universal. `packagerConfig.extraResource` below is evaluated
+// once at config-load time, so it always points at whichever TARGET_ARCH the
+// npm script happened to export (arm64) — that's correct for the arm64 pass
+// but wrong for the x64 pass, silently shipping an arm64 llama-server binary
+// inside the x64 half of the universal app.
+//
+// Fix: after each pass copies extraResource, re-resolve the correct binary
+// for the pass's *actual* `arch` (passed in by the hook) and swap it in if it
+// doesn't match what got statically copied. `@electron/universal`'s
+// `x64ArchFiles: '*'` (below) then lipo-merges the two arch-correct
+// `llama-server` executables into one universal binary, so the OS picks the
+// right slice at runtime regardless of which Electron arch is running —
+// no changes needed in llamaServer.js's runtime resolution.
+function findStagedLlamaServerDir(root) {
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.name === 'llama-server') return full;
+      stack.push(full);
+    }
+  }
+  return null;
 }
 
 const targetPlatform = process.env.TARGET_PLATFORM || process.platform;
@@ -94,6 +130,29 @@ module.exports = {
     extraResource: [
       llamaBinaryDir,
       ...(os.platform() === 'darwin' ? ["/tmp/oobee-portable-mac.zip"] : []),
+    ],
+    afterCopyExtraResources: [
+      (stagingPath, electronVersion, platform, arch, callback) => {
+        try {
+          const correctDir = resolveLlamaBinaryDir(platform, arch);
+          if (path.resolve(correctDir) === path.resolve(llamaBinaryDir)) {
+            return callback();
+          }
+          const stagedDir = findStagedLlamaServerDir(stagingPath);
+          if (!stagedDir) {
+            console.warn(
+              `[forge.config] could not locate staged llama-server dir under ${stagingPath} to fix up for ${platform}-${arch}`
+            );
+            return callback();
+          }
+          fs.rmSync(stagedDir, { recursive: true, force: true });
+          fs.cpSync(correctDir, stagedDir, { recursive: true });
+          console.log(`[forge.config] swapped in ${platform}-${arch} llama-server binary for this packaging pass`);
+          callback();
+        } catch (err) {
+          callback(err);
+        }
+      },
     ],
   },
   rebuildConfig: {
