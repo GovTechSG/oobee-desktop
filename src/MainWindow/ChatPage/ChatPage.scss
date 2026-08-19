@@ -1070,6 +1070,52 @@
         overflow-x: auto;
         font-size: 0.8rem;
       }
+      .chat-code-block {
+        position: relative;
+        margin: 0.4rem 0;
+
+        > pre {
+          margin: 0;
+          // Leave headroom on the right so the Copy button doesn't overlap
+          // long single-line snippets that would otherwise scroll under it.
+          padding-right: 3.75rem;
+        }
+
+        .chat-code-copy {
+          position: absolute;
+          top: 0.4rem;
+          right: 0.4rem;
+          padding: 0.15rem 0.5rem;
+          font-family: inherit;
+          font-size: 0.7rem;
+          font-weight: 600;
+          color: #e5e7eb;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 4px;
+          cursor: pointer;
+          opacity: 0.7;
+          transition: opacity 120ms ease, background 120ms ease;
+
+          &:hover,
+          &:focus-visible {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.16);
+          }
+
+          &:focus-visible {
+            outline: 2px solid #a78bfa;
+            outline-offset: 1px;
+          }
+
+          &.is-copied {
+            opacity: 1;
+            color: #d1fae5;
+            border-color: rgba(52, 211, 153, 0.55);
+            background: rgba(16, 185, 129, 0.22);
+          }
+        }
+      }
       code {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
@@ -1100,7 +1146,7 @@
   .chat-composer {
     display: flex;
     gap: 0.5rem;
-    padding-bottom: 1rem;
+    padding-bottom: 0.25rem;
 
     textarea {
       flex: 1 1 auto;
@@ -1150,7 +1196,7 @@
   }
 
   .chat-footnote {
-    margin: 4px 0 0;
+    margin: 2px 0 0.5rem;
     padding: 0 4px;
     font-size: 0.7rem;
     color: #6b7280;
