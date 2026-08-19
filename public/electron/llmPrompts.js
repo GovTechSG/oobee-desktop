@@ -274,14 +274,14 @@ const TOOL_SCHEMAS = [
   {
     name: 'search_wcag',
     description:
-      'Search the local WCAG 2.x Understanding and Techniques corpus for authoritative text. Call this when you need the exact wording of a success criterion, a technique document (G-, H-, F-, ARIA-, C-numbered), or a failure condition — and whenever the user asks about WCAG guidance not tied to a specific rule in this scan. Example queries: "2.4.4 link purpose", "G54 skip navigation", "target size minimum 2.5.5", "focus visible technique". Returns a small set of ranked snippets with title, section, URL and score. If the first hit is too generic, call again with a refined query.',
+      'Search the local WCAG 2.x Understanding and Techniques corpus for authoritative text. Call this when you need the exact wording of a success criterion, a technique document (G-, H-, F-, ARIA-, C-numbered), or a failure condition — and whenever the user asks about WCAG guidance not tied to a specific rule in this scan. **Query by the dotted SC number when you know it** (e.g. "2.5.8", "2.4.4 link purpose", "1.4.3 contrast"): the finding context and the "WCAG references (authoritative)" line in the user message already give you the mapping from an Oobee/axe rule id to its SC number. Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the query — those strings are not in the corpus and produce noisy hits; translate them to the SC number first. Technique ids like "G54" and "H37" are also supported. Returns a small set of ranked snippets with title, section, URL and score. If the first hit is too generic, call again with a refined query.',
     input_schema: {
       type: 'object',
       required: ['query'],
       properties: {
         query: {
           type: 'string',
-          description: 'Keyword or phrase, ideally 2–10 words. Dotted SC numbers like "2.4.4" and technique ids like "G54" are supported.',
+          description: 'Keyword or phrase, ideally 2–10 words. Prefer dotted SC numbers like "2.5.8" over Oobee/axe rule ids like "target-size". Technique ids like "G54" are supported.',
         },
         top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
       },

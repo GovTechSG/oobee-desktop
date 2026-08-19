@@ -109,6 +109,28 @@ const injectHexSwatches = (root) => {
   }
 }
 
+// Wrap each fenced `<pre>` in a positioned container carrying a Copy button.
+// The button is a click target only — the actual clipboard write is done via
+// event delegation on the message body (see the assistant `onClick` below),
+// so we don't need to bind React handlers to nodes produced by
+// `dangerouslySetInnerHTML`.
+const wrapCodeBlocksWithCopy = (root) => {
+  const pres = root.querySelectorAll('pre')
+  for (const pre of pres) {
+    if (pre.parentElement && pre.parentElement.classList.contains('chat-code-block')) continue
+    const wrapper = pre.ownerDocument.createElement('div')
+    wrapper.className = 'chat-code-block'
+    const btn = pre.ownerDocument.createElement('button')
+    btn.type = 'button'
+    btn.className = 'chat-code-copy'
+    btn.setAttribute('aria-label', 'Copy code')
+    btn.textContent = 'Copy'
+    pre.parentNode.insertBefore(wrapper, pre)
+    wrapper.appendChild(pre)
+    wrapper.appendChild(btn)
+  }
+}
+
 const renderMarkdown = (text) => {
   try {
     const html = marked.parse(normalizeLLMMarkdown(text))
@@ -117,6 +139,7 @@ const renderMarkdown = (text) => {
     const root = doc.body.firstChild
     if (!root) return html
     injectHexSwatches(root)
+    wrapCodeBlocksWithCopy(root)
     return root.innerHTML
   } catch (_) {
     return text || ''
@@ -856,7 +879,22 @@ const ChatPage = () => {
   const askAboutRule = (rule) => {
     if (!rule) return
     const label = rule.description ? `"${rule.rule}" (${rule.description})` : `"${rule.rule}"`
-    sendMessage(`Tell me more about the ${label} rule — where it occurs, why it matters, and how to fix it.`)
+    // Surface the Oobee → WCAG mapping in the prompt so the model can quote
+    // the SC by number (e.g. `search_wcag` with "2.5.8") instead of searching
+    // by the axe rule id ("target-size"), which the BM25 corpus doesn't index
+    // and which produces garbage top-k hits.
+    const wcagFormatted = formatWcagConformance(rule.conformance)
+    const wcagList = wcagFormatted.length > 0 ? wcagFormatted.join(', ') : null
+    const parts = [
+      `Tell me more about the ${label} rule — where it occurs, why it matters, and how to fix it.`,
+      wcagList ? `- WCAG references (authoritative): ${wcagList}` : null,
+      wcagList
+        ? `When citing WCAG or calling \`search_wcag\`, use ONLY the references listed above (${wcagList}) — query by the dotted SC number (e.g. "${wcagFormatted[0].replace(/^WCAG\s+/, '')}"), not by the Oobee/axe rule id. Do not invent or substitute other WCAG success criteria.`
+        : 'If you are unsure of the exact WCAG success criterion, say so instead of guessing.',
+    ]
+      .filter(Boolean)
+      .join('\n')
+    sendMessage(parts)
   }
 
   const fetchFindingDetail = useMemo(
@@ -1092,7 +1130,7 @@ const ChatPage = () => {
                     : 'Anthropic Claude (cloud)'}
                 </option>,
                 <option key="gemma" value="gemma">
-                  Local
+                  Local (on device)
                 </option>,
                 <option key="openai-compatible" value="openai-compatible">
                   OpenAI Compatible Provider
@@ -1546,6 +1584,25 @@ const ChatPage = () => {
                   className="chat-message-body chat-markdown"
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
                   onClick={(e) => {
+                    const copyBtn = e.target.closest('.chat-code-copy')
+                    if (copyBtn) {
+                      const wrapper = copyBtn.closest('.chat-code-block')
+                      const pre = wrapper && wrapper.querySelector('pre')
+                      const codeText = pre ? pre.innerText : ''
+                      if (codeText) {
+                        try {
+                          navigator.clipboard.writeText(codeText)
+                          const originalLabel = copyBtn.textContent
+                          copyBtn.textContent = 'Copied'
+                          copyBtn.classList.add('is-copied')
+                          setTimeout(() => {
+                            copyBtn.textContent = originalLabel
+                            copyBtn.classList.remove('is-copied')
+                          }, 1500)
+                        } catch (_) {}
+                      }
+                      return
+                    }
                     const anchor = e.target.closest('a[href]')
                     if (!anchor) return
                     const href = anchor.getAttribute('href')
