@@ -29,6 +29,17 @@ const MODELS = {
   // and the 12B equivalent. mmproj naming is inconsistent between repos
   // (Google published them under different filename conventions) — the
   // registry captures the exact on-repo names.
+  'gemma-e2b': {
+    id: 'gemma-e2b',
+    label: 'Gemma 4 E2B (QAT)',
+    description: 'Smallest, fastest local model. Runs on 8 GB laptops.',
+    repo: 'google/gemma-4-E2B-it-qat-q4_0-gguf',
+    filename: 'gemma-4-E2B_q4_0-it.gguf',
+    fallbackBytes: 3_350_000_000,
+    mmprojFilename: 'gemma-4-E2B-it-mmproj.gguf',
+    mmprojBytes: 987_000_000,
+    minRamGb: 8,
+  },
   'gemma-e4b': {
     id: 'gemma-e4b',
     label: 'Gemma 4 E4B (QAT)',
