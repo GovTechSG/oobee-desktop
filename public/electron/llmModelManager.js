@@ -50,6 +50,11 @@ const MODELS = {
     mmprojFilename: 'gemma-4-E4B-it-mmproj.gguf',
     mmprojBytes: 991_552_256,
     minRamGb: 10,
+    // Apple Silicon's unified memory (shared CPU/GPU pool, no separate VRAM
+    // reservation) runs this comfortably on 8 GB Macs — the 10 GB default
+    // was calibrated for Windows' discrete RAM/GPU split. Only applied when
+    // running on darwin/arm64 (see listModels()).
+    minRamGbDarwinArm64: 8,
   },
   'gemma-12b': {
     id: 'gemma-12b',
@@ -169,6 +174,7 @@ async function getStatus(modelId) {
 
 async function listModels() {
   const totalGb = os.totalmem() / (1024 ** 3)
+  const isMacArm64 = os.platform() === 'darwin' && os.arch() === 'arm64'
   const out = []
   for (const m of Object.values(MODELS)) {
     const status = await getStatus(m.id).catch(() => ({
@@ -185,7 +191,9 @@ async function listModels() {
     // "needs 16+ GB" gate. Keep this strict; the natural under-reporting
     // already accounts for the same headroom the fudge factor was meant to
     // provide.
-    const supported = totalGb >= m.minRamGb
+    const effectiveMinRamGb =
+      isMacArm64 && m.minRamGbDarwinArm64 != null ? m.minRamGbDarwinArm64 : m.minRamGb
+    const supported = totalGb >= effectiveMinRamGb
     out.push({
       id: m.id,
       label: m.label,
@@ -195,7 +203,7 @@ async function listModels() {
       supported,
       unsupportedReason: supported
         ? null
-        : `Needs ${m.minRamGb}+ GB RAM (this machine has ~${totalGb.toFixed(0)} GB)`,
+        : `Needs ${effectiveMinRamGb}+ GB RAM (this machine has ~${totalGb.toFixed(0)} GB)`,
     })
   }
   return out
