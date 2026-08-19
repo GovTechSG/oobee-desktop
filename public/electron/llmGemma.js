@@ -104,6 +104,12 @@ const HISTORY_TARGET_CHARS = 30_000
 // simply taking a long time; only a real stall trips it.
 const FIRST_CHUNK_TIMEOUT_MS = 600_000
 const IDLE_TIMEOUT_MS = 120_000
+// After a model (re)start, /v1/chat/completions can briefly return
+// `503 {"error":{"message":"Loading model"...}}` while weights/KV warm up.
+// Treat this as transient and retry with short backoff instead of failing the
+// whole turn when users switch CPU-only <-> GPU mode.
+const MODEL_LOADING_MAX_RETRIES = 10
+const MODEL_LOADING_RETRY_BASE_MS = 750
 
 // Context window sizing — same tiered heuristic we used with node-llama-cpp,
 // because the RAM math is the same underneath. Gemma 4's hybrid attention
@@ -206,9 +212,10 @@ function resolveContextSize() {
 }
 
 // Resolve model + mmproj paths and (re)start the llama-server subprocess
-// pointing at them. Idempotent: repeated calls for the same modelId don't
-// respawn; a different modelId does (llamaServer.ensure handles that).
-async function ensureModel(modelId) {
+// pointing at them. Idempotent: repeated calls for the same modelId (and the
+// same cpuOnly mode) don't respawn; a different modelId or a CPU/GPU mode
+// switch does (llamaServer.ensure handles that via sameConfig()).
+async function ensureModel(modelId, cpuOnly) {
   if (!modelId) throw new Error('ensureModel requires a modelId')
   const modelPath = getModelPath(modelId)
   if (!(await fs.pathExists(modelPath))) {
@@ -227,6 +234,7 @@ async function ensureModel(modelId) {
     modelPath,
     mmprojPath: withMmproj ? mmprojPath : null,
     contextSize: resolveContextSize(),
+    cpuOnly: !!cpuOnly,
   })
   return { baseUrl, modelId }
 }
@@ -414,6 +422,38 @@ async function* readChatSSE(response) {
   }
 }
 
+function isModelLoading503(status, text) {
+  if (status !== 503) return false
+  const body = String(text || '')
+  if (/loading\s+model/i.test(body)) return true
+  try {
+    const parsed = JSON.parse(body)
+    const msg = String(parsed?.error?.message || '')
+    return /loading\s+model/i.test(msg)
+  } catch (_) {
+    return false
+  }
+}
+
+function waitWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('aborted'))
+      return
+    }
+    const t = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(t)
+      signal?.removeEventListener?.('abort', onAbort)
+      reject(new Error('aborted'))
+    }
+    signal?.addEventListener?.('abort', onAbort, { once: true })
+  })
+}
+
 async function streamGemmaChat({
   session,
   mainWindow,
@@ -426,7 +466,7 @@ async function streamGemmaChat({
   const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
 
   // First send: spin up (or reuse) the server, seed conversation state.
-  const { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b')
+  const { baseUrl } = await ensureModel(session.modelId || 'gemma-e4b', session.cpuOnly)
   if (!session.gemma) {
     session.gemma = { messages: [{ role: 'system', content: session.systemPrompt }] }
   }
@@ -534,42 +574,62 @@ async function streamGemmaChat({
     // real time is spent. Confirmed in the field: a hop ran 453.7s — well
     // past the 180s timeout — and completed with no abort at all.
     try {
-      try {
-        res = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        signal: requestAbort.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: session.modelId || 'gemma-e4b',
-          messages: session.gemma.messages,
-          tools,
-          tool_choice: 'auto',
-          stream: true,
-          // llama-server (OpenAI-compatible endpoint) supports the standard
-          // stream_options.include_usage field: the final SSE chunk gets an
-          // empty `choices` array plus a `usage` object with authoritative
-          // prompt_tokens/completion_tokens/total_tokens for this request.
-          // Diagnostic-only — does not change generation behavior.
-          stream_options: { include_usage: true },
-          // Explicit belt-and-braces: llama-server defaults this to true, but
-          // we rely on it heavily now (single slot + hysteresis-trimmed
-          // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
-          // so make it non-negotiable rather than trusting the server default.
-          cache_prompt: true,
-          ...samplingKnobs,
-        }),
-        })
-      } catch (e) {
-        if (abort.signal.aborted || requestAbort.signal.aborted) {
-          log(`session ${sessionId} aborted before response stream opened`)
-          return
+      for (let loadingRetry = 0; ; loadingRetry++) {
+        try {
+          res = await fetch(`${baseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            signal: requestAbort.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: session.modelId || 'gemma-e4b',
+              messages: session.gemma.messages,
+              tools,
+              tool_choice: 'auto',
+              stream: true,
+              // llama-server (OpenAI-compatible endpoint) supports the standard
+              // stream_options.include_usage field: the final SSE chunk gets an
+              // empty `choices` array plus a `usage` object with authoritative
+              // prompt_tokens/completion_tokens/total_tokens for this request.
+              // Diagnostic-only — does not change generation behavior.
+              stream_options: { include_usage: true },
+              // Explicit belt-and-braces: llama-server defaults this to true, but
+              // we rely on it heavily now (single slot + hysteresis-trimmed
+              // history, see llamaServer.js buildArgs and MAX_HISTORY_CHARS above)
+              // so make it non-negotiable rather than trusting the server default.
+              cache_prompt: true,
+              ...samplingKnobs,
+            }),
+          })
+        } catch (e) {
+          if (abort.signal.aborted || requestAbort.signal.aborted) {
+            log(`session ${sessionId} aborted before response stream opened`)
+            return
+          }
+          throw e
         }
-        throw e
-      }
-      if (!res.ok) {
+
+        if (res.ok) break
+
         const text = await res.text().catch(() => '')
-        throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
+        const shouldRetryLoading =
+          isModelLoading503(res.status, text) && loadingRetry < MODEL_LOADING_MAX_RETRIES
+        if (!shouldRetryLoading) {
+          throw new Error(`llama-server returned ${res.status}: ${text.slice(0, 500)}`)
+        }
+
+        const waitMs = Math.min(5000, MODEL_LOADING_RETRY_BASE_MS * (loadingRetry + 1))
+        send('llmChat:status', {
+          sessionId,
+          message: `Switching model, warming up local Gemma (${loadingRetry + 1}/${MODEL_LOADING_MAX_RETRIES})…`,
+        })
+        warn(
+          `llama-server still loading model (503) after CPU/GPU switch; retry ${loadingRetry + 1}/${MODEL_LOADING_MAX_RETRIES} in ${waitMs}ms`,
+        )
+        await waitWithAbort(waitMs, requestAbort.signal)
       }
+
+      // We got a stream response; clear any transient warm-up status line.
+      send('llmChat:status', { sessionId, message: null })
 
       try {
         for await (const chunk of readChatSSE(res)) {
@@ -821,4 +881,14 @@ function disposeSession(session) {
   session.gemma = null
 }
 
-module.exports = { streamGemmaChat, disposeSession, unloadModel, ensureModel }
+module.exports = {
+  streamGemmaChat,
+  disposeSession,
+  unloadModel,
+  ensureModel,
+  // Reused by llmOpenAICompatible.js: both providers speak the same OpenAI
+  // tool-calling wire format, so the tool-schema conversion and per-call
+  // dispatch/attachment-handling logic is provider-agnostic.
+  toOpenAITools,
+  runToolCall,
+}

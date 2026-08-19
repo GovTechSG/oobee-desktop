@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router'
 import { marked } from 'marked'
 import SummaryCard from './SummaryCard'
 import Button from '../../common/components/Button'
+import Modal from '../../common/components/Modal'
 import { handleClickLink } from '../../common/constants'
 import './ChatPage.scss'
 
@@ -129,11 +130,32 @@ const SUGGESTED_QUESTIONS = [
   'Are there any color-contrast violations I should worry about?',
 ]
 
-// Storage key holds the full option id (`anthropic` / `gemma-e4b` / `gemma-12b`).
+// Storage key holds the full option id (`anthropic` / `gemma-e4b` /
+// `gemma-e4b-cpu` / `gemma-12b` / `gemma-12b-cpu` / `openai-compatible`).
+// The `-cpu` suffix is a UI-only variant of the same underlying Gemma model:
+// it reuses the exact same downloaded weights/mmproj, just runs llama-server
+// with -ngl 0 (CPU-only) instead of full GPU offload — see llamaServer.js
+// buildArgs. Windows-only in the UI (see isWindows gating below) since it
+// exists specifically to work around the Adreno OpenCL backend sometimes
+// underperforming CPU on Snapdragon X hardware (community-benchmarked in
+// ggml-org/llama.cpp discussion #8273).
 const PROVIDER_STORAGE_KEY = 'llmProvider'
-const VALID_OPTIONS = new Set(['anthropic', 'gemma-e4b', 'gemma-12b'])
-const optionToProvider = (id) => (id === 'anthropic' ? 'anthropic' : 'gemma')
-const optionToModelId = (id) => (id === 'anthropic' ? null : id)
+const BASE_OPTIONS = ['anthropic', 'gemma-e4b', 'gemma-12b', 'openai-compatible']
+const VALID_OPTIONS = new Set([
+  ...BASE_OPTIONS,
+  'gemma-e4b-cpu',
+  'gemma-12b-cpu',
+])
+const optionToProvider = (id) => {
+  if (id === 'anthropic') return 'anthropic'
+  if (id === 'openai-compatible') return 'openai'
+  return 'gemma'
+}
+const optionToModelId = (id) => {
+  if (id === 'anthropic' || id === 'openai-compatible') return null
+  return id.endsWith('-cpu') ? id.slice(0, -4) : id
+}
+const optionToCpuOnly = (id) => id.endsWith('-cpu')
 
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -167,9 +189,22 @@ const ChatPage = () => {
   const [selectedOption, setSelectedOption] = useState(readStoredOption)
   const provider = optionToProvider(selectedOption)
   const chosenModelId = optionToModelId(selectedOption)
+  const cpuOnly = optionToCpuOnly(selectedOption)
   const [providerAvailability, setProviderAvailability] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
   const providerInitialisedRef = useRef(false)
+  // CPU-only Gemma variants are Windows-only (see BASE_OPTIONS doc comment
+  // above) — gated on the existing getIsWindows bridge already used
+  // elsewhere in the app (services.js).
+  const [isWindows, setIsWindows] = useState(false)
+  // "OpenAI Compatible LLM" provider: user-supplied endpoint/key/model,
+  // persisted via userDataManager (see llmChat:getCustomProviderConfig /
+  // llmChat:setCustomProviderConfig). Loaded once on mount and refreshed
+  // after every successful save from the Configure modal.
+  const [customConfig, setCustomConfig] = useState({ baseUrl: '', apiKey: '', model: '' })
+  const [showConfigureModal, setShowConfigureModal] = useState(false)
+  const [configDraft, setConfigDraft] = useState({ baseUrl: '', apiKey: '', model: '' })
+  const [configSaveError, setConfigSaveError] = useState(null)
   // A new sessionId is minted on every provider/model switch — the backend
   // disposes the previous state and treats it as a fresh session.
   const [sessionEpoch, setSessionEpoch] = useState(0)
@@ -230,8 +265,48 @@ const ChatPage = () => {
   // the real prompt/completion/total token count for the most recently
   // completed hop — updates once per hop, not continuously.
   const [tokenUsage, setTokenUsage] = useState(null) // { promptTokens, completionTokens, totalTokens }
+  const [backendStatus, setBackendStatus] = useState(null)
 
-  const modelReady = provider !== 'gemma' || modelStatus?.downloaded === true
+  const modelReady =
+    provider === 'gemma'
+      ? modelStatus?.downloaded === true
+      : provider === 'openai'
+        ? !!customConfig?.baseUrl && !!customConfig?.model
+        : true
+
+  // Windows-only gate for the CPU-only Gemma variants (see BASE_OPTIONS doc
+  // comment). getIsWindows already exists and is used elsewhere (services.js).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const win = await window.services.getIsWindows()
+        if (!cancelled) setIsWindows(!!win)
+      } catch (_) {
+        // ignore — CPU-only options just stay hidden if this probe fails
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Load the persisted "OpenAI Compatible LLM" config once on mount so
+  // modelReady can gate correctly even before the user opens Configure.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const cfg = await window.services.llmChatGetCustomProviderConfig()
+        if (!cancelled && cfg) setCustomConfig(cfg)
+      } catch (_) {
+        // ignore — Configure modal will show empty fields either way
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Probe provider availability + model registry once. If Anthropic isn't
   // configured on this machine (no ANTHROPIC_API_KEY / ~/.claude/settings.json),
@@ -251,7 +326,10 @@ const ChatPage = () => {
           const currentSupported =
             selectedOption === 'anthropic'
               ? anthropicOk
-              : models.find((m) => m.id === selectedOption)?.supported !== false
+              : selectedOption === 'openai-compatible'
+                ? true
+                : models.find((m) => m.id === optionToModelId(selectedOption))
+                    ?.supported !== false
           if (!currentSupported) {
             // Prefer Anthropic when available; otherwise the first supported
             // local model; falling back to the smallest even if unsupported.
@@ -322,6 +400,10 @@ const ChatPage = () => {
 
   const changeOption = (next) => {
     if (!VALID_OPTIONS.has(next) || next === selectedOption) return
+    const prevModelId = optionToModelId(selectedOption)
+    const nextModelId = optionToModelId(next)
+    const isSameUnderlyingGemmaModel =
+      prevModelId && nextModelId && prevModelId === nextModelId
     try {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, next)
     } catch (_) {
@@ -333,11 +415,16 @@ const ChatPage = () => {
     setStreamError(null)
     setDetailsOpen(true)
     setSummary(null)
-    // Clear stale download panel state so we don't briefly show the previous
-    // model's progress bar before the new status probe returns.
-    setModelStatus(null)
-    setDownloadError(null)
-    setDownloadProgress(null)
+    // Keep status when toggling CPU/GPU variants of the same base model
+    // (e.g. gemma-e4b <-> gemma-e4b-cpu) so we don't flash a false
+    // download prompt for files that are already on disk.
+    if (!isSameUnderlyingGemmaModel) {
+      // Clear stale download panel state so we don't briefly show the
+      // previous model's progress bar before the new status probe returns.
+      setModelStatus(null)
+      setDownloadError(null)
+      setDownloadProgress(null)
+    }
     setSessionEpoch((e) => e + 1)
   }
 
@@ -355,6 +442,7 @@ const ChatPage = () => {
           scanId,
           provider,
           modelId: chosenModelId,
+          cpuOnly,
         })
         if (cancelled) return
         if (res && res.ok) {
@@ -369,11 +457,12 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [sessionId, scanId, provider, chosenModelId, modelReady])
+  }, [sessionId, scanId, provider, chosenModelId, cpuOnly, modelReady])
 
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
       if (sid !== sessionId) return
+      setBackendStatus(null)
       // First chunk of the turn marks the start of actual generation (as
       // opposed to time spent waiting for the model / running tools before
       // the first token) — mirrors how llama-server's own tg timing starts
@@ -452,6 +541,7 @@ const ChatPage = () => {
       if (sid !== sessionId) return
       streamingIndexRef.current = null
       setIsStreaming(false)
+      setBackendStatus(null)
     })
 
     window.services.onLlmChatUsage(({ sessionId: sid, promptTokens, completionTokens, totalTokens, isEstimate }) => {
@@ -459,10 +549,16 @@ const ChatPage = () => {
       setTokenUsage({ promptTokens, completionTokens, totalTokens, isEstimate: !!isEstimate })
     })
 
+    window.services.onLlmChatStatus(({ sessionId: sid, message }) => {
+      if (sid !== sessionId) return
+      setBackendStatus(message || null)
+    })
+
     window.services.onLlmChatError(({ sessionId: sid, message }) => {
       if (sid !== sessionId) return
       streamingIndexRef.current = null
       setIsStreaming(false)
+      setBackendStatus(null)
       setStreamError(message)
     })
 
@@ -552,6 +648,7 @@ const ChatPage = () => {
     streamStatsRef.current = { requestStartTime: Date.now(), startTime: null, tokenCount: 0 }
     setStreamStats({ elapsedSec: 0, tokenCount: 0, tokensPerSec: null })
     setTokenUsage(null)
+    setBackendStatus(null)
     stickToBottomRef.current = true
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
@@ -814,12 +911,45 @@ const ChatPage = () => {
                     {`${m.label} (local)${sizeSuffix}${unsupportedSuffix}`}
                   </option>,
                 )
+                // CPU-only variant of the same model — Windows only (see
+                // BASE_OPTIONS doc comment). Shares the same download/support
+                // gating as the GPU variant since it's the exact same weights.
+                if (isWindows) {
+                  opts.push(
+                    <option
+                      key={`${m.id}-cpu`}
+                      value={`${m.id}-cpu`}
+                      disabled={m.supported === false}
+                      title={m.supported === false ? m.unsupportedReason || '' : ''}
+                    >
+                      {`${m.label} (local) (CPU-only mode)${sizeSuffix}${unsupportedSuffix}`}
+                    </option>,
+                  )
+                }
               }
+              opts.push(
+                <option key="openai-compatible" value="openai-compatible">
+                  OpenAI Compatible LLM
+                </option>,
+              )
               return opts
             })()}
           </select>
+          {selectedOption === 'openai-compatible' && (
+            <button
+              type="button"
+              className="chat-configure-link"
+              onClick={() => {
+                setConfigDraft(customConfig)
+                setConfigSaveError(null)
+                setShowConfigureModal(true)
+              }}
+            >
+              Configure
+            </button>
+          )}
           {(() => {
-            const selected = availableModels.find((m) => m.id === selectedOption)
+            const selected = availableModels.find((m) => m.id === chosenModelId)
             if (selected && selected.supported === false && selected.unsupportedReason) {
               return (
                 <span className="chat-provider-unsupported-hint">
@@ -832,7 +962,125 @@ const ChatPage = () => {
         </div>
       </div>
 
-      {provider === 'gemma' && modelStatus?.downloaded === false && (
+      {showConfigureModal && (
+        <Modal
+          id="chat-configure-modal"
+          showModal={showConfigureModal}
+          showHeader={true}
+          modalTitle="Configure OpenAI Compatible LLM"
+          modalSizeClass="modal-dialog-centered"
+          modalBody={
+            <form
+              id="chat-configure-form"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setConfigSaveError(null)
+                try {
+                  const res = await window.services.llmChatSetCustomProviderConfig(configDraft)
+                  if (res?.ok) {
+                    setCustomConfig(configDraft)
+                    setShowConfigureModal(false)
+                    // Restart the session so the newly saved config is picked
+                    // up immediately rather than requiring a manual re-select.
+                    if (selectedOption === 'openai-compatible') setSessionEpoch((ep) => ep + 1)
+                  } else {
+                    setConfigSaveError(res?.error || 'Failed to save configuration.')
+                  }
+                } catch (err) {
+                  setConfigSaveError(err.message)
+                }
+              }}
+            >
+              <p className="chat-configure-hint">
+                Point this at any server implementing the standard OpenAI{' '}
+                <code>/chat/completions</code> streaming API — a self-hosted Ollama / LM Studio /
+                Open WebUI instance, a corporate LLM gateway, etc.
+              </p>
+              <label htmlFor="chat-configure-baseurl">API Base URL</label>
+              <input
+                id="chat-configure-baseurl"
+                type="text"
+                placeholder="https://api.example.com/v1"
+                value={configDraft.baseUrl}
+                onChange={(e) => setConfigDraft((d) => ({ ...d, baseUrl: e.target.value }))}
+                autoComplete="off"
+              />
+              <label htmlFor="chat-configure-model">Model</label>
+              <input
+                id="chat-configure-model"
+                type="text"
+                placeholder="gpt-4o-mini"
+                value={configDraft.model}
+                onChange={(e) => setConfigDraft((d) => ({ ...d, model: e.target.value }))}
+                autoComplete="off"
+              />
+              <label htmlFor="chat-configure-apikey">API Key (optional)</label>
+              <input
+                id="chat-configure-apikey"
+                type="password"
+                placeholder="sk-…"
+                value={configDraft.apiKey}
+                onChange={(e) => setConfigDraft((d) => ({ ...d, apiKey: e.target.value }))}
+                autoComplete="off"
+              />
+              <p className="chat-configure-security-note">
+                Stored locally on this device alongside your other app settings. Leave the API key
+                blank if your endpoint doesn't require one.
+              </p>
+              {configSaveError && (
+                <div className="chat-error-banner" role="alert">
+                  {configSaveError}
+                </div>
+              )}
+            </form>
+          }
+          modalFooter={
+            <>
+              <Button type="btn-secondary" onClick={() => setShowConfigureModal(false)}>
+                Cancel
+              </Button>
+              <button
+                type="submit"
+                form="chat-configure-form"
+                className="btn-primary modal-button"
+                disabled={!configDraft.baseUrl.trim() || !configDraft.model.trim()}
+              >
+                Save
+              </button>
+            </>
+          }
+          setShowModal={setShowConfigureModal}
+        />
+      )}
+
+      {provider === 'openai' && !modelReady && (
+        <div className="chat-model-download" role="region" aria-label="OpenAI Compatible LLM configuration">
+          <h2>OpenAI Compatible LLM not configured</h2>
+          <p>
+            Enter an API base URL and model name to use a custom endpoint — a self-hosted server,
+            a corporate gateway, or any other OpenAI-compatible API.
+          </p>
+          <div className="chat-model-download-actions">
+            <Button
+              type="btn-primary"
+              onClick={() => {
+                setConfigDraft(customConfig)
+                setConfigSaveError(null)
+                setShowConfigureModal(true)
+              }}
+            >
+              Configure
+            </Button>
+            {providerAvailability?.anthropic?.available !== false && (
+              <Button type="btn-link" onClick={() => changeOption('anthropic')}>
+                Use Anthropic Claude instead
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {provider === 'gemma' && !modelReady && (
         <div className="chat-model-download" role="region" aria-label="Gemma model download">
           <h2>
             Download {availableModels.find((m) => m.id === chosenModelId)?.label || 'Gemma model'}
@@ -1103,6 +1351,12 @@ const ChatPage = () => {
           {tokenUsage?.totalTokens != null
             ? ` · ${tokenUsage.isEstimate ? '~' : ''}${tokenUsage.totalTokens.toLocaleString()} tokens`
             : ''}
+        </div>
+      )}
+
+      {isStreaming && backendStatus && (
+        <div className="chat-stream-status" role="status" aria-live="polite">
+          {backendStatus}
         </div>
       )}
 
