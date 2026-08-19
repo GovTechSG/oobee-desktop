@@ -157,12 +157,16 @@ contextBridge.exposeInMainWorld("services", {
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
-    llmChatStart: async ({ sessionId, scanId, provider, modelId }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId }),
+    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),
     llmChatPreloadModel: async (modelId) => ipcRenderer.invoke("llmChat:preloadModel", modelId),
+    llmChatGetCustomProviderConfig: async () =>
+      ipcRenderer.invoke("llmChat:getCustomProviderConfig"),
+    llmChatSetCustomProviderConfig: async ({ baseUrl, apiKey, model }) =>
+      ipcRenderer.invoke("llmChat:setCustomProviderConfig", { baseUrl, apiKey, model }),
     llmModelList: async () => ipcRenderer.invoke("llmModel:list"),
     llmModelStatus: async (modelId) => ipcRenderer.invoke("llmModel:status", modelId),
     llmModelDownload: async (modelId) => ipcRenderer.invoke("llmModel:download", modelId),
@@ -181,6 +185,10 @@ contextBridge.exposeInMainWorld("services", {
     onLlmChatUsage: (callback) => {
       ipcRenderer.removeAllListeners("llmChat:usage");
       ipcRenderer.on("llmChat:usage", (_e, data) => callback(data));
+    },
+    onLlmChatStatus: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:status");
+      ipcRenderer.on("llmChat:status", (_e, data) => callback(data));
     },
     onLlmChatToolCall: (callback) => {
       ipcRenderer.removeAllListeners("llmChat:toolCall");
@@ -201,6 +209,7 @@ contextBridge.exposeInMainWorld("services", {
     removeLlmChatListeners: () => {
       ipcRenderer.removeAllListeners("llmChat:chunk");
       ipcRenderer.removeAllListeners("llmChat:usage");
+      ipcRenderer.removeAllListeners("llmChat:status");
       ipcRenderer.removeAllListeners("llmChat:toolCall");
       ipcRenderer.removeAllListeners("llmChat:attachment");
       ipcRenderer.removeAllListeners("llmChat:done");
