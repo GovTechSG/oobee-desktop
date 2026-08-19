@@ -162,7 +162,8 @@ contextBridge.exposeInMainWorld("services", {
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),
-    llmChatPreloadModel: async (modelId) => ipcRenderer.invoke("llmChat:preloadModel", modelId),
+    llmChatPreloadModel: async (modelId, cpuOnly) =>
+      ipcRenderer.invoke("llmChat:preloadModel", modelId, cpuOnly),
     llmChatGetCustomProviderConfig: async () =>
       ipcRenderer.invoke("llmChat:getCustomProviderConfig"),
     llmChatSetCustomProviderConfig: async ({ baseUrl, apiKey, model }) =>
