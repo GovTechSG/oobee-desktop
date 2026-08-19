@@ -573,6 +573,26 @@ async function streamGemmaChat({
     // and never actually covered the body-streaming phase, where all the
     // real time is spent. Confirmed in the field: a hop ran 453.7s — well
     // past the 180s timeout — and completed with no abort at all.
+    //
+    // llama-server sends NOTHING over the SSE stream during prompt
+    // processing (prefill) — a hop with a large/uncached tool result can
+    // spend minutes here with the renderer showing only a ticking "Xs …
+    // processing" and no indication of what's actually happening. llama-
+    // server does log its own periodic prefill progress to stderr though
+    // ("prompt processing, n_tokens = …, progress = …"), which llamaServer.js
+    // parses and re-emits as 'promptProgress' — forward that to the
+    // renderer via the same llmChat:status channel used for the model
+    // warm-up message, so the user sees real percentage/token/speed
+    // progress instead of silence. Cleared automatically once the first
+    // real chunk arrives (see onLlmChatChunk in ChatPage).
+    const onPromptProgress = ({ tokensProcessed, progress, tokensPerSec }) => {
+      const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100)
+      send('llmChat:status', {
+        sessionId,
+        message: `Processing prompt… ${pct}% · ${tokensProcessed.toLocaleString()} tokens · ~${tokensPerSec.toFixed(0)} tok/s`,
+      })
+    }
+    llamaServer.events.on('promptProgress', onPromptProgress)
     try {
       for (let loadingRetry = 0; ; loadingRetry++) {
         try {
@@ -674,6 +694,7 @@ async function streamGemmaChat({
     } finally {
       clearTimeout(timeoutId)
       abort.signal.removeEventListener('abort', onUserAbort)
+      llamaServer.events.off('promptProgress', onPromptProgress)
     }
 
     const tail = filter.flush()

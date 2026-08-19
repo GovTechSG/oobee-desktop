@@ -16,10 +16,24 @@ const fs = require('fs')
 const net = require('net')
 const os = require('os')
 const { spawn } = require('child_process')
+const { EventEmitter } = require('events')
 const { app } = require('electron')
 
 const log = (...m) => console.log('[llamaServer]', ...m)
 const warn = (...m) => console.warn('[llamaServer]', ...m)
+
+// Emits 'promptProgress' events parsed from llama-server's own stderr
+// logging (see the `tail()` helper in ensure() below) so callers (llmGemma.js)
+// can surface real prefill progress to the renderer instead of a silent
+// "processing…" during what can be minutes of prompt processing with zero
+// SSE output (the OpenAI-compatible /v1/chat/completions endpoint sends
+// nothing at all until the first generated token).
+const events = new EventEmitter()
+
+// Matches llama-server's periodic prefill progress log line, e.g.:
+// "prompt processing, n_tokens =   6818, progress = 1.00, t =  229.83 s / 29.67 tokens per second"
+const PROMPT_PROGRESS_RE =
+  /prompt processing, n_tokens\s*=\s*(\d+),\s*progress\s*=\s*([\d.]+),\s*t\s*=\s*([\d.]+)\s*s\s*\/\s*([\d.]+)\s*tokens per second/
 
 function normalizeArch(raw) {
   const arch = String(raw || '').toLowerCase()
@@ -325,7 +339,18 @@ async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
       while ((nl = buf.indexOf('\n')) !== -1) {
         const line = buf.slice(0, nl)
         buf = buf.slice(nl + 1)
-        if (line.trim()) level(`[llama-server] ${line}`)
+        if (line.trim()) {
+          level(`[llama-server] ${line}`)
+          const m = PROMPT_PROGRESS_RE.exec(line)
+          if (m) {
+            events.emit('promptProgress', {
+              tokensProcessed: Number(m[1]),
+              progress: Number(m[2]),
+              elapsedSec: Number(m[3]),
+              tokensPerSec: Number(m[4]),
+            })
+          }
+        }
       }
     })
     stream.on('end', () => {
@@ -405,4 +430,5 @@ module.exports = {
   baseUrl,
   running,
   resolveBinaryPath,
+  events,
 }
