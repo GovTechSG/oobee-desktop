@@ -197,7 +197,7 @@ const ChatPage = () => {
   // above) — gated on the existing getIsWindows bridge already used
   // elsewhere in the app (services.js).
   const [isWindows, setIsWindows] = useState(false)
-  // "OpenAI Compatible LLM" provider: user-supplied endpoint/key/model,
+  // "OpenAI Compatible Provider": user-supplied endpoint/key/model,
   // persisted via userDataManager (see llmChat:getCustomProviderConfig /
   // llmChat:setCustomProviderConfig). Loaded once on mount and refreshed
   // after every successful save from the Configure modal.
@@ -265,7 +265,17 @@ const ChatPage = () => {
   // the real prompt/completion/total token count for the most recently
   // completed hop — updates once per hop, not continuously.
   const [tokenUsage, setTokenUsage] = useState(null) // { promptTokens, completionTokens, totalTokens }
+  // Mirrors tokenUsage synchronously so onLlmChatDone (registered once per
+  // sessionId via the effect below) can read the latest value at completion
+  // time without depending on a `tokenUsage` closure that would otherwise be
+  // stale for the lifetime of that effect.
+  const tokenUsageRef = useRef(null)
   const [backendStatus, setBackendStatus] = useState(null)
+  // Snapshot of streamStats/tokenUsage taken the moment a response finishes,
+  // so the "Xs · ~Y tok/s · Z tokens" line stays visible after streaming
+  // ends instead of disappearing (it used to be gated on `isStreaming`
+  // alone). Persists until the next message is sent.
+  const [lastTurnStats, setLastTurnStats] = useState(null)
 
   const modelReady =
     provider === 'gemma'
@@ -291,7 +301,7 @@ const ChatPage = () => {
     }
   }, [])
 
-  // Load the persisted "OpenAI Compatible LLM" config once on mount so
+  // Load the persisted "OpenAI Compatible Provider" config once on mount so
   // modelReady can gate correctly even before the user opens Configure.
   useEffect(() => {
     let cancelled = false
@@ -363,7 +373,11 @@ const ChatPage = () => {
         const s = await window.services.llmModelStatus(chosenModelId)
         if (!cancelled) {
           setModelStatus(s)
-          if (s?.downloaded) window.services.llmChatPreloadModel(chosenModelId)
+          // Forward cpuOnly so the preloaded server starts in the right mode
+          // the first time — otherwise it spawns in GPU mode by default, then
+          // has to detect the config mismatch and restart into CPU mode once
+          // the real chat request fires, wasting a full extra model load.
+          if (s?.downloaded) window.services.llmChatPreloadModel(chosenModelId, cpuOnly)
         }
       } catch (e) {
         if (!cancelled) setDownloadError(e.message)
@@ -372,7 +386,10 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [chosenModelId, isDownloading])
+    // cpuOnly is included so toggling the CPU-only variant of an already-
+    // downloaded model re-preloads the server in the right mode immediately,
+    // instead of waiting for the next chat send to trigger a restart.
+  }, [chosenModelId, cpuOnly, isDownloading])
 
   useEffect(() => {
     window.services.onLlmModelDownloadProgress((data) => setDownloadProgress(data))
@@ -542,11 +559,29 @@ const ChatPage = () => {
       streamingIndexRef.current = null
       setIsStreaming(false)
       setBackendStatus(null)
+      // Freeze the live stats as of this moment so the total time/tokens for
+      // the just-completed response remain visible under the composer.
+      const { requestStartTime, startTime, tokenCount } = streamStatsRef.current
+      if (requestStartTime !== null) {
+        const elapsedSec = Math.max((Date.now() - requestStartTime) / 1000, 0.001)
+        const tokensPerSec =
+          startTime !== null
+            ? tokenCount / Math.max((Date.now() - startTime) / 1000, 0.001)
+            : null
+        setLastTurnStats({
+          elapsedSec,
+          tokensPerSec,
+          totalTokens: tokenUsageRef.current?.totalTokens ?? null,
+          isEstimate: !!tokenUsageRef.current?.isEstimate,
+        })
+      }
     })
 
     window.services.onLlmChatUsage(({ sessionId: sid, promptTokens, completionTokens, totalTokens, isEstimate }) => {
       if (sid !== sessionId) return
-      setTokenUsage({ promptTokens, completionTokens, totalTokens, isEstimate: !!isEstimate })
+      const usage = { promptTokens, completionTokens, totalTokens, isEstimate: !!isEstimate }
+      tokenUsageRef.current = usage
+      setTokenUsage(usage)
     })
 
     window.services.onLlmChatStatus(({ sessionId: sid, message }) => {
@@ -647,8 +682,10 @@ const ChatPage = () => {
     streamingIndexRef.current = null
     streamStatsRef.current = { requestStartTime: Date.now(), startTime: null, tokenCount: 0 }
     setStreamStats({ elapsedSec: 0, tokenCount: 0, tokensPerSec: null })
+    tokenUsageRef.current = null
     setTokenUsage(null)
     setBackendStatus(null)
+    setLastTurnStats(null)
     stickToBottomRef.current = true
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
@@ -929,7 +966,7 @@ const ChatPage = () => {
               }
               opts.push(
                 <option key="openai-compatible" value="openai-compatible">
-                  OpenAI Compatible LLM
+                  OpenAI Compatible Provider
                 </option>,
               )
               return opts
@@ -967,7 +1004,7 @@ const ChatPage = () => {
           id="chat-configure-modal"
           showModal={showConfigureModal}
           showHeader={true}
-          modalTitle="Configure OpenAI Compatible LLM"
+          modalTitle="Configure OpenAI Compatible Provider"
           modalSizeClass="modal-dialog-centered"
           modalBody={
             <form
@@ -1054,8 +1091,8 @@ const ChatPage = () => {
       )}
 
       {provider === 'openai' && !modelReady && (
-        <div className="chat-model-download" role="region" aria-label="OpenAI Compatible LLM configuration">
-          <h2>OpenAI Compatible LLM not configured</h2>
+        <div className="chat-model-download" role="region" aria-label="OpenAI Compatible Provider configuration">
+          <h2>OpenAI Compatible Provider not configured</h2>
           <p>
             Enter an API base URL and model name to use a custom endpoint — a self-hosted server,
             a corporate gateway, or any other OpenAI-compatible API.
@@ -1350,6 +1387,16 @@ const ChatPage = () => {
             : `${streamStats.elapsedSec.toFixed(1)}s · ~${streamStats.tokensPerSec.toFixed(1)} tok/s`}
           {tokenUsage?.totalTokens != null
             ? ` · ${tokenUsage.isEstimate ? '~' : ''}${tokenUsage.totalTokens.toLocaleString()} tokens`
+            : ''}
+        </div>
+      )}
+
+      {!isStreaming && lastTurnStats && (
+        <div className="chat-stream-stats chat-stream-stats-final" role="status" aria-live="off">
+          {`${lastTurnStats.elapsedSec.toFixed(1)}s total`}
+          {lastTurnStats.tokensPerSec != null ? ` · ~${lastTurnStats.tokensPerSec.toFixed(1)} tok/s` : ''}
+          {lastTurnStats.totalTokens != null
+            ? ` · ${lastTurnStats.isEstimate ? '~' : ''}${lastTurnStats.totalTokens.toLocaleString()} tokens`
             : ''}
         </div>
       )}
