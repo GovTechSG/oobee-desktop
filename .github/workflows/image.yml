@@ -2,6 +2,11 @@ name: Build MacOS and Windows image
 
 on:
   workflow_dispatch:
+    inputs:
+      pre_release:
+        description: 'Pre-release app (grey icon)'
+        type: boolean
+        default: false
   release:
     types: [published]
 
@@ -38,6 +43,7 @@ jobs:
           npm run make-win
         env:
           CI: "false"
+          PRE_RELEASE: ${{ inputs.pre_release && '1' || '' }}
         working-directory: ${{github.workspace}}
 
       - name: Move build to root
@@ -206,6 +212,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PRE_RELEASE: ${{ inputs.pre_release && '1' || '' }}
         working-directory: ${{github.workspace}}
 
       - name: Cleanup keychain

@@ -33,10 +33,10 @@
     "eject": "react-scripts eject",
     "package": "electron-forge package",
     "make": "react-scripts build && electron-forge make",
-    "make-mac": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && react-scripts build && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 electron-forge make --arch=universal --platform darwin",
-    "make-mac-arm64-only": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && react-scripts build && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 electron-forge make --arch=arm64 --platform darwin",
-    "make-win": "TARGET_PLATFORM=win32 TARGET_ARCH=x64 node scripts/fetch-llama-binaries.js && react-scripts build && TARGET_PLATFORM=win32 TARGET_ARCH=x64 electron-forge make --arch=x64 --platform win32",
-    "make-win-arm64": "TARGET_PLATFORM=win32 TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && react-scripts build && TARGET_PLATFORM=win32 TARGET_ARCH=arm64 electron-forge make --arch=arm64 --platform win32"
+    "make-mac": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/generate-prerelease-icons.js && react-scripts build && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 electron-forge make --arch=universal --platform darwin",
+    "make-mac-arm64-only": "rm -rf ./out && curl -L -o \"/tmp/oobee-portable-mac.zip\" https://github.com/GovTechSG/oobee/releases/download/$BE_TAG/oobee-portable-mac.zip && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 node scripts/generate-prerelease-icons.js && react-scripts build && TARGET_PLATFORM=darwin TARGET_ARCH=arm64 electron-forge make --arch=arm64 --platform darwin",
+    "make-win": "TARGET_PLATFORM=win32 TARGET_ARCH=x64 node scripts/fetch-llama-binaries.js && TARGET_PLATFORM=win32 TARGET_ARCH=x64 node scripts/generate-prerelease-icons.js && react-scripts build && TARGET_PLATFORM=win32 TARGET_ARCH=x64 electron-forge make --arch=x64 --platform win32",
+    "make-win-arm64": "TARGET_PLATFORM=win32 TARGET_ARCH=arm64 node scripts/fetch-llama-binaries.js && TARGET_PLATFORM=win32 TARGET_ARCH=arm64 node scripts/generate-prerelease-icons.js && react-scripts build && TARGET_PLATFORM=win32 TARGET_ARCH=arm64 electron-forge make --arch=arm64 --platform win32"
   },
   "config": {
     "forge": "forge.config.js"
