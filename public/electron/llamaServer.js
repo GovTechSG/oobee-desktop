@@ -55,15 +55,57 @@ function targetKeysForCurrentRuntime() {
     if (arch === 'ia32') keys.push('win32-x64')
   }
 
+  // The reverse case: an x64 (or ia32) build running on real ARM64 hardware
+  // under Prism/WOW64 emulation. process.arch only reports the emulated
+  // arch here, so prefer the native arm64 binary — if it's bundled — ahead
+  // of the emulated one for performance.
+  const realArch = detectRealWindowsArch()
+  if (platform === 'win32' && realArch === 'arm64' && arch !== 'arm64') {
+    keys.unshift('win32-arm64')
+  }
+
   return [...new Set(keys)]
 }
 
+// When a Windows process is running under WOW64/Prism emulation (e.g. an x64
+// build executing on real ARM64 hardware), Windows reports the *emulated*
+// architecture via PROCESSOR_ARCHITECTURE but sets PROCESSOR_ARCHITEW6432 to
+// the TRUE native architecture. Node's process.arch mirrors
+// PROCESSOR_ARCHITECTURE (i.e. it's fooled by the emulation too), so this is
+// the only reliable way to detect the real CPU from inside an emulated
+// process. Returns null on non-Windows or when not running under emulation.
+function detectRealWindowsArch() {
+  if (process.platform !== 'win32') return null
+  const real = process.env.PROCESSOR_ARCHITEW6432
+  if (!real) return null
+  return normalizeArch(real)
+}
+
 // forge.config.js copies `resources/<platform>-<arch>/llama-server/` into the
-// packaged app's Resources folder, so at runtime it's always at
-// `<resourcesPath>/llama-server`. In dev, use the repo-relative layout instead.
+// packaged app's Resources folder as `<resourcesPath>/llama-server`. For a
+// win32-x64 build, it *additionally* bundles the arm64 binary as
+// `<resourcesPath>/llama-server-arm64` (see afterCopyExtraResources in
+// forge.config.js) so real ARM64 hardware running the x64 build under Prism
+// emulation can still use the native binary. In dev, use the repo-relative
+// layout instead.
+function packagedCandidateDirs() {
+  const primary = path.join(process.resourcesPath, 'llama-server')
+  if (process.platform !== 'win32') return [primary]
+
+  const dirs = [primary]
+  const realArch = detectRealWindowsArch()
+  const arch = normalizeArch(process.arch)
+  if (realArch === 'arm64' && arch !== 'arm64') {
+    const altDir = path.join(process.resourcesPath, 'llama-server-arm64')
+    dirs.unshift(altDir) // prefer native arm64 over the emulated default
+  }
+  return dirs
+}
+
 function resolveBinaryDir() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'llama-server')
+    const dirs = packagedCandidateDirs()
+    return dirs.find((dir) => fs.existsSync(dir)) || dirs[0]
   }
   const roots = targetKeysForCurrentRuntime().map((key) => path.join(
     __dirname,
@@ -89,7 +131,7 @@ function resolveBinaryPath() {
 function resolveBinaryCandidates() {
   const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
   if (app.isPackaged) {
-    return [path.join(process.resourcesPath, 'llama-server', exe)]
+    return packagedCandidateDirs().map((dir) => path.join(dir, exe))
   }
   return targetKeysForCurrentRuntime().map((key) =>
     path.join(__dirname, '..', '..', 'resources', key, 'llama-server', exe),
