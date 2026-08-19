@@ -148,8 +148,8 @@ contextBridge.exposeInMainWorld("services", {
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
-    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly }),
+    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly, thinking }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly, thinking }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),
@@ -182,6 +182,10 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.removeAllListeners("llmChat:status");
       ipcRenderer.on("llmChat:status", (_e, data) => callback(data));
     },
+    onLlmChatThinking: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:thinking");
+      ipcRenderer.on("llmChat:thinking", (_e, data) => callback(data));
+    },
     onLlmChatToolCall: (callback) => {
       ipcRenderer.removeAllListeners("llmChat:toolCall");
       ipcRenderer.on("llmChat:toolCall", (_e, data) => callback(data));
@@ -202,6 +206,7 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.removeAllListeners("llmChat:chunk");
       ipcRenderer.removeAllListeners("llmChat:usage");
       ipcRenderer.removeAllListeners("llmChat:status");
+      ipcRenderer.removeAllListeners("llmChat:thinking");
       ipcRenderer.removeAllListeners("llmChat:toolCall");
       ipcRenderer.removeAllListeners("llmChat:attachment");
       ipcRenderer.removeAllListeners("llmChat:done");
