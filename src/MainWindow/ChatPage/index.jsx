@@ -326,6 +326,18 @@ const ChatPage = () => {
     return `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionEpoch])
+  // Resolves once the backend `llmChatStart` for the current sessionId has
+  // returned — per-session IPCs like findingDetail can't safely run before
+  // then, otherwise the backend returns "Session not found" during the race
+  // window after a session reset (e.g. Delete chat).
+  const sessionReadyRef = useRef(null)
+  if (sessionReadyRef.current?.forSessionId !== sessionId) {
+    let resolveFn
+    const p = new Promise((resolve) => {
+      resolveFn = resolve
+    })
+    sessionReadyRef.current = { forSessionId: sessionId, promise: p, resolve: resolveFn }
+  }
 
   const [summary, setSummary] = useState(null)
   const [startError, setStartError] = useState(null)
@@ -638,6 +650,9 @@ const ChatPage = () => {
         }
       } catch (e) {
         if (!cancelled) setStartError(e.message)
+      } finally {
+        const gate = sessionReadyRef.current
+        if (gate && gate.forSessionId === sessionId) gate.resolve()
       }
     })()
     return () => {
@@ -905,6 +920,13 @@ const ChatPage = () => {
 
   const fetchFindingDetail = useMemo(
     () => async (category, ruleId) => {
+      // Wait for llmChatStart to finish for this sessionId — otherwise the
+      // backend hasn't registered the session yet and returns "Session not
+      // found". Closes the race that happens right after Delete chat.
+      const gate = sessionReadyRef.current
+      if (gate && gate.forSessionId === sessionId) {
+        await gate.promise
+      }
       return window.services.llmFindingDetail({ sessionId, category, ruleId })
     },
     [sessionId],
@@ -1692,14 +1714,14 @@ const ChatPage = () => {
         )}
         {messages.length > 0 && (
           <div className="chat-delete-container">
-            <Button
-              type="btn-secondary"
-              className="chat-delete-btn"
+            <button
+              type="button"
+              className="chat-chip"
               onClick={handleDeleteChat}
               disabled={isStreaming}
             >
               Delete chat
-            </Button>
+            </button>
           </div>
         )}
         <div ref={messagesEndRef} />
