@@ -170,6 +170,8 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.invoke("llmChat:getCustomProviderConfig"),
     llmChatSetCustomProviderConfig: async ({ baseUrl, apiKey, model }) =>
       ipcRenderer.invoke("llmChat:setCustomProviderConfig", { baseUrl, apiKey, model }),
+    llmChatListCustomProviderModels: async ({ baseUrl, apiKey }) =>
+      ipcRenderer.invoke("llmChat:listCustomProviderModels", { baseUrl, apiKey }),
     llmModelList: async () => ipcRenderer.invoke("llmModel:list"),
     llmModelStatus: async (modelId) => ipcRenderer.invoke("llmModel:status", modelId),
     llmModelDownload: async (modelId) => ipcRenderer.invoke("llmModel:download", modelId),
