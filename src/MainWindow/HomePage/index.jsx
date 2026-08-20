@@ -248,6 +248,14 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
   // entirely. Only folders containing the LLM analysis JSON artifacts
   // (produced by a prior 'LLM analysis' scan) are accepted; the main
   // process validates this and mints a fresh scanId for the chosen folder.
+  // "New Chat" — open the LLM chat page with no scan or report attached. The
+  // ChatPage detects `state.newChat` and skips the scanId requirement /
+  // SummaryCard, and the backend session runs against just the `search_wcag`
+  // corpus.
+  const startNewChat = () => {
+    navigate('/llm_chat', { state: { newChat: true } })
+  }
+
   const chooseExistingReportForChat = async () => {
     try {
       const folderPath = await window.services.selectFile({
@@ -427,6 +435,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             isAbortingScan={isAbortingScan}
             llmAnalysisEnabled={llmAnalysisEnabled}
             onChooseExistingReport={chooseExistingReportForChat}
+            onStartNewChat={startNewChat}
           />
         </div>
         {showBasicAuthModal && (
