@@ -4,7 +4,7 @@ const path = require('path')
 const zlib = require('zlib')
 const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
-const { buildSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
+const { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
 const { streamOpenAICompatibleChat, disposeSession: disposeOpenAISession } = require('./llmOpenAICompatible')
 const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmModelManager')
@@ -129,6 +129,12 @@ const sessions = new Map() // sessionId -> { storagePath, cfg, artifacts, summar
 const GEMMA_TOOL_SCHEMAS = TOOL_SCHEMAS.filter(
   (t) => t.name !== 'get_page_dom' && t.name !== 'get_page_detail',
 )
+
+// Standalone "New Chat" mode (no scan attached): the model can only call
+// search_wcag against the local WCAG+DSS+DETAILS.md corpus. Every other tool
+// depends on scan artifacts we don't have here, so we hide them from the
+// schema rather than let the model call them and get an error.
+const STANDALONE_TOOL_SCHEMAS = TOOL_SCHEMAS.filter((t) => t.name === 'search_wcag')
 
 const log = (...args) => console.log('[llmAnalysis]', ...args)
 const warn = (...args) => console.warn('[llmAnalysis]', ...args)
@@ -1077,7 +1083,7 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
       },
     ],
     messages,
-    tools: TOOL_SCHEMAS,
+    tools: session.toolSchemas || TOOL_SCHEMAS,
     stream: true,
     // Anthropic's extended thinking: model reasons step-by-step in a
     // separate `thinking` content block (streamed via thinking_delta below)
@@ -1457,10 +1463,10 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly, thinking }) => {
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
-      if (!scanId) throw new Error('Missing scanId')
+      if (!newChat && !scanId) throw new Error('Missing scanId')
       const chosenProvider =
         provider === 'gemma' ? 'gemma' : provider === 'openai' ? 'openai' : 'anthropic'
       // Only Gemma cares about modelId. Default to E4B if the renderer
@@ -1470,29 +1476,46 @@ function init({ mainWindow, getResultsFolderPath }) {
       if (chosenProvider === 'gemma') {
         chosenModelId = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
       }
-      const storagePath = getResultsFolderPath(scanId)
-      if (!storagePath || !fs.existsSync(storagePath)) {
-        return { ok: false, error: `Scan folder not found for scanId=${scanId}` }
-      }
-      const artifacts = loadArtifacts(storagePath)
-      if (!artifacts.scanData) {
-        return {
-          ok: false,
-          error:
-            'Scan JSON output not found. Confirm the scan ran with -g yes (LLM analysis mode enables this automatically).',
+      // Standalone "New Chat" branch: no scan folder / artifacts / summary.
+      // The session only exposes `search_wcag` (see STANDALONE_TOOL_SCHEMAS)
+      // — every other tool needs scan artifacts we don't have.
+      let storagePath = null
+      let artifacts = null
+      let summary = null
+      let systemPrompt
+      let toolSchemas
+      if (newChat) {
+        systemPrompt = buildStandaloneSystemPrompt()
+        toolSchemas = STANDALONE_TOOL_SCHEMAS
+      } else {
+        storagePath = getResultsFolderPath(scanId)
+        if (!storagePath || !fs.existsSync(storagePath)) {
+          return { ok: false, error: `Scan folder not found for scanId=${scanId}` }
         }
+        artifacts = loadArtifacts(storagePath)
+        if (!artifacts.scanData) {
+          return {
+            ok: false,
+            error:
+              'Scan JSON output not found. Confirm the scan ran with -g yes (LLM analysis mode enables this automatically).',
+          }
+        }
+        summary = computeSummary(artifacts)
+        // The full findings index is ~30 KB, useful as Anthropic prompt-cache
+        // pre-warming. Local Gemma has an ~8 K token context by default, so
+        // we trim it and let the model fetch rule details via list_findings /
+        // get_finding_detail on demand. The generic OpenAI-compatible
+        // provider could be pointed at anything from a small local model to a
+        // large cloud one, so it gets the same trimmed prompt as Gemma by
+        // default — safer default than assuming cloud-scale context.
+        const promptSummary =
+          chosenProvider === 'anthropic' ? summary : { ...summary, findingsIndex: null }
+        systemPrompt = buildSystemPrompt({ summary: promptSummary })
+        // Per-provider schema selection — the same choice we used to make at
+        // call sites, now materialised on the session so standalone mode can
+        // slot in its own filtered set uniformly.
+        toolSchemas = chosenProvider === 'anthropic' ? TOOL_SCHEMAS : GEMMA_TOOL_SCHEMAS
       }
-      const summary = computeSummary(artifacts)
-      // The full findings index is ~30 KB, useful as Anthropic prompt-cache
-      // pre-warming. Local Gemma has an ~8 K token context by default, so we
-      // trim it and let the model fetch rule details via list_findings /
-      // get_finding_detail on demand. The generic OpenAI-compatible provider
-      // could be pointed at anything from a small local model to a large
-      // cloud one, so it gets the same trimmed prompt as Gemma by default —
-      // safer default than assuming cloud-scale context.
-      const promptSummary =
-        chosenProvider === 'anthropic' ? summary : { ...summary, findingsIndex: null }
-      const systemPrompt = buildSystemPrompt({ summary: promptSummary })
       // Dispose any prior session state for this id (e.g. provider switch).
       const prior = sessions.get(sessionId)
       if (prior) {
@@ -1512,7 +1535,8 @@ function init({ mainWindow, getResultsFolderPath }) {
         }
       }
       sessions.set(sessionId, {
-        scanId,
+        scanId: newChat ? null : scanId,
+        newChat: !!newChat,
         provider: chosenProvider,
         modelId: chosenModelId,
         cpuOnly: !!cpuOnly,
@@ -1528,13 +1552,14 @@ function init({ mainWindow, getResultsFolderPath }) {
         artifacts,
         summary,
         systemPrompt,
+        toolSchemas,
         cfg: null, // lazy — only load when the user actually sends a message
         messages: [],
         gemma: null,
         openai: null,
         abort: null,
       })
-      log(`session ${sessionId} started for scanId=${scanId} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}${thinking ? ' (thinking enabled)' : ''}`)
+      log(`session ${sessionId} started ${newChat ? '(standalone / no scan)' : `for scanId=${scanId}`} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}${thinking ? ' (thinking enabled)' : ''}`)
       return { ok: true, summary, provider: chosenProvider, modelId: chosenModelId }
     } catch (e) {
       warn(`start failed: ${e.message}`)
@@ -1580,7 +1605,7 @@ function init({ mainWindow, getResultsFolderPath }) {
           userMessage,
           attachments: parsedAttachments,
           runTool,
-          toolSchemas: GEMMA_TOOL_SCHEMAS,
+          toolSchemas: session.toolSchemas || GEMMA_TOOL_SCHEMAS,
         })
       } else if (session.provider === 'openai') {
         await streamOpenAICompatibleChat({
@@ -1590,7 +1615,7 @@ function init({ mainWindow, getResultsFolderPath }) {
           userMessage,
           attachments: parsedAttachments,
           runTool,
-          toolSchemas: GEMMA_TOOL_SCHEMAS,
+          toolSchemas: session.toolSchemas || GEMMA_TOOL_SCHEMAS,
         })
       } else {
         if (!session.cfg) {
