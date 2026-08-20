@@ -258,8 +258,24 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
   const chooseExistingReportForChat = async () => {
     try {
+      // Open the picker rooted at the user's configured Oobee reports folder
+      // so they don't have to navigate to it every time. Electron's
+      // showOpenDialog silently falls back to a sensible ancestor if the
+      // defaultPath doesn't exist on disk, so we don't need to fs-stat it
+      // here; if exportDir isn't set at all, we simply omit defaultPath.
+      let defaultPath
+      try {
+        const userData = await services.getUserData()
+        if (userData && typeof userData.exportDir === 'string' && userData.exportDir) {
+          defaultPath = userData.exportDir
+        }
+      } catch (_) {
+        // fall through — dialog opens with OS default
+      }
+
       const folderPath = await window.services.selectFile({
         properties: ['openDirectory'],
+        ...(defaultPath ? { defaultPath } : {}),
       })
       if (!folderPath) return // user cancelled the folder picker
 
