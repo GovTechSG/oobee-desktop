@@ -1737,6 +1737,59 @@ function init({ mainWindow, getResultsFolderPath }) {
       return { ok: false, error: e.message }
     }
   })
+
+  // GET {baseUrl}/models — the OpenAI-compatible enumeration endpoint. Kept
+  // in the main process so the request bypasses renderer CORS and so the
+  // API key never touches the DOM. Falls back tolerantly if the server
+  // returns a shape that isn't strict OpenAI (e.g. Ollama's `{models: […]}`).
+  ipcMain.handle('llmChat:listCustomProviderModels', async (_event, { baseUrl, apiKey } = {}) => {
+    try {
+      if (!baseUrl || typeof baseUrl !== 'string') {
+        return { ok: false, error: 'Base URL is required.' }
+      }
+      const trimmed = baseUrl.trim().replace(/\/+$/, '')
+      const url = `${trimmed}/models`
+      const headers = { Accept: 'application/json' }
+      if (typeof apiKey === 'string' && apiKey.trim()) {
+        headers.Authorization = `Bearer ${apiKey.trim()}`
+      }
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 10000)
+      let res
+      try {
+        res = await fetch(url, { headers, signal: controller.signal })
+      } finally {
+        clearTimeout(timer)
+      }
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: `Server returned HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}.`,
+        }
+      }
+      const body = await res.json()
+      // OpenAI: { data: [{ id }] }. Ollama: { models: [{ name }] }.
+      // LM Studio matches OpenAI. Handle both shapes just in case.
+      const raw = Array.isArray(body?.data)
+        ? body.data
+        : Array.isArray(body?.models)
+          ? body.models
+          : []
+      const models = raw
+        .map((m) => (typeof m === 'string' ? m : m?.id || m?.name || m?.model))
+        .filter((id) => typeof id === 'string' && id.length > 0)
+      if (models.length === 0) {
+        return { ok: false, error: 'Server returned no models.' }
+      }
+      return { ok: true, models }
+    } catch (e) {
+      const msg =
+        e?.name === 'AbortError'
+          ? 'Request timed out after 10s.'
+          : e?.message || String(e)
+      return { ok: false, error: msg }
+    }
+  })
 }
 
 module.exports = { init }
