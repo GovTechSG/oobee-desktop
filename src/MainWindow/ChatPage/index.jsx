@@ -318,6 +318,11 @@ const ChatPage = () => {
   const [showConfigureModal, setShowConfigureModal] = useState(false)
   const [configDraft, setConfigDraft] = useState({ baseUrl: '', apiKey: '', model: '' })
   const [configSaveError, setConfigSaveError] = useState(null)
+  // Result of a GET {baseUrl}/models probe fired from the Configure modal.
+  // Kept modal-local (reset when the modal opens) — we don't persist it.
+  const [customModelsList, setCustomModelsList] = useState(null)
+  const [isFetchingCustomModels, setIsFetchingCustomModels] = useState(false)
+  const [customModelsFetchError, setCustomModelsFetchError] = useState(null)
   // Configure modal for Gemma model selection + CPU-only toggle, and
   // Anthropic's Thinking toggle — mirrors the OpenAI Compatible Provider
   // Configure pattern above. Unlike that modal, these controls don't need a
@@ -1261,6 +1266,9 @@ const ChatPage = () => {
               onClick={() => {
                 setConfigDraft(customConfig)
                 setConfigSaveError(null)
+                setCustomModelsList(null)
+                setCustomModelsFetchError(null)
+                setIsFetchingCustomModels(false)
                 setShowConfigureModal(true)
               }}
             >
@@ -1328,14 +1336,75 @@ const ChatPage = () => {
                 autoComplete="off"
               />
               <label htmlFor="chat-configure-model">Model</label>
-              <input
-                id="chat-configure-model"
-                type="text"
-                placeholder="gpt-4o-mini"
-                value={configDraft.model}
-                onChange={(e) => setConfigDraft((d) => ({ ...d, model: e.target.value }))}
-                autoComplete="off"
-              />
+              <div className="chat-configure-model-row">
+                <input
+                  id="chat-configure-model"
+                  type="text"
+                  placeholder="gpt-4o-mini"
+                  value={configDraft.model}
+                  onChange={(e) => setConfigDraft((d) => ({ ...d, model: e.target.value }))}
+                  autoComplete="off"
+                  list={customModelsList && customModelsList.length > 0 ? 'chat-configure-model-list' : undefined}
+                />
+                <button
+                  type="button"
+                  className="chat-configure-list-models"
+                  disabled={!configDraft.baseUrl || isFetchingCustomModels}
+                  onClick={async () => {
+                    setCustomModelsFetchError(null)
+                    setCustomModelsList(null)
+                    setIsFetchingCustomModels(true)
+                    try {
+                      const res = await window.services.llmChatListCustomProviderModels({
+                        baseUrl: configDraft.baseUrl,
+                        apiKey: configDraft.apiKey,
+                      })
+                      if (res?.ok && Array.isArray(res.models)) {
+                        setCustomModelsList(res.models)
+                      } else {
+                        setCustomModelsFetchError(res?.error || 'Failed to fetch models.')
+                      }
+                    } catch (err) {
+                      setCustomModelsFetchError(err.message)
+                    } finally {
+                      setIsFetchingCustomModels(false)
+                    }
+                  }}
+                >
+                  {isFetchingCustomModels ? 'Fetching…' : 'List available models'}
+                </button>
+              </div>
+              {customModelsList && customModelsList.length > 0 && (
+                <>
+                  <datalist id="chat-configure-model-list">
+                    {customModelsList.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
+                  <select
+                    className="chat-configure-model-select"
+                    aria-label="Pick from available models"
+                    value={customModelsList.includes(configDraft.model) ? configDraft.model : ''}
+                    onChange={(e) =>
+                      setConfigDraft((d) => ({ ...d, model: e.target.value }))
+                    }
+                  >
+                    <option value="">
+                      {`Select from ${customModelsList.length} model${customModelsList.length === 1 ? '' : 's'}…`}
+                    </option>
+                    {customModelsList.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {customModelsFetchError && (
+                <p className="chat-configure-models-error" role="alert">
+                  Couldn't fetch models: {customModelsFetchError}
+                </p>
+              )}
               <label htmlFor="chat-configure-apikey">API Key (optional)</label>
               <input
                 id="chat-configure-apikey"
