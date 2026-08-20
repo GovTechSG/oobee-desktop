@@ -153,6 +153,16 @@ const SUGGESTED_QUESTIONS = [
   'Are there any color-contrast violations I should worry about?',
 ]
 
+// New Chat mode has no scan attached — the model only has `search_wcag` over
+// the WCAG+DSS+DETAILS.md corpus. Suggested questions steer the user toward
+// things that corpus can actually answer, rather than scan-specific ones.
+const NEW_CHAT_SUGGESTED_QUESTIONS = [
+  'What does WCAG SC 2.5.8 require?',
+  'Explain DSS control WP-1 and how it maps to WCAG.',
+  "What's the difference between Must Fix, Good to Fix, and Manual Review Required in Oobee?",
+  'Give me a checklist for accessible form labels.',
+]
+
 // Storage key holds the plain provider id (`anthropic` / `gemma` /
 // `openai-compatible`). Which specific local Gemma model size to use
 // (E2B/E4B/12B) is a separate persisted choice (see GEMMA_MODEL_STORAGE_KEY
@@ -275,6 +285,11 @@ const ChatPage = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const scanId = location.state?.scanId
+  // "New Chat" mode — user opened /llm_chat from the home-screen "New Chat"
+  // option instead of finishing a scan or picking an existing report folder.
+  // No scan artifacts, no SummaryCard; the backend session runs against just
+  // the `search_wcag` corpus.
+  const isNewChat = !!location.state?.newChat
 
   const [selectedOption, setSelectedOption] = useState(readStoredOption)
   const provider = optionToProvider(selectedOption)
@@ -626,7 +641,7 @@ const ChatPage = () => {
   }, [showModelOptionsModal])
 
   useEffect(() => {
-    if (!scanId) {
+    if (!scanId && !isNewChat) {
       setStartError('Missing scanId. Return to the home page and start a new scan.')
       return
     }
@@ -637,6 +652,7 @@ const ChatPage = () => {
         const res = await window.services.llmChatStart({
           sessionId,
           scanId,
+          newChat: isNewChat,
           provider,
           modelId: chosenModelId,
           cpuOnly,
@@ -658,7 +674,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [sessionId, scanId, provider, chosenModelId, cpuOnly, thinking, modelReady])
+  }, [sessionId, scanId, isNewChat, provider, chosenModelId, cpuOnly, thinking, modelReady])
 
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
@@ -1509,9 +1525,13 @@ const ChatPage = () => {
       >
         {messages.length === 0 && !startError && modelReady && (
           <div className="chat-empty">
-            <p>Ask a question about the scan, or try one of these:</p>
+            <p>
+              {isNewChat
+                ? 'Ask any accessibility question, or try one of these:'
+                : 'Ask a question about the scan, or try one of these:'}
+            </p>
             <div className="chat-suggested-chips">
-              {SUGGESTED_QUESTIONS.map((q) => (
+              {(isNewChat ? NEW_CHAT_SUGGESTED_QUESTIONS : SUGGESTED_QUESTIONS).map((q) => (
                 <button
                   key={q}
                   type="button"
