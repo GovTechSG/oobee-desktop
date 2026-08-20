@@ -159,8 +159,8 @@ contextBridge.exposeInMainWorld("services", {
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
-    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly, thinking }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly, thinking }),
+    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),

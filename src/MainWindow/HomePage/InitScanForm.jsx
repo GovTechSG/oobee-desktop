@@ -55,6 +55,7 @@ const InitScanForm = ({
   isAbortingScan,
   llmAnalysisEnabled,
   onChooseExistingReport,
+  onStartNewChat,
 }) => {
   const [openPageLimitAdjuster, setOpenPageLimitAdjuster] = useState(false)
   const [pageWord, setPageWord] = useState('pages')
@@ -570,6 +571,20 @@ const InitScanForm = ({
           setShowModal={setShowInputModeModal}
           modalBody={
             <div id="llm-input-mode-options">
+              <button
+                type="button"
+                className="btn-secondary modal-full-button llm-input-mode-option"
+                onClick={() => {
+                  setShowInputModeModal(false)
+                  onStartNewChat?.()
+                }}
+              >
+                <strong>New chat</strong>
+                <span>
+                  Open a chat on general accessibility questions grounded in WCAG 2.2, Singapore DSS,
+                  and Oobee's rule catalog.
+                </span>
+              </button>
               <button
                 type="button"
                 className="btn-secondary modal-full-button llm-input-mode-option"
