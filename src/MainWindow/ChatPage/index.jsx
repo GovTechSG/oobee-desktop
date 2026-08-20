@@ -460,9 +460,15 @@ const ChatPage = () => {
             } else {
               // No cloud fallback available — switch to (or stay on) Local,
               // but make sure the selected Gemma model size is actually one
-              // this machine can run; fall back to the smallest even if
-              // unsupported, same as before.
-              const fallbackModelId = models.find((m) => m.supported)?.id || models[0]?.id || 'gemma-e4b'
+              // this machine can run. Prefer E4B when the machine clears its
+              // RAM bar (best default quality/speed tradeoff); otherwise fall
+              // back to the smallest supported model (E2B), then to models[0]
+              // (unsupported, greyed out) as a last resort.
+              const fallbackModelId =
+                models.find((m) => m.id === 'gemma-e4b' && m.supported)?.id ||
+                models.find((m) => m.supported)?.id ||
+                models[0]?.id ||
+                'gemma-e4b'
               try {
                 window.localStorage.setItem(PROVIDER_STORAGE_KEY, 'gemma')
                 window.localStorage.setItem(GEMMA_MODEL_STORAGE_KEY, fallbackModelId)
@@ -913,7 +919,7 @@ const ChatPage = () => {
     const categoryLabel =
       category === 'mustFix' ? 'Must Fix'
         : category === 'goodToFix' ? 'Good to Fix'
-          : category === 'needsReview' ? 'Needs Review'
+          : category === 'needsReview' ? 'Manual Review Required'
             : category || null
     const attachments = occurrence.screenshotDataUri
       ? [
@@ -1071,6 +1077,19 @@ const ChatPage = () => {
     window.services.llmChatAbort(sessionId)
   }
 
+  const handleDeleteChat = () => {
+    if (isStreaming) {
+      try {
+        window.services.llmChatAbort(sessionId)
+      } catch (_) {}
+    }
+    setMessages([])
+    setStreamError(null)
+    setLastTurnStats(null)
+    setTokenUsage(null)
+    setSessionEpoch((e) => e + 1)
+  }
+
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -1126,8 +1145,8 @@ const ChatPage = () => {
               return [
                 <option key="anthropic" value="anthropic" disabled={anthropicUnavailable}>
                   {anthropicUnavailable
-                    ? 'Anthropic Claude (cloud) — not configured'
-                    : 'Anthropic Claude (cloud)'}
+                    ? 'Anthropic Claude (not detected)'
+                    : 'Anthropic Claude'}
                 </option>,
                 <option key="gemma" value="gemma">
                   Local (on device)
@@ -1451,6 +1470,7 @@ const ChatPage = () => {
       {summary && (
         <SummaryCard
           summary={summary}
+          scanId={scanId}
           onAskAboutRule={askAboutRule}
           onAskAboutOccurrence={askAboutOccurrence}
           fetchFindingDetail={fetchFindingDetail}
@@ -1697,6 +1717,19 @@ const ChatPage = () => {
       {isStreaming && backendStatus && (
         <div className="chat-stream-status" role="status" aria-live="polite">
           {backendStatus}
+        </div>
+      )}
+
+      {messages.length > 0 && (
+        <div className="chat-delete-container">
+          <Button
+            type="btn-secondary"
+            className="chat-delete-btn"
+            onClick={handleDeleteChat}
+            disabled={isStreaming}
+          >
+            Delete chat
+          </Button>
         </div>
       )}
 

@@ -163,12 +163,18 @@ const OccurrenceBrowser = ({ category, rule, fetchFindingDetail, onAskAboutOccur
 
 const SummaryCard = ({
   summary,
+  scanId,
   onAskAboutRule,
   onAskAboutOccurrence,
   fetchFindingDetail,
   detailsOpen,
   onDetailsToggle,
 }) => {
+  const handleViewReport = (e) => {
+    e.preventDefault()
+    if (scanId) window.services.openReport(scanId)
+  }
+
   const [browseOpenKey, setBrowseOpenKey] = useState(null)
 
   if (!summary) return null
@@ -221,6 +227,14 @@ const SummaryCard = ({
           )}
           {startTime && <span> · {fmt(startTime)}</span>}
           {viewport && <span> · {fmt(viewport)}</span>}
+          {scanId && (
+            <span>
+              {' · '}
+              <a href="#" onClick={handleViewReport}>
+                View report
+              </a>
+            </span>
+          )}
         </div>
       </div>
 
@@ -264,7 +278,7 @@ const SummaryCard = ({
             <div className="stat-sub">{fmt(goodToFixOccurrences, 0)} occurrences</div>
           </div>
           <div className="stat stat-needs-review">
-            <div className="stat-label">Needs Review</div>
+            <div className="stat-label">Manual Review Required</div>
             <div className="stat-value">{fmt(needsReviewRules, 0)}</div>
             <div className="stat-sub">{fmt(needsReviewOccurrences, 0)} occurrences</div>
           </div>
