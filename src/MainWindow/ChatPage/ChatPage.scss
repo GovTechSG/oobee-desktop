@@ -1143,6 +1143,18 @@
     }
   }
 
+  .chat-delete-container {
+    display: flex;
+    justify-content: center;
+    margin: 0.25rem 0 0.5rem;
+  }
+
+  .chat-delete-btn {
+    border-radius: 999px;
+    padding: 0.25rem 1rem;
+    font-size: 0.85rem;
+  }
+
   .chat-composer {
     display: flex;
     gap: 0.5rem;
