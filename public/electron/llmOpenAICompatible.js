@@ -175,7 +175,7 @@ async function streamOpenAICompatibleChat({
   const tools = toOpenAITools(toolSchemas)
   const toolByName = new Map(toolSchemas.map((t) => [t.name, t]))
 
-  const MAX_TOOL_HOPS = 8
+  const MAX_TOOL_HOPS = 50
   const MAX_EMPTY_RESPONSE_RETRIES = 1
   let emptyResponseRetries = 0
 
