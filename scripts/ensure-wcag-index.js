@@ -28,6 +28,10 @@ const OUT_DIR = path.join(ROOT, 'public', 'electron', 'wcag-index')
 const SRC_DIR = path.join(ROOT, '.cache', 'wcag-src')
 const REPO_URL = 'https://github.com/w3c/wcag.git'
 const EXPECTED_TAG = 'WCAG22-20241212'
+const DETAILS_MD_PATH = path.join(ROOT, '.cache', 'oobee-DETAILS.md')
+const DETAILS_MD_URL =
+  'https://raw.githubusercontent.com/GovTechSG/oobee/master/DETAILS.md'
+const DSS_MANIFEST_PATH = path.join(ROOT, '.cache', 'dss', 'manifest.json')
 
 const force = process.argv.slice(2).includes('--force')
 
@@ -61,9 +65,37 @@ function ensureSourceCheckout() {
   cloneSource()
 }
 
+function ensureOobeeDetailsMd() {
+  if (fs.existsSync(DETAILS_MD_PATH) && !force) {
+    log(`reusing cached oobee DETAILS.md at ${DETAILS_MD_PATH}`)
+    return
+  }
+  log(`fetching oobee DETAILS.md from ${DETAILS_MD_URL} …`)
+  fs.mkdirSync(path.dirname(DETAILS_MD_PATH), { recursive: true })
+  execFileSync('curl', ['-fsSL', '-o', DETAILS_MD_PATH, DETAILS_MD_URL], {
+    stdio: 'inherit',
+  })
+}
+
+function ensureDssCorpus() {
+  if (fs.existsSync(DSS_MANIFEST_PATH) && !force) {
+    log(`reusing cached DSS corpus at ${path.dirname(DSS_MANIFEST_PATH)}`)
+    return
+  }
+  log('scraping DSS control catalog …')
+  const args = [path.join(__dirname, 'build-dss-corpus.js')]
+  if (force) args.push('--force')
+  const result = spawnSync(process.execPath, args, { stdio: 'inherit' })
+  if (result.status !== 0) {
+    process.exit(result.status || 1)
+  }
+}
+
 function buildIndex() {
   ensureSourceCheckout()
-  log('building WCAG search index (this embeds ~1,200 chunks, may take a while) …')
+  ensureOobeeDetailsMd()
+  ensureDssCorpus()
+  log('building WCAG+DSS search index (embeds ~1,300 chunks, may take a while) …')
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'build-wcag-index.js')],

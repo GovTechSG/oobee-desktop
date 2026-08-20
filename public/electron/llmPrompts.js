@@ -88,7 +88,9 @@ Oobee categorises each finding as:
 - \`goodToFix\` — best-practice issue that is not strictly a WCAG failure
 - \`needsReview\` — automated tooling could not be certain; a human should verify
 
-You have the scan overview and a compact index of every finding. You do NOT have every finding's full detail or every page's HTML — call the provided tools when you need element-level HTML, per-page issue lists, DOMs, or full-page screenshots. For the exact wording of a WCAG success criterion or a WCAG technique/failure document, call \`search_wcag\` rather than answering from your own knowledge. Do not fabricate rule ids, WCAG clauses, or affected elements — if unsure, call a tool.
+You have the scan overview and a compact index of every finding. You do NOT have every finding's full detail or every page's HTML — call the provided tools when you need element-level HTML, per-page issue lists, DOMs, or full-page screenshots. For the exact wording of a WCAG success criterion, a WCAG technique/failure document, a Singapore DSS control (WP-, WO-, WU-, WR-, BD-, PR-, TX-, TL-, UU-numbered), or an Oobee severity/mapping definition from DETAILS.md, call \`search_wcag\` rather than answering from your own knowledge. Do not fabricate rule ids, WCAG clauses, DSS codes, or affected elements — if unsure, call a tool.
+
+**DSS control rule:** If the user mentions a DSS/SSP clause (e.g. "WP-1", "WO-10", "explain BD-3"), call \`search_wcag\` with the code verbatim. The returned snippet contains the control statement, recommendations, rationale, and — where Oobee maps the control — the corresponding WCAG success criterion. Explain that DSS is Oobee's parent standard (Singapore Government Digital Service Standards) and, when a WCAG mapping is present, cite it. For DSS questions outside the ingested control catalog, say so plainly rather than inventing content.
 
 **WCAG citation rule (strict):** Each rule below lists its authoritative WCAG references in the \`WCAG …\` column. When you discuss a rule, cite ONLY the WCAG success criteria listed for that rule — do not add related-looking ones from your general knowledge (e.g. do not add SC 2.4.4 "Link Purpose" to a rule whose listed WCAG is 4.1.2). If a rule has no WCAG references listed, say "no WCAG mapping recorded" rather than inventing one. If you need conformance for a rule not covered by the top-rules list, call \`get_finding_detail\` first — its return value has an authoritative \`conformance\` array.
 
@@ -274,14 +276,14 @@ const TOOL_SCHEMAS = [
   {
     name: 'search_wcag',
     description:
-      'Search the local WCAG 2.x Understanding and Techniques corpus for authoritative text. Call this when you need the exact wording of a success criterion, a technique document (G-, H-, F-, ARIA-, C-numbered), or a failure condition — and whenever the user asks about WCAG guidance not tied to a specific rule in this scan. **Query by the dotted SC number when you know it** (e.g. "2.5.8", "2.4.4 link purpose", "1.4.3 contrast"): the finding context and the "WCAG references (authoritative)" line in the user message already give you the mapping from an Oobee/axe rule id to its SC number. Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the query — those strings are not in the corpus and produce noisy hits; translate them to the SC number first. Technique ids like "G54" and "H37" are also supported. Returns a small set of ranked snippets with title, section, URL and score. If the first hit is too generic, call again with a refined query.',
+      'Search the local corpus of (a) WCAG 2.x Understanding and Techniques, (b) Singapore Digital Service Standards (DSS) controls from https://info.standards.tech.gov.sg/control-catalog/dss/, and (c) Oobee\'s DETAILS.md (rule→WCAG→DSS mapping tables and severity definitions). Call this when you need the exact wording of a WCAG success criterion, a WCAG technique (G-, H-, F-, ARIA-, C-numbered), a DSS control (WP-, WO-, WU-, WR-, BD-, PR-, TX-, TL-, UU-numbered), or a definition/mapping from Oobee\'s own docs. **Querying tips:** for WCAG use the dotted SC number ("2.5.8", "1.4.3 contrast"); for DSS use the code verbatim ("WP-1", "WO-4"); for Oobee-specific concepts use plain terms ("Must Fix definition", "readability grading"). Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the query — those strings are not in the WCAG corpus; translate them to the SC number first. DSS controls that Oobee maps to a WCAG SC include the mapping in the returned snippet (e.g. WP-1 → WCAG 1.1.1). If the first hit is too generic, call again with a refined query.',
     input_schema: {
       type: 'object',
       required: ['query'],
       properties: {
         query: {
           type: 'string',
-          description: 'Keyword or phrase, ideally 2–10 words. Prefer dotted SC numbers like "2.5.8" over Oobee/axe rule ids like "target-size". Technique ids like "G54" are supported.',
+          description: 'Keyword or phrase, ideally 2–10 words. Dotted SC numbers ("2.5.8"), DSS codes ("WP-1"), and WCAG technique ids ("G54") are all supported. Prefer these over raw Oobee/axe rule ids like "target-size".',
         },
         top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
       },
