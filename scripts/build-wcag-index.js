@@ -26,6 +26,10 @@ const cheerio = require('cheerio')
 
 const SRC_DIR = process.env.WCAG_SRC_DIR || '/Users/young/wcag'
 const OUT_DIR = path.join(__dirname, '..', 'public', 'electron', 'wcag-index')
+const DSS_DIR = path.join(__dirname, '..', '.cache', 'dss')
+const DETAILS_MD_PATH = path.join(__dirname, '..', '.cache', 'oobee-DETAILS.md')
+const DETAILS_MD_URL =
+  'https://github.com/GovTechSG/oobee/blob/master/DETAILS.md'
 const EXPECTED_TAG = 'WCAG22-20241212'
 const OBSOLETED_UNDERSTANDING = new Set(['parsing.html']) // WCAG 4.1.1, removed in 2.2
 
@@ -223,6 +227,136 @@ async function collectTechniquePages() {
   return pages
 }
 
+// ---- DSS (Digital Service Standards) control catalog ingestion ----
+//
+// The scraper writes one JSON per category to `.cache/dss/<code>.json` plus
+// a `manifest.json`. Each control becomes one chunk in the index, with
+// metadata.techId set to the DSS code ("WP-1") so wcagCorpus.js's tokenizer
+// gives it the same TITLE_BOOST treatment as WCAG technique ids ("G54").
+// A user query for "WP-1" therefore lands on the DSS control directly.
+
+function urlForDss(categoryCode, anchor) {
+  return `https://info.standards.tech.gov.sg/control-catalog/dss/${categoryCode}/#${anchor}`
+}
+
+async function collectDssControls(dssToWcagMap) {
+  const manifestPath = path.join(DSS_DIR, 'manifest.json')
+  if (!fs.existsSync(manifestPath)) {
+    console.warn(
+      `[wcag-index] no DSS corpus at ${DSS_DIR} — skipping DSS ingestion. ` +
+        'Run `node scripts/build-dss-corpus.js` first.'
+    )
+    return []
+  }
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'))
+  const chunks = []
+  for (const cat of manifest.categories) {
+    const catData = JSON.parse(
+      await fsp.readFile(path.join(DSS_DIR, cat.file), 'utf8')
+    )
+    for (const control of catData.controls) {
+      // Enrich each control's body with the WCAG mapping we derived from
+      // Oobee's DETAILS.md. This is what turns "WP-1" into "WP-1 → WCAG 1.1.1"
+      // in the retrieved snippet without requiring the model to make a second
+      // search_wcag call.
+      const wcagRefs = dssToWcagMap.get(control.code) || []
+      // Put the WCAG mapping at the top so it lands inside every snippet
+      // window — wcagCorpus.js builds a ~500-char snippet centered on the
+      // first query hit, and DSS bodies can exceed that.
+      const wcagLine = wcagRefs.length
+        ? `**Oobee maps this to:** ${wcagRefs.map((r) => `WCAG ${r}`).join(', ')}\n\n`
+        : ''
+      const text = `# DSS ${control.code}: ${control.title}\n\n${wcagLine}**Category:** ${catData.title} (${catData.code})\n\n${control.body}`
+      chunks.push({
+        code: control.code,
+        title: `DSS ${control.code}: ${control.title}`,
+        sectionId: control.anchor || control.code.toLowerCase(),
+        sectionTitle: control.title,
+        categoryCode: catData.code,
+        categoryTitle: catData.title,
+        url: urlForDss(catData.code, control.anchor),
+        text,
+      })
+    }
+  }
+  return chunks
+}
+
+// ---- Oobee DETAILS.md ingestion ----
+//
+// DETAILS.md contains: (a) definitions of Must Fix / Good to Fix / Manual
+// Review Required, (b) the master WCAG↔DSS mapping table, (c) per-
+// conformance-level rule tables (rule id → WCAG SC → DSS clause), (d) a
+// "Best Practice" rule list, and (e) an explainer for the AAA readability
+// grading rule (`oobee-grading-text-contents`). We split by top-level `##`
+// heading so each section becomes one chunk — small enough to survive
+// Vectra's 512-token cap, large enough that a query hits the whole table.
+
+function parseDssToWcagMap(md) {
+  // Master mapping table row shape:
+  //   | WCAG 1.1.1  | WP-1           | A     | Yes ...
+  // A DSS code of "—" means "no DSS mapping".
+  const map = new Map()
+  const rowRe = /\|\s*WCAG\s+([\d.]+)\s*\|\s*([A-Z]{2}-\d+|—)\s*\|/g
+  let m
+  while ((m = rowRe.exec(md)) !== null) {
+    const wcag = m[1]
+    const dss = m[2]
+    if (dss === '—') continue
+    if (!map.has(dss)) map.set(dss, [])
+    if (!map.get(dss).includes(wcag)) map.get(dss).push(wcag)
+  }
+  return map
+}
+
+function chunkDetailsMd(md) {
+  // Split at `## ` headings. Keep the heading with its body.
+  const lines = md.split('\n')
+  const sections = []
+  let current = null
+  for (const line of lines) {
+    if (/^##\s+\S/.test(line) && !/^###/.test(line)) {
+      if (current) sections.push(current)
+      const heading = line.replace(/^##\s+/, '').trim()
+      const slug = heading
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      current = { heading, slug, lines: [line] }
+    } else if (current) {
+      current.lines.push(line)
+    }
+  }
+  if (current) sections.push(current)
+  return sections
+    .map((s) => ({
+      slug: s.slug,
+      heading: s.heading,
+      text: s.lines.join('\n').trim(),
+    }))
+    .filter((s) => s.text.length > 60)
+}
+
+async function collectOobeeDetailsChunks() {
+  if (!fs.existsSync(DETAILS_MD_PATH)) {
+    console.warn(
+      `[wcag-index] no oobee DETAILS.md at ${DETAILS_MD_PATH} — skipping. ` +
+        'ensure-wcag-index.js fetches this before invoking the builder.'
+    )
+    return { chunks: [], dssToWcag: new Map() }
+  }
+  const md = await fsp.readFile(DETAILS_MD_PATH, 'utf8')
+  const dssToWcag = parseDssToWcagMap(md)
+  const chunks = chunkDetailsMd(md).map((s) => ({
+    slug: s.slug,
+    title: 'Oobee — Scan Issue Details',
+    sectionTitle: s.heading,
+    text: `# Oobee — ${s.heading}\n\n${s.text.replace(/^##\s+.+\n/, '').trim()}`,
+    url: `${DETAILS_MD_URL}#${s.slug}`,
+  }))
+  return { chunks, dssToWcag }
+}
+
 async function loadEmbeddingsAndIndex() {
   // Lazy-load Vectra and TransformersEmbeddings so the require cost is only
   // paid inside this script, never at Electron main-process startup.
@@ -274,8 +408,13 @@ async function main() {
 
   const understanding = await collectUnderstandingPages()
   const techniques = await collectTechniquePages()
+  const oobeeDetails = await collectOobeeDetailsChunks()
+  const dssControls = await collectDssControls(oobeeDetails.dssToWcag)
   console.log(
-    `[wcag-index] pages found — understanding: ${understanding.length}, techniques+failures: ${techniques.length}`
+    `[wcag-index] sources — understanding: ${understanding.length}, ` +
+      `techniques+failures: ${techniques.length}, ` +
+      `DSS controls: ${dssControls.length}, ` +
+      `oobee DETAILS.md sections: ${oobeeDetails.chunks.length}`
   )
 
   const { index } = await loadEmbeddingsAndIndex()
@@ -319,6 +458,39 @@ async function main() {
 
   for (const page of understanding) await processPage(page)
   for (const page of techniques) await processPage(page)
+
+  for (const control of dssControls) {
+    const uri = `dss://${control.categoryCode}/${control.code.toLowerCase()}`
+    const metadata = {
+      docType: 'dss',
+      // techId is the wcagCorpus.js title-boost field. Setting it to the DSS
+      // code makes "WP-1"/"WO-4" queries land here.
+      techId: control.code,
+      title: control.title,
+      sectionId: control.sectionId,
+      sectionTitle: control.sectionTitle,
+      category: control.categoryCode,
+      categoryTitle: control.categoryTitle,
+      url: control.url,
+    }
+    await index.upsertDocument(uri, control.text, 'md', metadata)
+    chunkCount++
+    pageCount++
+  }
+
+  for (const section of oobeeDetails.chunks) {
+    const uri = `oobee://details/${section.slug}`
+    const metadata = {
+      docType: 'oobee-details',
+      title: section.title,
+      sectionId: section.slug,
+      sectionTitle: section.sectionTitle,
+      url: section.url,
+    }
+    await index.upsertDocument(uri, section.text, 'md', metadata)
+    chunkCount++
+    pageCount++
+  }
 
   console.log(
     `[wcag-index] DONE — ${pageCount} pages, ${chunkCount} chunks written to ${OUT_DIR}`
