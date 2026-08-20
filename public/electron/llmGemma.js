@@ -525,7 +525,7 @@ async function streamGemmaChat({
   //
   // The loop cap is a belt: pathological prompt/tool combinations shouldn't
   // hang the UI indefinitely.
-  const MAX_TOOL_HOPS = 8
+  const MAX_TOOL_HOPS = 50
   const filter = createTemplateTokenFilter()
   // Bounded retry for the empty-final-turn case below: local Gemma
   // occasionally emits a single EOS-only completion (0 tokens generated,

@@ -1251,7 +1251,8 @@ async function streamAnthropicTurn({ session, mainWindow, sessionId }) {
 
 async function runChatLoop({ session, mainWindow, sessionId }) {
   const send = (channel, payload) => mainWindow.webContents.send(channel, payload)
-  for (let hop = 0; hop < 10; hop++) {
+  const MAX_TOOL_HOPS = 50
+  for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
     const { blocks, stopReason } = await streamAnthropicTurn({ session, mainWindow, sessionId })
     session.messages.push({ role: 'assistant', content: blocks })
     if (stopReason !== 'tool_use') return
@@ -1364,7 +1365,7 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
     }
     session.messages.push({ role: 'user', content: toolResults })
   }
-  warn('tool-use loop exceeded 10 hops; stopping')
+  warn(`tool-use loop exceeded ${MAX_TOOL_HOPS} hops; stopping`)
 }
 
 // ---- IPC handlers ----
