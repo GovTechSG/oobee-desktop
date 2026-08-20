@@ -1690,6 +1690,18 @@ const ChatPage = () => {
             {streamError}
           </div>
         )}
+        {messages.length > 0 && (
+          <div className="chat-delete-container">
+            <Button
+              type="btn-secondary"
+              className="chat-delete-btn"
+              onClick={handleDeleteChat}
+              disabled={isStreaming}
+            >
+              Delete chat
+            </Button>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -1717,19 +1729,6 @@ const ChatPage = () => {
       {isStreaming && backendStatus && (
         <div className="chat-stream-status" role="status" aria-live="polite">
           {backendStatus}
-        </div>
-      )}
-
-      {messages.length > 0 && (
-        <div className="chat-delete-container">
-          <Button
-            type="btn-secondary"
-            className="chat-delete-btn"
-            onClick={handleDeleteChat}
-            disabled={isStreaming}
-          >
-            Delete chat
-          </Button>
         </div>
       )}
 
