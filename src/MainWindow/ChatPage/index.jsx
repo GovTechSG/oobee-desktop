@@ -1135,6 +1135,15 @@ const ChatPage = () => {
     }
   }
 
+  const flashCopied = (index, kind) => {
+    setCopiedIndex({ index, kind })
+    setTimeout(() => {
+      setCopiedIndex((cur) =>
+        cur && cur.index === index && cur.kind === kind ? null : cur
+      )
+    }, 1500)
+  }
+
   const copyAssistantMarkdown = async (index, text) => {
     const md = normalizeLLMMarkdown(text || '')
     try {
@@ -1150,10 +1159,48 @@ const ChatPage = () => {
         document.execCommand('copy')
         document.body.removeChild(ta)
       }
-      setCopiedIndex(index)
-      setTimeout(() => {
-        setCopiedIndex((cur) => (cur === index ? null : cur))
-      }, 1500)
+      flashCopied(index, 'md')
+    } catch (_) {
+      // Silently swallow — clipboard permission denials shouldn't break chat.
+    }
+  }
+
+  // Copies both HTML and plain-text flavors so Teams/Word/Outlook paste as
+  // native rich text (bold, lists, headings) while text-only surfaces fall
+  // back to the original markdown. We skip the UI-only decorators
+  // (`injectHexSwatches`, `wrapCodeBlocksWithCopy`) — those are for the chat
+  // pane, not for pasted content.
+  const copyAssistantRichText = async (index, text) => {
+    const md = normalizeLLMMarkdown(text || '')
+    const html = marked.parse(md)
+    try {
+      if (
+        navigator?.clipboard?.write &&
+        typeof ClipboardItem !== 'undefined'
+      ) {
+        const item = new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([md], { type: 'text/plain' }),
+        })
+        await navigator.clipboard.write([item])
+      } else {
+        // Legacy fallback: stage a contenteditable and use execCommand('copy').
+        const div = document.createElement('div')
+        div.contentEditable = 'true'
+        div.innerHTML = html
+        div.style.position = 'fixed'
+        div.style.opacity = '0'
+        document.body.appendChild(div)
+        const range = document.createRange()
+        range.selectNodeContents(div)
+        const sel = window.getSelection()
+        sel.removeAllRanges()
+        sel.addRange(range)
+        document.execCommand('copy')
+        sel.removeAllRanges()
+        document.body.removeChild(div)
+      }
+      flashCopied(index, 'rich')
     } catch (_) {
       // Silently swallow — clipboard permission denials shouldn't break chat.
     }
@@ -1677,11 +1724,24 @@ const ChatPage = () => {
                     <button
                       type="button"
                       className="chat-copy-btn"
+                      onClick={() => copyAssistantRichText(i, m.content)}
+                      aria-label="Copy response as rich text for Teams, Word, or Outlook"
+                      title="Copy response as rich text (paste into Teams, Word, Outlook)"
+                    >
+                      {copiedIndex && copiedIndex.index === i && copiedIndex.kind === 'rich'
+                        ? 'Copied!'
+                        : 'Copy as Rich Text'}
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-copy-btn"
                       onClick={() => copyAssistantMarkdown(i, m.content)}
                       aria-label="Copy response as markdown"
                       title="Copy response as markdown"
                     >
-                      {copiedIndex === i ? 'Copied!' : 'Copy as Markdown'}
+                      {copiedIndex && copiedIndex.index === i && copiedIndex.kind === 'md'
+                        ? 'Copied!'
+                        : 'Copy as Markdown'}
                     </button>
                   </div>
                 )}
