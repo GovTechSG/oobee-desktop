@@ -726,32 +726,32 @@
       flex-wrap: wrap;
       gap: 0.4rem;
       justify-content: center;
+    }
 
-      .chat-chip {
-        appearance: none;
-        background: #f5f3ff;
-        color: #5b21b6;
-        border: 1px solid #ddd6fe;
-        border-radius: 999px;
-        padding: 0.35rem 0.75rem;
-        font: inherit;
-        font-size: 0.85rem;
-        line-height: 1.2;
-        cursor: pointer;
-        transition: background 0.1s, border-color 0.1s;
+    .chat-chip {
+      appearance: none;
+      background: #f5f3ff;
+      color: #5b21b6;
+      border: 1px solid #ddd6fe;
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      font: inherit;
+      font-size: 0.85rem;
+      line-height: 1.2;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
 
-        &:hover:not(:disabled) {
-          background: #ede9fe;
-          border-color: #c4b5fd;
-        }
-        &:focus-visible {
-          outline: 2px solid #7c3aed;
-          outline-offset: 2px;
-        }
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+      &:hover:not(:disabled) {
+        background: #ede9fe;
+        border-color: #c4b5fd;
+      }
+      &:focus-visible {
+        outline: 2px solid #7c3aed;
+        outline-offset: 2px;
+      }
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
     }
 
@@ -1147,12 +1147,6 @@
     display: flex;
     justify-content: center;
     margin: 0.25rem 0 0.5rem;
-  }
-
-  .chat-delete-btn {
-    border-radius: 999px;
-    padding: 0.25rem 1rem;
-    font-size: 0.85rem;
   }
 
   .chat-composer {
