@@ -570,6 +570,14 @@ const ChatPage = () => {
 
   const changeOption = (next) => {
     if (!VALID_OPTIONS.has(next) || next === selectedOption) return
+    // Switching model resets the session, which drops the current chat
+    // history. Only prompt when there's something to lose.
+    if (messages.length > 0) {
+      const confirmed = window.confirm(
+        'Switching model will clear the current conversation. All messages will be permanently lost. Continue?'
+      )
+      if (!confirmed) return
+    }
     try {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, next)
     } catch (_) {
@@ -1116,6 +1124,10 @@ const ChatPage = () => {
   }
 
   const handleDeleteChat = () => {
+    const confirmed = window.confirm(
+      'Delete this conversation? This will permanently clear all messages in the current chat and cannot be undone.'
+    )
+    if (!confirmed) return
     if (isStreaming) {
       try {
         window.services.llmChatAbort(sessionId)
@@ -1213,9 +1225,9 @@ const ChatPage = () => {
           window.services.llmChatDispose(sessionId)
           navigate('/')
         }}>
-          ← Back
+          ‹ Back
         </Button>
-        <h1>LLM Chat (alpha)</h1>
+        <h1>LLM Chat<sup className="chat-title-badge">ALPHA</sup></h1>
         <div className="chat-provider-select">
           <label htmlFor="chat-provider">Model:</label>
           <select
