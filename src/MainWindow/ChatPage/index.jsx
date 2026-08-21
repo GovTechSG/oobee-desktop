@@ -182,13 +182,24 @@ const optionToProvider = (id) => {
 // CPU-only mode: a UI-only variant of the same underlying Gemma model —
 // reuses the exact same downloaded weights/mmproj, just runs llama-server
 // with -ngl 0 (CPU-only) instead of full GPU offload — see llamaServer.js
-// buildArgs. Windows-only in the UI (see isWindows gating below) since it
-// exists specifically to work around the Adreno OpenCL backend sometimes
-// underperforming CPU on Snapdragon X hardware (community-benchmarked in
-// ggml-org/llama.cpp discussion #8273). Previously encoded as a `-cpu`
-// suffix on the provider id (doubling the dropdown's entry count); now a
-// standalone checkbox next to the dropdown, orthogonal to model selection.
+// buildArgs. Exposed for Windows (originally for Snapdragon X — Adreno
+// OpenCL backend often underperforms CPU, community-benchmarked in
+// ggml-org/llama.cpp discussion #8273) and Intel Mac (macOS Automatic
+// Graphics Switching routes Metal to the weak integrated iGPU on
+// battery). Previously encoded as a `-cpu` suffix on the provider id
+// (doubling the dropdown's entry count); now a standalone checkbox next
+// to the dropdown, orthogonal to model selection.
+//
+// Default state: ON for Snapdragon (Windows ARM64), OFF everywhere else.
+// See applyPlatformDefaultCpuOnly effect below.
 const CPU_ONLY_STORAGE_KEY = 'llmCpuOnly'
+const hasStoredCpuOnly = () => {
+  try {
+    return window.localStorage.getItem(CPU_ONLY_STORAGE_KEY) !== null
+  } catch (_) {
+    return false
+  }
+}
 const readStoredCpuOnly = () => {
   try {
     return window.localStorage.getItem(CPU_ONLY_STORAGE_KEY) === '1'
@@ -306,10 +317,12 @@ const ChatPage = () => {
   const [providerAvailability, setProviderAvailability] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
   const providerInitialisedRef = useRef(false)
-  // CPU-only mode is Windows-only (see CPU_ONLY_STORAGE_KEY doc comment
-  // above) — gated on the existing getIsWindows bridge already used
-  // elsewhere in the app (services.js).
+  // CPU-only mode is exposed on Windows and Intel Mac (see CPU_ONLY_STORAGE_KEY
+  // doc comment above) — gated on the existing platform-probe bridges in
+  // services.js. isSnapdragon determines the default-ON state for Snapdragon X.
   const [isWindows, setIsWindows] = useState(false)
+  const [isSnapdragon, setIsSnapdragon] = useState(false)
+  const [isIntelMac, setIsIntelMac] = useState(false)
   // "OpenAI Compatible Provider": user-supplied endpoint/key/model,
   // persisted via userDataManager (see llmChat:getCustomProviderConfig /
   // llmChat:setCustomProviderConfig). Loaded once on mount and refreshed
@@ -428,14 +441,33 @@ const ChatPage = () => {
         ? !!customConfig?.baseUrl && !!customConfig?.model
         : true
 
-  // Windows-only gate for CPU-only mode (see CPU_ONLY_STORAGE_KEY doc
-  // comment). getIsWindows already exists and is used elsewhere (services.js).
+  // Platform probes gating the CPU-only checkbox (see CPU_ONLY_STORAGE_KEY
+  // doc comment). All three failing silently is fine — the checkbox just
+  // stays hidden and the default (unchecked) remains.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const win = await window.services.getIsWindows()
-        if (!cancelled) setIsWindows(!!win)
+        const [win, snap, intelMac] = await Promise.all([
+          window.services.getIsWindows(),
+          window.services.getIsSnapdragon(),
+          window.services.getIsIntelMac(),
+        ])
+        if (cancelled) return
+        setIsWindows(!!win)
+        setIsSnapdragon(!!snap)
+        setIsIntelMac(!!intelMac)
+        // Platform default: Snapdragon defaults to CPU-only ON if the user
+        // hasn't explicitly toggled it yet. Persist it so the same choice is
+        // rehydrated on next launch and the effect doesn't fight legacy reads.
+        if (snap && !hasStoredCpuOnly()) {
+          try {
+            window.localStorage.setItem(CPU_ONLY_STORAGE_KEY, '1')
+          } catch (_) {
+            // ignore — state still flips below
+          }
+          setCpuOnly(true)
+        }
       } catch (_) {
         // ignore — CPU-only options just stay hidden if this probe fails
       }
@@ -1510,7 +1542,7 @@ const ChatPage = () => {
                   })()}
                 </div>
               )}
-              {provider === 'gemma' && isWindows && (
+              {provider === 'gemma' && (isWindows || isIntelMac) && (
                 <label className="chat-toggle-control chat-toggle-control-modal">
                   <span className="chat-toggle-control-row">
                     <input
@@ -1522,8 +1554,9 @@ const ChatPage = () => {
                     <strong>CPU-only mode</strong>
                   </span>
                   <p className="chat-toggle-hint">
-                    Runs the model on CPU instead of GPU. Community benchmarks show this can be
-                    faster than the Adreno GPU backend on some Snapdragon X hardware.
+                    {isIntelMac
+                      ? 'Runs the model on CPU instead of GPU. Recommended on Intel Macs when on battery — macOS routes Metal to the weak integrated GPU in that mode.'
+                      : 'Runs the model on CPU instead of GPU. Community benchmarks show this can be faster than the Adreno GPU backend on some Snapdragon X hardware.'}
                   </p>
                 </label>
               )}
