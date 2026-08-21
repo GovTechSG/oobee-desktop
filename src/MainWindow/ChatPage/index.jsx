@@ -190,8 +190,8 @@ const optionToProvider = (id) => {
 // (doubling the dropdown's entry count); now a standalone checkbox next
 // to the dropdown, orthogonal to model selection.
 //
-// Default state: ON for Snapdragon (Windows ARM64), OFF everywhere else.
-// See applyPlatformDefaultCpuOnly effect below.
+// Default state: ON for Snapdragon (Windows ARM64) and Intel Mac
+// (darwin x64); OFF everywhere else. See the platform-default effect below.
 const CPU_ONLY_STORAGE_KEY = 'llmCpuOnly'
 const hasStoredCpuOnly = () => {
   try {
@@ -457,10 +457,13 @@ const ChatPage = () => {
         setIsWindows(!!win)
         setIsSnapdragon(!!snap)
         setIsIntelMac(!!intelMac)
-        // Platform default: Snapdragon defaults to CPU-only ON if the user
-        // hasn't explicitly toggled it yet. Persist it so the same choice is
-        // rehydrated on next launch and the effect doesn't fight legacy reads.
-        if (snap && !hasStoredCpuOnly()) {
+        // Platform default: Snapdragon and Intel Mac default to CPU-only ON if
+        // the user hasn't explicitly toggled it yet. Snapdragon because the
+        // Adreno OpenCL backend often loses to CPU; Intel Mac because macOS
+        // routes Metal to the weak integrated iGPU on battery and even on AC
+        // the discrete Radeon is memory-bandwidth-bound on LLM workloads.
+        // Persist so the same choice is rehydrated on next launch.
+        if ((snap || intelMac) && !hasStoredCpuOnly()) {
           try {
             window.localStorage.setItem(CPU_ONLY_STORAGE_KEY, '1')
           } catch (_) {
@@ -1555,7 +1558,7 @@ const ChatPage = () => {
                   </span>
                   <p className="chat-toggle-hint">
                     {isIntelMac
-                      ? 'Runs the model on CPU instead of GPU. Recommended on Intel Macs when on battery — macOS routes Metal to the weak integrated GPU in that mode.'
+                      ? 'Runs the model on CPU instead of GPU. Recommended on Intel Macs — macOS routes Metal to the weak integrated GPU when on battery, and even on AC the discrete GPU is often slower than the CPU for LLM inference.'
                       : 'Runs the model on CPU instead of GPU. Community benchmarks show this can be faster than the Adreno GPU backend on some Snapdragon X hardware.'}
                   </p>
                 </label>
