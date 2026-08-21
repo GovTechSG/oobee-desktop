@@ -11,12 +11,140 @@ on:
     types: [published]
 
 jobs:
+  # Cross-compile llama.cpp with Metal enabled for darwin-x64. ggml-org's
+  # official darwin-x64 release ships without any GPU backend (CPU libs only),
+  # so Intel Mac users get no acceleration from the pinned binary. Building
+  # here fills that gap. Runs first so the mac job can restore the resulting
+  # binary from cache; on failure this job is best-effort — continue-on-error
+  # lets the mac job proceed and fall back to the ggml-org CPU-only binary via
+  # fetch-llama-binaries.js.
+  build-llama-metal-x64:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Read pinned llama.cpp tag
+        id: pin
+        run: |
+          TAG=$(node -e "console.log(require('./resources/llama-binaries.json').tag)")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Cache llama.cpp Metal build (darwin-x64)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: resources/darwin-x64/llama-server
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v1
+
+      - name: Build llama.cpp with Metal for darwin-x64
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.pin.outputs.tag }}"
+          echo "Cloning llama.cpp @ $TAG"
+          git clone --depth 1 --branch "$TAG" https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+
+          # Cross-compile from arm64 runner to x86_64. Metal shaders are GPU-
+          # architecture, not CPU-architecture, so EMBED_LIBRARY works either
+          # way. Deployment target 11.0 matches ggml-org's official builds.
+          cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON \
+            -DGGML_NATIVE=OFF \
+            -DLLAMA_CURL=OFF \
+            -DBUILD_SHARED_LIBS=ON
+          cmake --build /tmp/llama.cpp/build -j --target llama-server
+
+          # Verify the binary is actually x86_64 before caching.
+          file /tmp/llama.cpp/build/bin/llama-server
+          file /tmp/llama.cpp/build/bin/llama-server | grep -q x86_64
+
+          mkdir -p resources/darwin-x64/llama-server
+          cp /tmp/llama.cpp/build/bin/llama-server resources/darwin-x64/llama-server/
+          # Ship every dylib the binary links against; llama-server resolves
+          # them via @rpath = @loader_path (cmake default on macOS).
+          cp /tmp/llama.cpp/build/bin/*.dylib resources/darwin-x64/llama-server/
+
+          # Stamp with the manifest tag so fetch-llama-binaries.js sees a match
+          # on subsequent prepackage runs and skips the ggml-org download.
+          echo "$TAG" > resources/darwin-x64/llama-server/.tag
+
+          ls -la resources/darwin-x64/llama-server/
+
+  # Build the WCAG + DSS search index once, cache it, and let both platform
+  # jobs restore it. Embedding ~1,300 chunks with all-MiniLM-L6-v2 takes
+  # 2–5 minutes plus the DSS scrape + WCAG clone; skipping it saves that
+  # time on both windows-install-purple and mac-install-purple. The output
+  # is platform-agnostic bytes, so a cheap ubuntu runner is fine.
+  build-wcag-index:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache WCAG source, DSS scrape, and built index
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/wcag-src
+            .cache/oobee-DETAILS.md
+            .cache/dss
+            public/electron/wcag-index
+          # Bust the cache when any of the scrape/embed scripts change; the
+          # WCAG tag is pinned inside ensure-wcag-index.js so its hash covers
+          # tag bumps too. DETAILS.md is fetched from oobee master and is not
+          # pinned — bump the -v1 suffix manually to force a rebuild when
+          # upstream DETAILS.md changes materially.
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
+
+      - name: Install dependencies (only needed to build the index)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Scrape WCAG + DSS and build embedding index
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/ensure-wcag-index.js
+
+      - name: Show index size
+        run: |
+          if [ -d public/electron/wcag-index ]; then
+            du -sh public/electron/wcag-index .cache 2>/dev/null || true
+          fi
+
   windows-install-purple:
+    needs: build-wcag-index
+    # Fall back to scraping/embedding locally if the shared build failed.
+    if: always()
     runs-on: windows-latest
 
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
+
+      # Restore the shared WCAG + DSS index if build-wcag-index cached it.
+      # On miss, ensure-wcag-index.js will rebuild locally during npm run make-win.
+      - name: Restore WCAG + DSS index
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/wcag-src
+            .cache/oobee-DETAILS.md
+            .cache/dss
+            public/electron/wcag-index
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
 
       - name: Enable Long File Path in Registry
         shell: pwsh
@@ -99,6 +227,10 @@ jobs:
             oobee-desktop-windows.zip.sha256.txt
             
   mac-install-purple:
+    needs: [build-llama-metal-x64, build-wcag-index]
+    # Run even if the shared builds failed — we fall back to ggml-org's
+    # CPU-only binary and a local WCAG/DSS index rebuild in those cases.
+    if: always()
     runs-on: macos-latest
     env:
       # Developer ID Application
@@ -138,6 +270,34 @@ jobs:
           curl -o ./nodejs-mac-x64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-x64.tar.gz
           mkdir nodejs-mac-x64 && tar -xzf nodejs-mac-x64.tar.gz -C nodejs-mac-x64 --strip-components=1 && rm ./nodejs-mac-x64.tar.gz
         working-directory: ${{github.workspace}}
+
+      - name: Read pinned llama.cpp tag
+        id: pin
+        run: |
+          TAG=$(node -e "console.log(require('./resources/llama-binaries.json').tag)")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      # Restore the darwin-x64 llama-server that build-llama-metal-x64 cached.
+      # If restore misses (build failed, or first run before the build job
+      # populated the cache), fetch-llama-binaries.js will see an empty
+      # directory and download ggml-org's CPU-only binary as fallback.
+      - name: Restore prebuilt Metal llama-server (darwin-x64)
+        uses: actions/cache/restore@v4
+        with:
+          path: resources/darwin-x64/llama-server
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v1
+
+      # Restore the shared WCAG + DSS index if build-wcag-index cached it.
+      # On miss, ensure-wcag-index.js will rebuild locally during npm run make-mac.
+      - name: Restore WCAG + DSS index
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/wcag-src
+            .cache/oobee-DETAILS.md
+            .cache/dss
+            public/electron/wcag-index
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
 
       - name: Set environment variables for Node
         run: |
