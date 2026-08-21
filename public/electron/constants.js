@@ -207,6 +207,13 @@ const getDefaultEdgeDataDir = () => {
 };
 
 const isWindows = os.platform() === "win32";
+// Snapdragon X (Windows ARM64) — Adreno OpenCL backend often underperforms
+// CPU for LLM inference, so the CPU-only checkbox in ChatPage defaults ON here.
+const isSnapdragon = os.platform() === "win32" && os.arch() === "arm64";
+// Intel Mac — macOS Automatic Graphics Switching routes Metal to the weak
+// integrated iGPU when on battery, so the CPU-only checkbox is exposed here
+// too (defaults OFF; the llamaServer runtime also auto-forces CPU on battery).
+const isIntelMac = os.platform() === "darwin" && os.arch() === "x64";
 const forbiddenCharactersInDirPath = ['<', '>', ':', '\"', '/', '\\', '|', '?', '*'];
   
 const maxLengthForDirName = 80; 
@@ -288,6 +295,8 @@ module.exports = {
   macOSExecutablePath,
   defaultExportDir,
   isWindows,
+  isSnapdragon,
+  isIntelMac,
   forbiddenCharactersInDirPath,
   maxLengthForDirName,
   versionComparator,

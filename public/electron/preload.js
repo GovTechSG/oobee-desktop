@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld("services", {
     registerExistingReportFolder: async (folderPath) =>
       ipcRenderer.invoke("registerExistingReportFolder", folderPath),
     getIsWindows: async () => ipcRenderer.invoke("isWindows"),
+    getIsSnapdragon: async () => ipcRenderer.invoke("isSnapdragon"),
+    getIsIntelMac: async () => ipcRenderer.invoke("isIntelMac"),
     checkNeedsElevation: async () => ipcRenderer.invoke("checkNeedsElevation"),
     getProxySettings: async () => ipcRenderer.invoke("getProxySettings"),
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),

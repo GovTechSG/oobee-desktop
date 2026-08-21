@@ -196,6 +196,8 @@ const mailReport = async (formDetails, scanId) => {
 }
 
 const getIsWindows = async () => window.services.getIsWindows()
+const getIsSnapdragon = async () => window.services.getIsSnapdragon()
+const getIsIntelMac = async () => window.services.getIsIntelMac()
 
 const isValidName = (name) => {
   // Allow only printable characters from any language
@@ -233,6 +235,8 @@ const services = {
   isValidEmail,
   mailReport,
   getIsWindows,
+  getIsSnapdragon,
+  getIsIntelMac,
   isValidName,
   isValidCustomFlowLabel,
   getErrorLog,
