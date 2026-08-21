@@ -344,18 +344,64 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
     '--host', '127.0.0.1',
     '--port', String(port),
   ]
+  // Windows pages out inactive process memory aggressively — the ~5 GB of
+  // Gemma weights get evicted to the pagefile after a few idle minutes and
+  // the next user message eats a slow SSD read before prefill starts.
+  // --mlock pins the resident set. Requires SeLockMemoryPrivilege (granted
+  // to interactive users by default); silently no-ops if denied. Guard on
+  // 16 GB total RAM so we don't starve small machines of memory headroom
+  // for the rest of the system.
+  if (process.platform === 'win32' && os.totalmem() >= 16 * 1024 ** 3) {
+    argv.push('--mlock')
+  }
   if (mmprojPath) {
     argv.push('-mm', mmprojPath)
   }
   return argv
 }
 
+// Session-scoped set of binaries whose GPU init failed once already: on the
+// next `ensure()` call we skip the GPU attempt and go straight to CPU-only,
+// so a machine with a broken/missing Vulkan (or OpenCL, or Metal) runtime
+// doesn't waste ~5 seconds per chat message on a doomed spawn. Cleared on
+// app restart, so a driver update between sessions gets a fresh GPU
+// attempt without any user action.
+const gpuInitFailedFor = new Set()
+
 async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
   if (!modelPath) throw new Error('llamaServer.ensure requires modelPath')
   if (!fs.existsSync(modelPath)) throw new Error(`model not found: ${modelPath}`)
   if (mmprojPath && !fs.existsSync(mmprojPath)) throw new Error(`mmproj not found: ${mmprojPath}`)
 
-  const config = { modelPath, mmprojPath: mmprojPath || null, contextSize, cpuOnly: !!cpuOnly }
+  let bin = resolveBinaryPath()
+  if (!fs.existsSync(bin)) {
+    await tryFetchBinaryInDev()
+    const found = resolveBinaryCandidates().find((candidate) => fs.existsSync(candidate))
+    if (found) bin = found
+  }
+
+  if (!fs.existsSync(bin)) {
+    const searched = resolveBinaryCandidates().join(', ')
+    throw new Error(
+      `llama-server binary not found at ${bin}. ` +
+        `Searched: ${searched}. ` +
+        `In dev, run 'node scripts/fetch-llama-binaries.js' first. ` +
+        `In a packaged build, verify forge.config.js copied the right platform folder into resources.`,
+    )
+  }
+
+  // Effective cpuOnly folds in both the caller's explicit choice AND the
+  // session-scoped GPU-init blacklist. Compute it BEFORE the sameConfig
+  // check below so a request from a user who still ticks "GPU" is deduped
+  // against a running CPU-fallback server instead of triggering a
+  // pointless restart-and-refail cycle each message.
+  const effectiveCpuOnly = !!cpuOnly || gpuInitFailedFor.has(bin)
+  const config = {
+    modelPath,
+    mmprojPath: mmprojPath || null,
+    contextSize,
+    cpuOnly: effectiveCpuOnly,
+  }
   // `current` is assigned synchronously right after spawn, *before* the
   // health check below resolves (so a concurrent caller sees it and can
   // reuse the same process instead of double-spawning). That means a
@@ -377,28 +423,25 @@ async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
     await stop()
   }
 
-  let bin = resolveBinaryPath()
-  if (!fs.existsSync(bin)) {
-    await tryFetchBinaryInDev()
-    const found = resolveBinaryCandidates().find((candidate) => fs.existsSync(candidate))
-    if (found) bin = found
+  try {
+    return await startAndProbe({ bin, config })
+  } catch (e) {
+    // Only fall back once, and only if we were actually attempting GPU.
+    // If CPU-only already failed, the problem isn't GPU init (e.g. bad
+    // model, corrupt binary) — re-throw so the caller sees the real error.
+    if (config.cpuOnly) throw e
+    warn(`GPU init failed; falling back to CPU-only for this session. Reason: ${e.message}`)
+    gpuInitFailedFor.add(bin)
+    return startAndProbe({ bin, config: { ...config, cpuOnly: true } })
   }
+}
 
-  if (!fs.existsSync(bin)) {
-    const searched = resolveBinaryCandidates().join(', ')
-    throw new Error(
-      `llama-server binary not found at ${bin}. ` +
-        `Searched: ${searched}. ` +
-        `In dev, run 'node scripts/fetch-llama-binaries.js' first. ` +
-        `In a packaged build, verify forge.config.js copied the right platform folder into resources.`,
-    )
-  }
-
+async function startAndProbe({ bin, config }) {
   const port = await pickFreePort()
   const baseUrl = `http://127.0.0.1:${port}`
   const args = buildArgs({ ...config, port })
 
-  log(`spawning ${path.basename(bin)} on ${baseUrl}`)
+  log(`spawning ${path.basename(bin)} on ${baseUrl}${config.cpuOnly ? ' (CPU-only)' : ''}`)
   log(`args: ${args.join(' ')}`)
   const proc = spawn(bin, args, {
     cwd: path.dirname(bin),
