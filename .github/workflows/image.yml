@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v1
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v2
 
       - name: Build llama.cpp with Metal for darwin-x64
         if: steps.cache.outputs.cache-hit != 'true'
@@ -308,7 +308,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v1
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v2
 
       # Restore the shared WCAG + DSS index if build-wcag-index cached it.
       # On miss, ensure-wcag-index.js will rebuild locally during npm run make-mac.
