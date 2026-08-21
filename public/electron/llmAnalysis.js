@@ -1691,9 +1691,12 @@ function init({ mainWindow, getResultsFolderPath }) {
       // the mismatch and force a full server restart into CPU mode (see
       // llamaServer.js sameConfig/ensure), doubling the model load time on
       // every CPU-only session start.
+      mainWindow.webContents.send('llmChat:preloadStatus', { modelId: chosen, status: 'warming' })
       await ensureGemmaModel(chosen, !!cpuOnly)
+      mainWindow.webContents.send('llmChat:preloadStatus', { modelId: chosen, status: 'ready' })
       return { ok: true, modelId: chosen }
     } catch (e) {
+      mainWindow.webContents.send('llmChat:preloadStatus', { modelId: chosen, status: 'error', error: e.message })
       return { ok: false, error: e.message }
     }
   })

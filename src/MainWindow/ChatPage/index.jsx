@@ -414,6 +414,7 @@ const ChatPage = () => {
   // stale for the lifetime of that effect.
   const tokenUsageRef = useRef(null)
   const [backendStatus, setBackendStatus] = useState(null)
+  const [preloadStatus, setPreloadStatus] = useState(null) // 'warming' | 'ready' | null
   // Snapshot of streamStats/tokenUsage taken the moment a response finishes,
   // so the "Xs · ~Y tok/s · Z tokens" line stays visible after streaming
   // ends instead of disappearing (it used to be gated on `isStreaming`
@@ -535,7 +536,10 @@ const ChatPage = () => {
           // the first time — otherwise it spawns in GPU mode by default, then
           // has to detect the config mismatch and restart into CPU mode once
           // the real chat request fires, wasting a full extra model load.
-          if (s?.downloaded) window.services.llmChatPreloadModel(chosenModelId, cpuOnly)
+          if (s?.downloaded) {
+            setPreloadStatus('warming')
+            window.services.llmChatPreloadModel(chosenModelId, cpuOnly)
+          }
         }
       } catch (e) {
         if (!cancelled) setDownloadError(e.message)
@@ -553,6 +557,14 @@ const ChatPage = () => {
     window.services.onLlmModelDownloadProgress((data) => setDownloadProgress(data))
     return () => window.services.removeLlmModelDownloadListeners()
   }, [])
+
+  useEffect(() => {
+    window.services.onLlmChatPreloadStatus(({ modelId: mid, status }) => {
+      if (mid !== chosenModelId) return
+      setPreloadStatus(status === 'ready' || status === 'error' ? null : status)
+    })
+    return () => {}
+  }, [chosenModelId])
 
   const startDownload = async () => {
     if (!chosenModelId) return
@@ -1912,6 +1924,12 @@ const ChatPage = () => {
       {isStreaming && backendStatus && (
         <div className="chat-stream-status" role="status" aria-live="polite">
           {backendStatus}
+        </div>
+      )}
+
+      {!isStreaming && preloadStatus === 'warming' && (
+        <div className="chat-stream-status" role="status" aria-live="polite">
+          Warming up local Gemma…
         </div>
       )}
 
