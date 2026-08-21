@@ -81,9 +81,13 @@ jobs:
 
           mkdir -p resources/darwin-x64/llama-server
           cp /tmp/llama.cpp/build/bin/llama-server resources/darwin-x64/llama-server/
-          # Ship every dylib the binary links against; llama-server resolves
-          # them via @rpath = @loader_path (cmake default on macOS).
-          cp /tmp/llama.cpp/build/bin/*.dylib resources/darwin-x64/llama-server/
+          # -P preserves symlinks. cmake's SOVERSION emits three names per
+          # library (libFoo.dylib -> libFoo.0.dylib -> libFoo.0.20.2.dylib);
+          # ggml-org's tarball ships them as 1 real file + 2 symlinks, and
+          # @electron/universal counts Mach-O files across the two arch
+          # slices — if x64 has 3 real files while arm64 has 1 + 2 symlinks,
+          # the counts diverge and the universal merge aborts.
+          cp -P /tmp/llama.cpp/build/bin/*.dylib resources/darwin-x64/llama-server/
 
           # Stamp with the manifest tag so fetch-llama-binaries.js sees a match
           # on subsequent prepackage runs and skips the ggml-org download.
