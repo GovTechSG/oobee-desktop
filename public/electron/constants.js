@@ -209,7 +209,15 @@ const getDefaultEdgeDataDir = () => {
 const isWindows = os.platform() === "win32";
 // Snapdragon X (Windows ARM64) — Adreno OpenCL backend often underperforms
 // CPU for LLM inference, so the CPU-only checkbox in ChatPage defaults ON here.
-const isSnapdragon = os.platform() === "win32" && os.arch() === "arm64";
+// os.arch() reports the *process* arch, so under Prism (x64 build emulated on
+// ARM64), it would return 'x64' and miss Snapdragon hardware. Windows sets
+// PROCESSOR_ARCHITEW6432 to the real machine arch inside emulated processes
+// (see MS docs: "WOW64 Implementation Details"), so we consult that too.
+const isSnapdragon = (() => {
+  if (os.platform() !== "win32") return false;
+  if (os.arch() === "arm64") return true;
+  return (process.env.PROCESSOR_ARCHITEW6432 || "").toUpperCase() === "ARM64";
+})();
 // Intel Mac — macOS Automatic Graphics Switching routes Metal to the weak
 // integrated iGPU when on battery, so the CPU-only checkbox is exposed here
 // too (defaults OFF; the llamaServer runtime also auto-forces CPU on battery).
