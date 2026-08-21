@@ -175,6 +175,26 @@ jobs:
             du -sh public/electron/wcag-index .cache 2>/dev/null || true
           fi
 
+      # actions/cache is OS-scoped in practice (Linux + macOS use zstd, the
+      # Windows runner falls back to gzip → different physical entry under the
+      # same key), so windows-install-purple never hits this job's cache.
+      # Re-publish the same paths as a workflow-run artifact so both platform
+      # jobs can pick them up via download-artifact, which IS cross-OS.
+      # include-hidden-files: true is required because the top-level path
+      # begins with `.cache/`.
+      - name: Upload WCAG + DSS index as workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wcag-dss-index
+          path: |
+            .cache/wcag-src
+            .cache/oobee-DETAILS.md
+            .cache/dss
+            public/electron/wcag-index
+          include-hidden-files: true
+          retention-days: 1
+
   windows-install-purple:
     needs: build-wcag-index
     # Fall back to scraping/embedding locally if the shared build failed.
@@ -185,17 +205,17 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
 
-      # Restore the shared WCAG + DSS index if build-wcag-index cached it.
-      # On miss, ensure-wcag-index.js will rebuild locally during npm run make-win.
-      - name: Restore WCAG + DSS index
-        uses: actions/cache/restore@v4
+      # Pull the WCAG + DSS index from the workflow-scoped artifact that
+      # build-wcag-index uploaded. actions/cache is OS-scoped on windows, so
+      # download-artifact is the cross-OS replacement. On failure (upstream
+      # job failed or artifact missing) continue anyway — ensure-wcag-index.js
+      # will rebuild locally during npm run make-win.
+      - name: Download WCAG + DSS index artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          path: |
-            .cache/wcag-src
-            .cache/oobee-DETAILS.md
-            .cache/dss
-            public/electron/wcag-index
-          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
+          name: wcag-dss-index
+          path: .
 
       - name: Enable Long File Path in Registry
         shell: pwsh
@@ -338,17 +358,18 @@ jobs:
           path: resources/darwin-x64/llama-server
           key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v3
 
-      # Restore the shared WCAG + DSS index if build-wcag-index cached it.
-      # On miss, ensure-wcag-index.js will rebuild locally during npm run make-mac.
-      - name: Restore WCAG + DSS index
-        uses: actions/cache/restore@v4
+      # Pull the WCAG + DSS index from the workflow-scoped artifact that
+      # build-wcag-index uploaded. Uses download-artifact (cross-OS) rather
+      # than cache-restore (OS-scoped) so the same source of truth serves
+      # both windows and mac jobs. On failure (upstream job failed or
+      # artifact missing) continue anyway — ensure-wcag-index.js will
+      # rebuild locally during npm run make-mac.
+      - name: Download WCAG + DSS index artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          path: |
-            .cache/wcag-src
-            .cache/oobee-DETAILS.md
-            .cache/dss
-            public/electron/wcag-index
-          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
+          name: wcag-dss-index
+          path: ${{github.workspace}}
 
       - name: Set environment variables for Node
         run: |
