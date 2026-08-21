@@ -68,7 +68,12 @@ jobs:
             -DLLAMA_CURL=OFF \
             -DLLAMA_SERVER_SSL=OFF \
             -DBUILD_SHARED_LIBS=ON
-          cmake --build /tmp/llama.cpp/build -j --target llama-server
+          # macos-latest arm64 runners are 3-core; use hw.ncpu to size -j
+          # exactly to the host so we don't oversubscribe (cpp-httplib alone
+          # eats ~4 GB while compiling and the runner has 7 GB total).
+          NPROC=$(sysctl -n hw.ncpu)
+          echo "Building with -j $NPROC"
+          cmake --build /tmp/llama.cpp/build -j "$NPROC" --target llama-server
 
           # Verify the binary is actually x86_64 before caching.
           file /tmp/llama.cpp/build/bin/llama-server
