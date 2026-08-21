@@ -274,35 +274,61 @@ function sameConfig(a, b) {
   )
 }
 
-// Compose the CLI flags for llama-server:
-// - `-m`: model file path
-// - `-c`: context size
-// - `-b`: batch size (2048 for prefill throughput)
-// - `-fa`: flash attention (disabled on Intel Mac for stability, enabled elsewhere)
-// - `-ctk/-ctv`: q8_0 quantized KV cache to reduce memory bandwidth
-// - `-ngl`: GPU layer offload (0 for CPU-only mode, 999 for max GPU usage)
-// - `-np 1`: single slot for deterministic KV cache reuse (this app runs one conversation)
-// - `--cache-reuse`: token threshold for KV cache reuse (512 on Windows, 256 elsewhere)
-// - `--jinja`: enable Jinja template support for chat models
-// - `--host/--port`: bind to localhost
-// - `--mlock` (Windows only): prevent model weights from being swapped to disk
+// Compose the CLI flags. Values mirror the tuning that used to live in
+// llmGemma.js: batch=2048 for prefill throughput, flash-attn on, q8_0 KV
+// cache to halve decode bandwidth, all layers on GPU. `--jinja` is default
+// on in recent llama-server builds so the Gemma chat template baked into the
+// GGUF is used automatically.
+//
+// `-fa off` was tried (2026-08-19) to test a hypothesis that flash attention
+// was forcing prompt processing (prefill) to fall back to CPU on win32-arm64
+// (Adreno OpenCL) -- field data showed prefill at 0% GPU / 80% CPU vs decode
+// at 53% GPU / 80% CPU, and a warmup warning ("flash attention is enabled /
+// please report this on github as an issue",
+// https://github.com/ggml-org/llama.cpp/pull/16837#issuecomment-3461676118)
+// suggested a rough edge on this backend. Result: `-fa off` made llama-server
+// fail to create the context outright (`failed to create context with
+// model...`, exit code 1) -- reverted immediately. Root cause: quantized KV
+// cache (`-ctk q8_0 -ctv q8_0` below) is only implemented via the
+// flash-attention kernel path in this llama.cpp build; disabling `-fa` while
+// keeping quantized KV types is an unsupported combination, not just a
+// slower one. `-fa` is therefore a hard requirement here, not an
+// independently-toggleable lever -- the 0%-GPU-during-prefill question
+// remains open and would need `-ctk/-ctv f16` (full KV cache, more memory)
+// to test flash-attention on/off in isolation, which is a separate
+// memory/quality tradeoff of its own.
+//
+// KV-cache / slot-reuse tuning (`-np 1`, `--cache-reuse`): llama-server
+// already has a per-slot prompt cache keyed on longest-common-prefix (LCP)
+// with whatever it last decoded — that's the "selected slot by LCP
+// similarity, f_sim_best=..." log line. It defaults to n_slots=4, which
+// exists for serving multiple concurrent conversations. This app only ever
+// runs one local Gemma conversation at a time, so multi-slot selection is
+// pure downside here: our one conversation can bounce between slots, and a
+// low f_sim_best match still "succeeds" (picks *a* slot) without actually
+// reusing our cached prefix — forcing a full prompt reprocess from token 0
+// (the long "prompt processing" phases + high CPU seen in practice).
+// `-np 1` pins everything to a single slot so the same physical KV cache is
+// always addressed — reuse becomes deterministic instead of heuristic.
+// `--cache-reuse 256` additionally lets llama-server reuse cached KV chunks
+// of >=256 tokens even when the new prompt only partially matches the
+// cached prefix (e.g. a tool result got appended) via context-shifting,
+// instead of requiring a byte-identical prefix to reuse anything.
+//
+// Memory note: this does NOT require retuning `pickContextSize()`'s RAM
+// tiers in llmGemma.js. Server logs already showed `kv_unified = 'true'`
+// even under the old n_slots=4 default, meaning the KV buffer was shared
+// across slots rather than multiplied by 4 — `n_ctx_slot` came out equal to
+// the full requested `-c` value, not divided. So the `reservedGB = 8`
+// headroom math in `pickContextSize()` was already calibrated against
+// effectively single-slot memory usage; `-np 1` mainly removes the LCP
+// slot-selection ambiguity, it isn't a meaningful memory win on its own.
 function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
-  const platform = process.platform
-  const arch = normalizeArch(process.arch)
-  
-  // Intel Mac (darwin-x64) with AMD 5300M GPU has flash attention issues;
-  // disable it for stability on this configuration.
-  const isIntelMac = platform === 'darwin' && arch === 'x64'
-  const flashAttn = isIntelMac ? 'off' : 'on'
-  
-  // Windows users benefit from memory/timeout optimizations
-  const isWindows = platform === 'win32'
-  
   const argv = [
     '-m', modelPath,
     '-c', String(contextSize),
     '-b', '2048',
-    '-fa', flashAttn,
+    '-fa', 'on',
     '-ctk', 'q8_0',
     '-ctv', 'q8_0',
     // CPU-only mode (user-selected "(CPU-only mode)" model option, Windows
@@ -313,16 +339,11 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
     // models, so this is a real alternative, not just a fallback.
     '-ngl', cpuOnly ? '0' : '999',
     '-np', '1',
-    '--cache-reuse', isWindows ? '512' : '256',
+    '--cache-reuse', '256',
     '--jinja',
     '--host', '127.0.0.1',
     '--port', String(port),
   ]
-  // Memory Lock: Prevents Windows from aggressively swapping the model
-  // weights to the disk pagefile when the app is idle.
-  if (isWindows) {
-    argv.push('--mlock');
-  }
   if (mmprojPath) {
     argv.push('-mm', mmprojPath)
   }
