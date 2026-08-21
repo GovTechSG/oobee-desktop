@@ -565,6 +565,11 @@ app.on('ready', async () => {
     }
   })
 
+  ipcMain.handle('isWindows', (_event) => constants.isWindows)
+  ipcMain.handle('isSnapdragon', (_event) => constants.isSnapdragon)
+  ipcMain.handle('isIntelMac', (_event) => constants.isIntelMac)
+
+
   ipcMain.handle('selectFile', async (event, options = {}) => {
     const result = await dialog.showOpenDialog(mainWindow, options)
 
