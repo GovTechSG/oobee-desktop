@@ -112,7 +112,11 @@ jobs:
 
       - name: Install dependencies (only needed to build the index)
         if: steps.cache.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts
+        # `npm install` (not `npm ci`) to match the platform jobs — the repo's
+        # package-lock.json drifts from package.json occasionally, and `npm ci`
+        # would fail-hard on that. --ignore-scripts skips the react-scripts
+        # postinstall which we don't need for the scrape/embed step.
+        run: npm install --ignore-scripts --no-audit --no-fund
 
       - name: Scrape WCAG + DSS and build embedding index
         if: steps.cache.outputs.cache-hit != 'true'
