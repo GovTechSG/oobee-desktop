@@ -215,6 +215,10 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.removeAllListeners("llmChat:error");
       ipcRenderer.on("llmChat:error", (_e, data) => callback(data));
     },
+    onLlmChatPreloadStatus: (callback) => {
+      ipcRenderer.removeAllListeners("llmChat:preloadStatus");
+      ipcRenderer.on("llmChat:preloadStatus", (_e, data) => callback(data));
+    },
     removeLlmChatListeners: () => {
       ipcRenderer.removeAllListeners("llmChat:chunk");
       ipcRenderer.removeAllListeners("llmChat:usage");
@@ -224,6 +228,7 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.removeAllListeners("llmChat:attachment");
       ipcRenderer.removeAllListeners("llmChat:done");
       ipcRenderer.removeAllListeners("llmChat:error");
+      ipcRenderer.removeAllListeners("llmChat:preloadStatus");
     },
     onLlmAnalysisUnlocked: (callback) => {
       ipcRenderer.removeAllListeners("llmAnalysisUnlocked");
