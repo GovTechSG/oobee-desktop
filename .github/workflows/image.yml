@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v2
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v3
 
       - name: Build llama.cpp with Metal for darwin-x64
         if: steps.cache.outputs.cache-hit != 'true'
@@ -56,12 +56,22 @@ jobs:
           # path, which then fails to link into an x86_64 binary. Forcing
           # OpenSSL to be "not found" keeps cpp-httplib in plaintext-only mode
           # (fine — the server binds to 127.0.0.1 anyway).
+          # CMAKE_BUILD_WITH_INSTALL_RPATH + CMAKE_INSTALL_RPATH=@loader_path:
+          # cmake defaults to baking the build tree (/tmp/llama.cpp/build/bin)
+          # as an LC_RPATH entry so binaries can find their dylibs during
+          # development. On end-user Macs that /tmp/ dir doesn't exist and
+          # llama-server aborts on load. Match ggml-org's official arm64
+          # binary, which ships with a single @loader_path rpath — that
+          # resolves via the dylib's own directory, which after packaging
+          # is <app>/Contents/Resources/llama-server/.
           cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=x86_64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DCMAKE_INSTALL_RPATH='@loader_path' \
             -DGGML_METAL=ON \
             -DGGML_METAL_EMBED_LIBRARY=ON \
             -DGGML_NATIVE=OFF \
@@ -88,6 +98,24 @@ jobs:
           # slices — if x64 has 3 real files while arm64 has 1 + 2 symlinks,
           # the counts diverge and the universal merge aborts.
           cp -P /tmp/llama.cpp/build/bin/*.dylib resources/darwin-x64/llama-server/
+
+          # Belt-and-suspenders rpath cleanup: llama.cpp's per-target
+          # CMakeLists occasionally set INSTALL_RPATH themselves, overriding
+          # the top-level CMAKE_INSTALL_RPATH we passed above. Walk every
+          # real Mach-O file in the shipped tree, strip any stray build-tree
+          # rpath, ensure @loader_path is present, and ad-hoc re-sign
+          # (install_name_tool invalidates whatever signature cmake baked in;
+          # Electron's osxSign will replace this with the Developer ID
+          # Application signature during packaging).
+          for f in resources/darwin-x64/llama-server/llama-server \
+                   resources/darwin-x64/llama-server/*.dylib; do
+            [ -L "$f" ] && continue  # skip SOVERSION symlinks
+            install_name_tool -delete_rpath /tmp/llama.cpp/build/bin "$f" 2>/dev/null || true
+            install_name_tool -add_rpath @loader_path "$f" 2>/dev/null || true
+            codesign --sign - --force "$f" 2>/dev/null || true
+          done
+          echo "[verify] llama-server rpath entries:"
+          otool -l resources/darwin-x64/llama-server/llama-server | grep -A 2 LC_RPATH || true
 
           # Stamp with the manifest tag so fetch-llama-binaries.js sees a match
           # on subsequent prepackage runs and skips the ggml-org download.
@@ -308,7 +336,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v2
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v3
 
       # Restore the shared WCAG + DSS index if build-wcag-index cached it.
       # On miss, ensure-wcag-index.js will rebuild locally during npm run make-mac.
