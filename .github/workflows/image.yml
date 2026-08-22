@@ -31,97 +31,20 @@ jobs:
           TAG=$(node -e "console.log(require('./resources/llama-binaries.json').tag)")
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
+      # Cache key includes the sha of the build script AND the patches
+      # directory so any local change to either invalidates the cache — that
+      # keeps us from silently serving a stale binary after we touch the
+      # cross-compile logic or vendor a new Metal driver fix.
       - name: Cache llama.cpp Metal build (darwin-x64)
         id: cache
         uses: actions/cache@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v3
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v4-${{ hashFiles('scripts/build-llama-metal-x64.sh', 'scripts/llama-patches/*.patch') }}
 
       - name: Build llama.cpp with Metal for darwin-x64
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.pin.outputs.tag }}"
-          echo "Cloning llama.cpp @ $TAG"
-          git clone --depth 1 --branch "$TAG" https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
-
-          # Cross-compile from arm64 runner to x86_64. Metal shaders are GPU-
-          # architecture, not CPU-architecture, so EMBED_LIBRARY works either
-          # way. Deployment target 11.0 matches ggml-org's official builds.
-          #
-          # LLAMA_SERVER_SSL=OFF + CMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE:
-          # cpp-httplib auto-enables its TLS code path whenever cmake finds
-          # OpenSSL. GHA runners have Homebrew's arm64 OpenSSL on the search
-          # path, which then fails to link into an x86_64 binary. Forcing
-          # OpenSSL to be "not found" keeps cpp-httplib in plaintext-only mode
-          # (fine — the server binds to 127.0.0.1 anyway).
-          # CMAKE_BUILD_WITH_INSTALL_RPATH + CMAKE_INSTALL_RPATH=@loader_path:
-          # cmake defaults to baking the build tree (/tmp/llama.cpp/build/bin)
-          # as an LC_RPATH entry so binaries can find their dylibs during
-          # development. On end-user Macs that /tmp/ dir doesn't exist and
-          # llama-server aborts on load. Match ggml-org's official arm64
-          # binary, which ships with a single @loader_path rpath — that
-          # resolves via the dylib's own directory, which after packaging
-          # is <app>/Contents/Resources/llama-server/.
-          cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-            -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
-            -DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE \
-            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
-            -DCMAKE_INSTALL_RPATH='@loader_path' \
-            -DGGML_METAL=ON \
-            -DGGML_METAL_EMBED_LIBRARY=ON \
-            -DGGML_NATIVE=OFF \
-            -DLLAMA_CURL=OFF \
-            -DLLAMA_SERVER_SSL=OFF \
-            -DBUILD_SHARED_LIBS=ON
-          # macos-latest arm64 runners are 3-core; use hw.ncpu to size -j
-          # exactly to the host so we don't oversubscribe (cpp-httplib alone
-          # eats ~4 GB while compiling and the runner has 7 GB total).
-          NPROC=$(sysctl -n hw.ncpu)
-          echo "Building with -j $NPROC"
-          cmake --build /tmp/llama.cpp/build -j "$NPROC" --target llama-server
-
-          # Verify the binary is actually x86_64 before caching.
-          file /tmp/llama.cpp/build/bin/llama-server
-          file /tmp/llama.cpp/build/bin/llama-server | grep -q x86_64
-
-          mkdir -p resources/darwin-x64/llama-server
-          cp /tmp/llama.cpp/build/bin/llama-server resources/darwin-x64/llama-server/
-          # -P preserves symlinks. cmake's SOVERSION emits three names per
-          # library (libFoo.dylib -> libFoo.0.dylib -> libFoo.0.20.2.dylib);
-          # ggml-org's tarball ships them as 1 real file + 2 symlinks, and
-          # @electron/universal counts Mach-O files across the two arch
-          # slices — if x64 has 3 real files while arm64 has 1 + 2 symlinks,
-          # the counts diverge and the universal merge aborts.
-          cp -P /tmp/llama.cpp/build/bin/*.dylib resources/darwin-x64/llama-server/
-
-          # Belt-and-suspenders rpath cleanup: llama.cpp's per-target
-          # CMakeLists occasionally set INSTALL_RPATH themselves, overriding
-          # the top-level CMAKE_INSTALL_RPATH we passed above. Walk every
-          # real Mach-O file in the shipped tree, strip any stray build-tree
-          # rpath, ensure @loader_path is present, and ad-hoc re-sign
-          # (install_name_tool invalidates whatever signature cmake baked in;
-          # Electron's osxSign will replace this with the Developer ID
-          # Application signature during packaging).
-          for f in resources/darwin-x64/llama-server/llama-server \
-                   resources/darwin-x64/llama-server/*.dylib; do
-            [ -L "$f" ] && continue  # skip SOVERSION symlinks
-            install_name_tool -delete_rpath /tmp/llama.cpp/build/bin "$f" 2>/dev/null || true
-            install_name_tool -add_rpath @loader_path "$f" 2>/dev/null || true
-            codesign --sign - --force "$f" 2>/dev/null || true
-          done
-          echo "[verify] llama-server rpath entries:"
-          otool -l resources/darwin-x64/llama-server/llama-server | grep -A 2 LC_RPATH || true
-
-          # Stamp with the manifest tag so fetch-llama-binaries.js sees a match
-          # on subsequent prepackage runs and skips the ggml-org download.
-          echo "$TAG" > resources/darwin-x64/llama-server/.tag
-
-          ls -la resources/darwin-x64/llama-server/
+        run: bash scripts/build-llama-metal-x64.sh "${{ steps.pin.outputs.tag }}"
 
   # Build the WCAG + DSS search index once, cache it, and let both platform
   # jobs restore it. Embedding ~1,300 chunks with all-MiniLM-L6-v2 takes
@@ -356,7 +279,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v3
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v4-${{ hashFiles('scripts/build-llama-metal-x64.sh', 'scripts/llama-patches/*.patch') }}
 
       # Pull the WCAG + DSS index from the workflow-scoped artifact that
       # build-wcag-index uploaded. Uses download-artifact (cross-OS) rather
