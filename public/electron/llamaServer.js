@@ -43,23 +43,6 @@ function normalizeArch(raw) {
   return arch || process.arch
 }
 
-// Intel Macs with a discrete Radeon get shunted to the integrated Iris/UHD
-// GPU by macOS Automatic Graphics Switching whenever the machine is on
-// battery. The iGPU is ~5-10x weaker than the Radeon and shares memory
-// bandwidth with the CPU, so Metal offload becomes a net loss versus AVX2
-// CPU inference. Apple Silicon has unified memory and no automatic
-// switching, so this doesn't apply there.
-function shouldForceCpuOnlyForPower() {
-  if (process.platform !== 'darwin') return false
-  if (normalizeArch(process.arch) !== 'x64') return false
-  try {
-    const { powerMonitor } = require('electron')
-    return !!powerMonitor.onBatteryPower
-  } catch (_) {
-    return false
-  }
-}
-
 function targetKeysForCurrentRuntime() {
   const platform = process.platform
   const arch = normalizeArch(process.arch)
@@ -420,17 +403,12 @@ async function ensure({ modelPath, mmprojPath, contextSize, cpuOnly }) {
     )
   }
 
-  // Effective cpuOnly folds in the caller's explicit choice, the
-  // session-scoped GPU-init blacklist, AND the Intel-Mac-on-battery guard
-  // (see shouldForceCpuOnlyForPower). Compute it BEFORE the sameConfig
+  // Effective cpuOnly folds in the caller's explicit choice and the
+  // session-scoped GPU-init blacklist. Compute it BEFORE the sameConfig
   // check below so a request from a user who still ticks "GPU" is deduped
   // against a running CPU-fallback server instead of triggering a
   // pointless restart-and-refail cycle each message.
-  const forcedCpuByPower = shouldForceCpuOnlyForPower()
-  if (forcedCpuByPower && !cpuOnly && !gpuInitFailedFor.has(bin)) {
-    log('on battery (Intel Mac) — forcing CPU-only to avoid iGPU offload')
-  }
-  const effectiveCpuOnly = !!cpuOnly || gpuInitFailedFor.has(bin) || forcedCpuByPower
+  const effectiveCpuOnly = !!cpuOnly || gpuInitFailedFor.has(bin)
   const config = {
     modelPath,
     mmprojPath: mmprojPath || null,
