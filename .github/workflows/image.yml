@@ -11,15 +11,22 @@ on:
     types: [published]
 
 jobs:
-  # Cross-compile llama.cpp with Metal enabled for darwin-x64. ggml-org's
-  # official darwin-x64 release ships without any GPU backend (CPU libs only),
-  # so Intel Mac users get no acceleration from the pinned binary. Building
-  # here fills that gap. Runs first so the mac job can restore the resulting
-  # binary from cache; on failure this job is best-effort — continue-on-error
-  # lets the mac job proceed and fall back to the ggml-org CPU-only binary via
+  # Build llama.cpp with Vulkan (via MoltenVK) enabled for darwin-x64.
+  # ggml-org's official darwin-x64 release ships CPU-only libs, and the Metal
+  # backend is broken on AMD Radeon GPUs on macOS (ggml-org/llama.cpp#19563
+  # — KV-cache corruption + simd_max(half) mis-compute on RDNA). Vulkan via
+  # MoltenVK is the working alternative demonstrated on that hardware.
+  # Runs first so the mac job can restore the resulting binary from cache;
+  # on failure this job is best-effort — continue-on-error lets the mac job
+  # proceed and fall back to the ggml-org CPU-only binary via
   # fetch-llama-binaries.js.
-  build-llama-metal-x64:
-    runs-on: macos-latest
+  build-llama-vulkan-x64:
+    # macos-13 is the last runner image with x86_64 hardware by default.
+    # macos-14+ default labels resolve to arm64, and a cross-compiled
+    # Vulkan-Loader linkage is fragile (Homebrew's arm64 libvulkan can't be
+    # loaded from an x86_64 binary at test time). Building natively on
+    # Intel keeps the toolchain simple and matches the target CPU exactly.
+    runs-on: macos-13
     continue-on-error: true
     steps:
       - name: Check out repository code
@@ -31,20 +38,20 @@ jobs:
           TAG=$(node -e "console.log(require('./resources/llama-binaries.json').tag)")
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      # Cache key includes the sha of the build script AND the patches
-      # directory so any local change to either invalidates the cache — that
-      # keeps us from silently serving a stale binary after we touch the
-      # cross-compile logic or vendor a new Metal driver fix.
-      - name: Cache llama.cpp Metal build (darwin-x64)
+      # Cache key includes the sha of the build script so any local change
+      # to the build recipe invalidates the cache. -vulkan-v1 namespace bump
+      # from the prior -metal-v4 forces one fresh build after the backend
+      # swap; subsequent CI runs restore from cache normally.
+      - name: Cache llama.cpp Vulkan build (darwin-x64)
         id: cache
         uses: actions/cache@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v4-${{ hashFiles('scripts/build-llama-metal-x64.sh', 'scripts/llama-patches/*.patch') }}
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-vulkan-v1-${{ hashFiles('scripts/build-llama-vulkan-x64.sh') }}
 
-      - name: Build llama.cpp with Metal for darwin-x64
+      - name: Build llama.cpp with Vulkan for darwin-x64
         if: steps.cache.outputs.cache-hit != 'true'
-        run: bash scripts/build-llama-metal-x64.sh "${{ steps.pin.outputs.tag }}"
+        run: bash scripts/build-llama-vulkan-x64.sh "${{ steps.pin.outputs.tag }}"
 
   # Build the WCAG + DSS search index once, cache it, and let both platform
   # jobs restore it. Embedding ~1,300 chunks with all-MiniLM-L6-v2 takes
@@ -221,7 +228,7 @@ jobs:
             oobee-desktop-windows.zip.sha256.txt
             
   mac-install-purple:
-    needs: [build-llama-metal-x64, build-wcag-index]
+    needs: [build-llama-vulkan-x64, build-wcag-index]
     # Run even if the shared builds failed — we fall back to ggml-org's
     # CPU-only binary and a local WCAG/DSS index rebuild in those cases.
     if: always()
@@ -271,15 +278,15 @@ jobs:
           TAG=$(node -e "console.log(require('./resources/llama-binaries.json').tag)")
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      # Restore the darwin-x64 llama-server that build-llama-metal-x64 cached.
-      # If restore misses (build failed, or first run before the build job
-      # populated the cache), fetch-llama-binaries.js will see an empty
-      # directory and download ggml-org's CPU-only binary as fallback.
-      - name: Restore prebuilt Metal llama-server (darwin-x64)
+      # Restore the darwin-x64 llama-server that build-llama-vulkan-x64
+      # cached. If restore misses (build failed, or first run before the
+      # build job populated the cache), fetch-llama-binaries.js will see an
+      # empty directory and download ggml-org's CPU-only binary as fallback.
+      - name: Restore prebuilt Vulkan llama-server (darwin-x64)
         uses: actions/cache/restore@v4
         with:
           path: resources/darwin-x64/llama-server
-          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-metal-v4-${{ hashFiles('scripts/build-llama-metal-x64.sh', 'scripts/llama-patches/*.patch') }}
+          key: llama-server-darwin-x64-${{ steps.pin.outputs.tag }}-vulkan-v1-${{ hashFiles('scripts/build-llama-vulkan-x64.sh') }}
 
       # Pull the WCAG + DSS index from the workflow-scoped artifact that
       # build-wcag-index uploaded. Uses download-artifact (cross-OS) rather

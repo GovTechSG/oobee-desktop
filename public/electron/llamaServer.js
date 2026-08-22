@@ -341,13 +341,26 @@ function sameConfig(a, b) {
 // effectively single-slot memory usage; `-np 1` mainly removes the LCP
 // slot-selection ambiguity, it isn't a meaningful memory win on its own.
 function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
+  // darwin-x64 GPU path uses Vulkan via MoltenVK (see build-llama-vulkan-x64.sh
+  // — Metal is broken on AMD Radeon per ggml-org/llama.cpp#19563). Flash
+  // attention + quantised KV cache have correctness bugs on that stack per
+  // comment #5 of the issue; drop the -fa/-ctk/-ctv triple together on this
+  // one code path so llama-server falls back to default f16 KV without FA.
+  // Every other backend (Metal on darwin-arm64, OpenCL/Vulkan on win32,
+  // CUDA/Vulkan on linux) keeps the original tuning.
+  const isDarwinX64Gpu =
+    process.platform === 'darwin' &&
+    normalizeArch(process.arch) === 'x64' &&
+    !cpuOnly
   const argv = [
     '-m', modelPath,
     '-c', String(contextSize),
     '-b', '2048',
-    '-fa', 'on',
-    '-ctk', 'q8_0',
-    '-ctv', 'q8_0',
+  ]
+  if (!isDarwinX64Gpu) {
+    argv.push('-fa', 'on', '-ctk', 'q8_0', '-ctv', 'q8_0')
+  }
+  argv.push(
     // CPU-only mode (user-selected "(CPU-only mode)" model option, Windows
     // only): -ngl 0 keeps every layer on CPU instead of the GPU backend.
     // Community benchmarking (ggml-org/llama.cpp discussion #8273) found
@@ -360,7 +373,7 @@ function buildArgs({ modelPath, mmprojPath, contextSize, port, cpuOnly }) {
     '--jinja',
     '--host', '127.0.0.1',
     '--port', String(port),
-  ]
+  )
   // Windows pages out inactive process memory aggressively — the ~5 GB of
   // Gemma weights get evicted to the pagefile after a few idle minutes and
   // the next user message eats a slow SSD read before prefill starts.
@@ -463,16 +476,35 @@ async function startAndProbe({ bin, config }) {
   const baseUrl = `http://127.0.0.1:${port}`
   const args = buildArgs({ ...config, port })
 
+  // On darwin-x64 the shipped llama-server links against Vulkan-Loader,
+  // which discovers its ICD (MoltenVK, in our bundle) via the path list in
+  // VK_ICD_FILENAMES. Pin it to *our* bundled JSON — otherwise a
+  // user-installed LunarG SDK on the host machine could shadow ours and
+  // we'd link against a different MoltenVK version than the one we ship
+  // and test against. No-op on Apple Silicon (Metal, no Vulkan) or when
+  // running CPU-only.
+  const spawnEnv = {
+    ...process.env,
+    // llama-server logs to stderr; keep stdout clean.
+    LLAMA_LOG_COLORS: '0',
+  }
+  if (
+    process.platform === 'darwin' &&
+    normalizeArch(process.arch) === 'x64' &&
+    !config.cpuOnly
+  ) {
+    const icdPath = path.join(path.dirname(bin), 'MoltenVK_icd.json')
+    if (fs.existsSync(icdPath)) {
+      spawnEnv.VK_ICD_FILENAMES = icdPath
+    }
+  }
+
   log(`spawning ${path.basename(bin)} on ${baseUrl}${config.cpuOnly ? ' (CPU-only)' : ''}`)
   log(`args: ${args.join(' ')}`)
   const proc = spawn(bin, args, {
     cwd: path.dirname(bin),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      // llama-server logs to stderr; keep stdout clean.
-      LLAMA_LOG_COLORS: '0',
-    },
+    env: spawnEnv,
   })
 
   const tail = (stream, level) => {
