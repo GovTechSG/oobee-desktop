@@ -23985,20 +23985,53 @@ THE SOFTWARE.
 
 MIT
 --------------
-llama.cpp (bundled Metal binary on macOS)
+llama.cpp (bundled inference binary)
 Copyright (c) 2023-2026 The ggml authors
 
-Includes a vendored patch from https://github.com/ai-janitor/llama.cpp
-(branch fix/metal-amd-fa-vec-simd-max), authored by "hung", licensed MIT.
-The patch fixes garbled output from Metal FA vec kernels on AMD RDNA
-discrete GPUs (e.g. Radeon Pro 5300M) by casting half to float before
-simd_max and gating the vec kernel on has_simdgroup_reduction. See
-scripts/llama-patches/0001-metal-amd-fa-vec-simd-max.patch for the full
-attribution and commit hash.
+The darwin-x64 build is compiled from source with the Vulkan backend
+enabled (GGML_VULKAN=ON) instead of Metal, so it can run correctly on
+Intel Macs with AMD discrete GPUs where Metal produces garbled output
+(ggml-org/llama.cpp#19563). See scripts/build-llama-vulkan-x64.sh for
+the exact recipe. All other platforms use ggml-org's official binaries
+pinned in resources/llama-binaries.json.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+===========
+
+Apache License 2.0
+--------------
+MoltenVK (bundled with darwin-x64 llama-server)
+Copyright (c) 2015-2024 The Brenwill Workshop Ltd.
+https://github.com/KhronosGroup/MoltenVK
+
+Vulkan-Loader (bundled with darwin-x64 llama-server)
+Copyright (c) 2015-2024 The Khronos Group Inc.
+Copyright (c) 2015-2024 Valve Corporation
+Copyright (c) 2015-2024 LunarG, Inc.
+https://github.com/KhronosGroup/Vulkan-Loader
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+NOTICE files from both projects are reproduced verbatim within the
+respective source repositories linked above; see the "NOTICE" file at
+the root of each repository at the release tag installed by Homebrew
+(molten-vk, vulkan-loader) at build time.
 ===========
