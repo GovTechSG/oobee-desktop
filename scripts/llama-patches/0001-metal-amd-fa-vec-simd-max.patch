@@ -1,0 +1,71 @@
+From f02a248fda33da5e399c25452c61603a3fcd3e7c Mon Sep 17 00:00:00 2001
+From: hung <hung@mpb2019i7.local>
+Date: Thu, 12 Feb 2026 17:08:34 -0500
+Subject: [PATCH] metal : fix FA vec kernel on AMD discrete GPUs (simd_max half)
+
+`simd_max(half)` returns incorrect results on AMD RDNA when operands
+include half-precision -INF (0xFC00). This causes the -INF block skip
+optimization in `kernel_flash_attn_ext_vec` to incorrectly skip chunks
+containing valid attention positions, producing garbage output.
+
+Fix: cast half to float before simd_max comparison.
+
+Also enables the vec kernel path on AMD GPUs by gating on
+`has_simdgroup_reduction` (which AMD supports) instead of
+`has_simdgroup_mm` (which requires Apple Silicon).
+
+Tested on AMD Radeon Pro 5300M (macOS, Metal3):
+- 1284/1298 FA tests pass (14 failures are hsk=576 precision, pre-existing)
+- Inference: correct output verified against FA=0 baseline
+- pp128: 92.24 t/s (FA=1) vs 87.17 t/s (Vulkan FA=0)
+- tg32: 64.19 t/s (FA=1) vs 65.74 t/s (Vulkan FA=0)
+
+Source: https://github.com/ai-janitor/llama.cpp/tree/fix/metal-amd-fa-vec-simd-max
+License: MIT (same as upstream llama.cpp)
+
+Only the two functional source-file hunks from the original patch are
+vendored here; the tests/test-backend-ops.cpp hunk is dropped because
+we do not build the test binaries in CI.
+---
+ ggml/src/ggml-metal/ggml-metal-device.m | 7 ++++++-
+ ggml/src/ggml-metal/ggml-metal.metal    | 3 ++-
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.m b/ggml/src/ggml-metal/ggml-metal-device.m
+index 4ea0bfb94da5..5fed2935bab4 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.m
++++ b/ggml/src/ggml-metal/ggml-metal-device.m
+@@ -1,3 +1,4 @@
+ #import "ggml-metal-device.h"
++#import "ggml-metal-ops.h"
+ 
+ #import "ggml-impl.h"
+@@ -1309,7 +1310,11 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
+                 default:
+                     return false;
+             }
+-            return has_simdgroup_mm; // TODO: over-restricted for vec-kernels
++            // vec kernels only need simdgroup_reduction, not simdgroup_mm
++            if (ggml_metal_op_flash_attn_ext_use_vec(op)) {
++                return has_simdgroup_reduction;
++            }
++            return has_simdgroup_mm;
+         case GGML_OP_LIGHTNING_INDEXER:
+             if (op->src[0]->ne[0] != OP_LIGHTNING_INDEXER_DK ||
+                 op->src[0]->ne[1] != OP_LIGHTNING_INDEXER_NH) {
+diff --git a/ggml/src/ggml-metal/ggml-metal.metal b/ggml/src/ggml-metal/ggml-metal.metal
+index 6c349aa0c925..ae19ac00ea43 100644
+--- a/ggml/src/ggml-metal/ggml-metal.metal
++++ b/ggml/src/ggml-metal/ggml-metal.metal
+@@ -6075,7 +6075,8 @@ kernel void kernel_flash_attn_ext_vec(
+             }
+ 
+             // skip -INF blocks
+-            if (simd_max(sm[tiisg]) <= -MAXHALF) {
++            // NOTE: use float cast to avoid simd_max(half) bug on AMD RDNA
++            if (simd_max(float(sm[tiisg])) <= -65504.0f) {
+                 continue;
+             }
+ 
+--
+2.39.5
