@@ -21,12 +21,13 @@ jobs:
   # proceed and fall back to the ggml-org CPU-only binary via
   # fetch-llama-binaries.js.
   build-llama-vulkan-x64:
-    # macos-13 is the last runner image with x86_64 hardware by default.
-    # macos-14+ default labels resolve to arm64, and a cross-compiled
-    # Vulkan-Loader linkage is fragile (Homebrew's arm64 libvulkan can't be
-    # loaded from an x86_64 binary at test time). Building natively on
-    # Intel keeps the toolchain simple and matches the target CPU exactly.
-    runs-on: macos-13
+    # macos-15-intel is the standard-tier x86_64 runner (macos-13 was
+    # retired 2025 and never picks up jobs; macos-14+ default labels
+    # resolve to arm64). Building natively on Intel matches the target CPU
+    # exactly and lets Homebrew provide the x86_64 vulkan-loader bottle
+    # directly — cross-compiling from arm64 would require building
+    # Vulkan-Loader from source.
+    runs-on: macos-15-intel
     continue-on-error: true
     steps:
       - name: Check out repository code
