@@ -968,6 +968,7 @@ const ChatPage = () => {
     setBackendStatus(null)
     setLastTurnStats(null)
     stickToBottomRef.current = true
+    setPreloadStatus(null)
     setIsStreaming(true)
     window.services.llmChatSend({ sessionId, userMessage: text, attachments })
     if (inputRef.current) inputRef.current.focus()
@@ -1558,7 +1559,7 @@ const ChatPage = () => {
                   </span>
                   <p className="chat-toggle-hint">
                     {isIntelMac
-                      ? 'Runs the model on CPU instead of GPU. Recommended on Intel Macs — macOS routes Metal to the weak integrated GPU when on battery, and even on AC the discrete GPU is often slower than the CPU for LLM inference.'
+                      ? 'Runs the model on CPU instead of GPU. Recommended on Intel Macs — CPU inference is typically faster than the discrete Radeon here.'
                       : 'Runs the model on CPU instead of GPU. Community benchmarks show this can be faster than the Adreno GPU backend on some Snapdragon X hardware.'}
                   </p>
                 </label>
