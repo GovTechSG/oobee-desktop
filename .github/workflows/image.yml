@@ -54,12 +54,59 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: bash scripts/build-llama-vulkan-x64.sh "${{ steps.pin.outputs.tag }}"
 
-  # Build the WCAG + DSS search index once, cache it, and let both platform
-  # jobs restore it. Embedding ~1,300 chunks with all-MiniLM-L6-v2 takes
-  # 2–5 minutes plus the DSS scrape + WCAG clone; skipping it saves that
-  # time on both windows-install-purple and mac-install-purple. The output
-  # is platform-agnostic bytes, so a cheap ubuntu runner is fine.
+  # Download the Xenova/all-MiniLM-L6-v2 model files from Hugging Face once,
+  # cache them, and let build-wcag-index + build-frameworks-index (and both
+  # platform jobs, as fallback) restore them. The model is ~90 MB; skipping
+  # the redownload on every build shaves 20-30s and avoids HF rate limits.
+  # Runs on ubuntu-latest — the model bytes are platform-agnostic.
+  build-embedding-model:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache embedding model
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: public/electron/embedding-model
+          # Bust the cache when the downloader script changes. Bump the -vN
+          # suffix manually to force a redownload (e.g. after swapping to
+          # a different embedding model).
+          key: embedding-model-${{ hashFiles('scripts/ensure-embedding-model.js', 'scripts/build-embedding-model.js') }}-v1
+
+      - name: Download embedding model
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/ensure-embedding-model.js
+
+      - name: Show model size
+        run: |
+          if [ -d public/electron/embedding-model ]; then
+            du -sh public/electron/embedding-model 2>/dev/null || true
+          fi
+
+      - name: Upload embedding model as workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: embedding-model
+          path: public/electron/embedding-model
+          retention-days: 1
+
+  # Build the WCAG + DSS + oobee DETAILS.md search index (hybrid BM25 +
+  # vector). Now includes .vec files (MiniLM embeddings) alongside the
+  # .pb/.txt pair — embedding ~2,900 chunks takes ~2 minutes on CI plus the
+  # scrape. Depends on build-embedding-model to reuse the same downloaded
+  # model files rather than fetching from Hugging Face twice.
   build-wcag-index:
+    needs: build-embedding-model
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -81,12 +128,25 @@ jobs:
             .cache/oobee-DETAILS.md
             .cache/dss
             public/electron/wcag-index
-          # Bust the cache when any of the scrape scripts change; the
-          # WCAG tag is pinned inside ensure-wcag-index.js so its hash covers
-          # tag bumps too. DETAILS.md is fetched from oobee master and is not
-          # pinned — bump the -vN suffix manually to force a rebuild when
-          # upstream DETAILS.md changes materially.
-          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v2
+          # Bust the cache when any of the scrape/build scripts change or the
+          # corpus module's chunk-write layout changes (bumping .vec means
+          # BM25-only caches are stale). The WCAG tag is pinned inside
+          # ensure-wcag-index.js so its hash covers tag bumps too. DETAILS.md
+          # is fetched from oobee master and is not pinned — bump the -vN
+          # suffix manually to force a rebuild when upstream DETAILS.md
+          # changes materially.
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v3
+
+      # Pull the embedding-model artifact from the upstream job so
+      # build-wcag-index.js can embed the chunks. Cache-hit path skips this —
+      # the WCAG index cache already contains the embedded output.
+      - name: Download embedding-model artifact
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: embedding-model
+          path: public/electron/embedding-model
 
       - name: Install dependencies (only needed to build the index)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -96,7 +156,7 @@ jobs:
         # postinstall which we don't need for the scrape/embed step.
         run: npm install --ignore-scripts --no-audit --no-fund
 
-      - name: Scrape WCAG + DSS and build embedding index
+      - name: Scrape WCAG + DSS and build hybrid index (BM25 + vector)
         if: steps.cache.outputs.cache-hit != 'true'
         run: node scripts/ensure-wcag-index.js
 
@@ -128,11 +188,12 @@ jobs:
 
   # Same pattern as build-wcag-index, but for the framework/language docs
   # corpus consumed by the `search_language_and_frameworks` LLM tool. Clones
-  # oobee-ai-rag-index at a pinned `synced/*` tag and chunks the markdown into
-  # BM25 <uuid>.pb/<uuid>.txt pairs. Runs on ubuntu-latest — the output is
-  # platform-agnostic bytes, so both windows/mac platform jobs restore it via
-  # download-artifact.
+  # oobee-ai-rag-index at a pinned `synced/*` tag, chunks the markdown, and
+  # embeds each chunk (hybrid BM25 + vector). Runs on ubuntu-latest — the
+  # output is platform-agnostic bytes, so both windows/mac platform jobs
+  # restore it via download-artifact.
   build-frameworks-index:
+    needs: build-embedding-model
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -153,15 +214,25 @@ jobs:
             .cache/frameworks-src
             public/electron/frameworks-index
           # Bust the cache when either the ensure script (which pins the tag)
-          # or the build script changes. Bump the -v1 suffix manually to force
-          # a rebuild without touching either script.
-          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v1
+          # or the build script changes, or when the chunk-write layout
+          # changes (bumping -v1 → -v2 forces a rebuild for the new .vec
+          # files). Bump the -vN suffix manually to force a rebuild without
+          # touching either script.
+          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v2
+
+      - name: Download embedding-model artifact
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: embedding-model
+          path: public/electron/embedding-model
 
       - name: Install dependencies (only needed to build the index)
         if: steps.cache.outputs.cache-hit != 'true'
         run: npm install --ignore-scripts --no-audit --no-fund
 
-      - name: Clone oobee-ai-rag-index and build frameworks/languages index
+      - name: Clone oobee-ai-rag-index and build hybrid frameworks/languages index
         if: steps.cache.outputs.cache-hit != 'true'
         run: node scripts/ensure-frameworks-index.js
 
@@ -186,7 +257,7 @@ jobs:
           retention-days: 1
 
   windows-install-purple:
-    needs: [build-wcag-index, build-frameworks-index]
+    needs: [build-embedding-model, build-wcag-index, build-frameworks-index]
     # Fall back to scraping/embedding locally if the shared build failed.
     if: always()
     runs-on: windows-latest
@@ -217,6 +288,17 @@ jobs:
         with:
           name: frameworks-docs-index
           path: .
+
+      # Restore the bundled MiniLM embedding model. Needed at runtime for
+      # the hybrid search vector leg AND at build time as a fallback when
+      # the WCAG/frameworks index artifacts miss (ensure-embedding-model.js
+      # would otherwise fetch it from Hugging Face during make-win).
+      - name: Download embedding-model artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: embedding-model
+          path: public/electron/embedding-model
 
       - name: Enable Long File Path in Registry
         shell: pwsh
@@ -299,7 +381,7 @@ jobs:
             oobee-desktop-windows.zip.sha256.txt
             
   mac-install-purple:
-    needs: [build-llama-vulkan-x64, build-wcag-index, build-frameworks-index]
+    needs: [build-llama-vulkan-x64, build-embedding-model, build-wcag-index, build-frameworks-index]
     # Run even if the shared builds failed — we fall back to ggml-org's
     # CPU-only binary and a local WCAG/DSS index rebuild in those cases.
     if: always()
@@ -382,6 +464,17 @@ jobs:
         with:
           name: frameworks-docs-index
           path: ${{github.workspace}}
+
+      # Restore the bundled MiniLM embedding model. Needed at runtime for
+      # the hybrid search vector leg AND at build time as a fallback when
+      # the WCAG/frameworks index artifacts miss (ensure-embedding-model.js
+      # would otherwise fetch it from Hugging Face during make-mac).
+      - name: Download embedding-model artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: embedding-model
+          path: ${{github.workspace}}/public/electron/embedding-model
 
       - name: Set environment variables for Node
         run: |
