@@ -68,7 +68,15 @@ function buildIndex() {
     [path.join(__dirname, 'build-frameworks-index.js')],
     {
       stdio: 'inherit',
-      env: { ...process.env, FRAMEWORKS_SRC_DIR: SRC_DIR },
+      // Pass the pinned tag through explicitly. `git describe --tags` on
+      // the shallow clone can pick a moving tag (`latest-sync`) when
+      // multiple tags point at the same commit — that would misrepresent
+      // the actual pin recorded in `_meta.json`.
+      env: {
+        ...process.env,
+        FRAMEWORKS_SRC_DIR: SRC_DIR,
+        FRAMEWORKS_SRC_TAG: EXPECTED_TAG,
+      },
     }
   )
   if (result.status !== 0) {

@@ -301,13 +301,20 @@ async function main() {
     const layout = FAMILY_LAYOUT.find((l) => l.family === f.family)
     return layout && layout.docType === 'language'
   })
-  let sourceTag = null
-  try {
-    sourceTag = execSync('git describe --tags --always', { cwd: SRC_DIR })
-      .toString()
-      .trim()
-  } catch (e) {
-    // SRC_DIR may not be a git checkout (e.g. tarball extraction) — skip.
+  // Prefer the pin passed by ensure-frameworks-index.js. Fall back to
+  // `git describe` when the env var is missing (e.g. running this script
+  // directly against a hand-checked-out source tree). Describe alone is
+  // unreliable when multiple tags point at the same commit — it can pick
+  // a moving tag (`latest-sync`) instead of the pinned tag.
+  let sourceTag = process.env.FRAMEWORKS_SRC_TAG || null
+  if (!sourceTag) {
+    try {
+      sourceTag = execSync('git describe --tags --always', { cwd: SRC_DIR })
+        .toString()
+        .trim()
+    } catch (e) {
+      // SRC_DIR may not be a git checkout (e.g. tarball extraction) — skip.
+    }
   }
   const meta = {
     builtAt: new Date().toISOString(),
