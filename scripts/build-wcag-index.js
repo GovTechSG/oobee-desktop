@@ -246,14 +246,28 @@ async function collectDssControls(dssToWcagMap) {
       `[wcag-index] no DSS corpus at ${DSS_DIR} — skipping DSS ingestion. ` +
         'Run `node scripts/build-dss-corpus.js` first.'
     )
-    return []
+    return { chunks: [], catalog: null }
   }
   const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'))
   const chunks = []
+  const catalog = { fetchedAt: manifest.fetchedAt, categories: [] }
   for (const cat of manifest.categories) {
     const catData = JSON.parse(
       await fsp.readFile(path.join(DSS_DIR, cat.file), 'utf8')
     )
+    catalog.categories.push({
+      code: catData.code,
+      title: catData.title,
+      description: catData.description || '',
+      url: catData.url || '',
+      controlCount: catData.controls.length,
+      controls: catData.controls.map((c) => ({
+        code: c.code,
+        title: c.title,
+        url: c.url,
+        wcagRefs: dssToWcagMap.get(c.code) || [],
+      })),
+    })
     for (const control of catData.controls) {
       // Enrich each control's body with the WCAG mapping we derived from
       // Oobee's DETAILS.md. This is what turns "WP-1" into "WP-1 → WCAG 1.1.1"
@@ -279,7 +293,7 @@ async function collectDssControls(dssToWcagMap) {
       })
     }
   }
-  return chunks
+  return { chunks, catalog }
 }
 
 // ---- Oobee DETAILS.md ingestion ----
@@ -398,18 +412,35 @@ async function loadEmbeddingsAndIndex() {
 }
 
 async function main() {
+  // --meta-only regenerates `_meta.json` (used by the list_corpus_metadata
+  // tool) without touching the embedded `.pb`/`.txt` chunk store. Useful
+  // after a DSS-catalog refresh or a metadata-shape bump so you don't pay
+  // the embedding rebuild cost.
+  const metaOnly = process.argv.slice(2).includes('--meta-only')
+
   verifyCheckout()
 
-  if (fs.existsSync(OUT_DIR)) {
-    console.log(`[wcag-index] wiping existing ${OUT_DIR}`)
-    await fsp.rm(OUT_DIR, { recursive: true, force: true })
+  if (!metaOnly) {
+    if (fs.existsSync(OUT_DIR)) {
+      console.log(`[wcag-index] wiping existing ${OUT_DIR}`)
+      await fsp.rm(OUT_DIR, { recursive: true, force: true })
+    }
+    await fsp.mkdir(OUT_DIR, { recursive: true })
+  } else {
+    if (!fs.existsSync(OUT_DIR)) {
+      throw new Error(
+        `--meta-only requires ${OUT_DIR} to already exist. Run without --meta-only first.`
+      )
+    }
+    console.log(`[wcag-index] --meta-only: leaving existing chunks in ${OUT_DIR} intact`)
   }
-  await fsp.mkdir(OUT_DIR, { recursive: true })
 
   const understanding = await collectUnderstandingPages()
   const techniques = await collectTechniquePages()
   const oobeeDetails = await collectOobeeDetailsChunks()
-  const dssControls = await collectDssControls(oobeeDetails.dssToWcag)
+  const { chunks: dssControls, catalog: dssCatalog } = await collectDssControls(
+    oobeeDetails.dssToWcag
+  )
   console.log(
     `[wcag-index] sources — understanding: ${understanding.length}, ` +
       `techniques+failures: ${techniques.length}, ` +
@@ -417,7 +448,9 @@ async function main() {
       `oobee DETAILS.md sections: ${oobeeDetails.chunks.length}`
   )
 
-  const { index } = await loadEmbeddingsAndIndex()
+  const { index } = metaOnly
+    ? { index: null }
+    : await loadEmbeddingsAndIndex()
 
   let chunkCount = 0
   let pageCount = 0
@@ -456,10 +489,12 @@ async function main() {
     }
   }
 
-  for (const page of understanding) await processPage(page)
-  for (const page of techniques) await processPage(page)
+  if (!metaOnly) {
+    for (const page of understanding) await processPage(page)
+    for (const page of techniques) await processPage(page)
+  }
 
-  for (const control of dssControls) {
+  for (const control of metaOnly ? [] : dssControls) {
     const uri = `dss://${control.categoryCode}/${control.code.toLowerCase()}`
     const metadata = {
       docType: 'dss',
@@ -478,7 +513,7 @@ async function main() {
     pageCount++
   }
 
-  for (const section of oobeeDetails.chunks) {
+  for (const section of metaOnly ? [] : oobeeDetails.chunks) {
     const uri = `oobee://details/${section.slug}`
     const metadata = {
       docType: 'oobee-details',
@@ -492,9 +527,68 @@ async function main() {
     pageCount++
   }
 
-  console.log(
-    `[wcag-index] DONE — ${pageCount} pages, ${chunkCount} chunks written to ${OUT_DIR}`
+  // Aggregate counts for the `list_corpus_metadata` tool. BM25 returns
+  // top-K matches; this file answers "how many X exist" without ever
+  // touching the index.
+  const wcagUnderstandingByVersion = {}
+  for (const p of understanding) {
+    wcagUnderstandingByVersion[p.wcagVersion] =
+      (wcagUnderstandingByVersion[p.wcagVersion] || 0) + 1
+  }
+  const wcagTechniquesByCategory = {}
+  let wcagFailures = 0
+  for (const p of techniques) {
+    if (p.docType === 'failure') wcagFailures++
+    wcagTechniquesByCategory[p.category] =
+      (wcagTechniquesByCategory[p.category] || 0) + 1
+  }
+  const meta = {
+    builtAt: new Date().toISOString(),
+    wcag: {
+      sourceTag: EXPECTED_TAG,
+      total_understanding_pages: understanding.length,
+      understanding_by_version: wcagUnderstandingByVersion,
+      total_technique_pages: techniques.length,
+      techniques_by_category: wcagTechniquesByCategory,
+      failure_pages: wcagFailures,
+    },
+    dss: dssCatalog
+      ? {
+          fetchedAt: dssCatalog.fetchedAt,
+          total_categories: dssCatalog.categories.length,
+          total_controls: dssCatalog.categories.reduce(
+            (n, c) => n + c.controlCount,
+            0
+          ),
+          categories: dssCatalog.categories,
+        }
+      : null,
+    oobeeDetails: {
+      sourceUrl: DETAILS_MD_URL,
+      total_sections: oobeeDetails.chunks.length,
+      sections: oobeeDetails.chunks.map((s) => ({
+        heading: s.sectionTitle,
+        slug: s.slug,
+        url: s.url,
+      })),
+    },
+  }
+  await fsp.writeFile(
+    path.join(OUT_DIR, '_meta.json'),
+    JSON.stringify(meta, null, 2),
+    'utf8'
   )
+
+  if (metaOnly) {
+    console.log(
+      `[wcag-index] --meta-only: wrote _meta.json only (${OUT_DIR}); chunks untouched.`
+    )
+  } else {
+    console.log(
+      `[wcag-index] DONE — ${pageCount} pages, ${chunkCount} chunks written to ${OUT_DIR}`
+    )
+    console.log(`[wcag-index] wrote _meta.json (aggregate counts for list_corpus_metadata)`)
+  }
 }
 
 main().catch((e) => {
