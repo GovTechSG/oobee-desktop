@@ -81,12 +81,12 @@ jobs:
             .cache/oobee-DETAILS.md
             .cache/dss
             public/electron/wcag-index
-          # Bust the cache when any of the scrape/embed scripts change; the
+          # Bust the cache when any of the scrape scripts change; the
           # WCAG tag is pinned inside ensure-wcag-index.js so its hash covers
           # tag bumps too. DETAILS.md is fetched from oobee master and is not
-          # pinned — bump the -v1 suffix manually to force a rebuild when
+          # pinned — bump the -vN suffix manually to force a rebuild when
           # upstream DETAILS.md changes materially.
-          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v1
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v2
 
       - name: Install dependencies (only needed to build the index)
         if: steps.cache.outputs.cache-hit != 'true'

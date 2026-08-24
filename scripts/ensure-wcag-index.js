@@ -95,7 +95,7 @@ function buildIndex() {
   ensureSourceCheckout()
   ensureOobeeDetailsMd()
   ensureDssCorpus()
-  log('building WCAG+DSS search index (embeds ~1,300 chunks, may take a while) …')
+  log('building WCAG+DSS BM25 search index (chunking HTML+markdown docs) …')
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'build-wcag-index.js')],

@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /*
- * Build a Vectra vector index for WCAG 2.2 documentation.
+ * Build a BM25 search index for WCAG 2.2 documentation.
  *
  * Reads Understanding docs + Techniques + Failures from a local checkout of
  * https://github.com/w3c/wcag pinned at tag `WCAG22-20241212`, chunks each
- * page by top-level <section id="…">, embeds each chunk with
- * Xenova/all-MiniLM-L6-v2 via @huggingface/transformers, and writes a Vectra
- * LocalDocumentIndex to `public/electron/wcag-index/` so it ships as part of
- * the packaged Electron app.
+ * page by top-level <section id="…">, and writes `<uuid>.pb` (JSON metadata)
+ * + `<uuid>.txt` (chunk body) pairs to `public/electron/wcag-index/` — the
+ * on-disk layout that `wcagCorpus.js` reads for BM25 search at runtime.
+ *
+ * Also pulls Singapore DSS controls (via oobee's DETAILS.md → dssToWcag map)
+ * and the DETAILS.md file itself into the same corpus.
  *
  * Usage:
  *   WCAG_SRC_DIR=/Users/young/wcag node scripts/build-wcag-index.js
@@ -21,6 +23,7 @@
 const fs = require('fs')
 const fsp = require('fs/promises')
 const path = require('path')
+const crypto = require('crypto')
 const { execSync } = require('child_process')
 const cheerio = require('cheerio')
 
@@ -371,44 +374,10 @@ async function collectOobeeDetailsChunks() {
   return { chunks, dssToWcag }
 }
 
-async function loadEmbeddingsAndIndex() {
-  // Lazy-load Vectra and TransformersEmbeddings so the require cost is only
-  // paid inside this script, never at Electron main-process startup.
-  const {
-    LocalDocumentIndex,
-    TransformersEmbeddings,
-    ProtobufCodec,
-  } = require('vectra')
-
-  console.log('[wcag-index] loading Xenova/all-MiniLM-L6-v2 …')
-  const embeddings = await TransformersEmbeddings.create({
-    model: 'Xenova/all-MiniLM-L6-v2',
-    device: 'cpu',
-    normalize: true,
-  })
-
-  const index = new LocalDocumentIndex({
-    folderPath: OUT_DIR,
-    embeddings,
-    tokenizer: embeddings.getTokenizer(),
-    codec: new ProtobufCodec(),
-    // Our page-level chunker already emits semantic units (~200-2000 chars).
-    // Widen Vectra's sub-chunking so each section is 1 sub-chunk in the
-    // common case, halving vector count and index size.
-    chunkingConfig: {
-      chunkSize: 512,
-      chunkOverlap: 0,
-    },
-  })
-
-  if (!(await index.isCatalogCreated())) {
-    await index.createIndex({ version: 1 })
-    console.log(`[wcag-index] created new index at ${OUT_DIR}`)
-  } else {
-    console.log(`[wcag-index] index already exists at ${OUT_DIR} — upserting`)
-  }
-
-  return { index }
+async function writeChunk(metadata, text) {
+  const id = crypto.randomUUID()
+  await fsp.writeFile(path.join(OUT_DIR, `${id}.pb`), JSON.stringify(metadata), 'utf8')
+  await fsp.writeFile(path.join(OUT_DIR, `${id}.txt`), text, 'utf8')
 }
 
 async function main() {
@@ -448,10 +417,6 @@ async function main() {
       `oobee DETAILS.md sections: ${oobeeDetails.chunks.length}`
   )
 
-  const { index } = metaOnly
-    ? { index: null }
-    : await loadEmbeddingsAndIndex()
-
   let chunkCount = 0
   let pageCount = 0
 
@@ -462,10 +427,6 @@ async function main() {
     if (!chunks.length) return
 
     for (const chunk of chunks) {
-      const uri =
-        page.docType === 'understanding'
-          ? `wcag://understanding/${page.slug}#${chunk.sectionId}`
-          : `wcag://${page.docType}/${page.techId}#${chunk.sectionId}`
       const metadata = {
         docType: page.docType,
         title: title || '',
@@ -480,7 +441,7 @@ async function main() {
         metadata.techId = page.techId
         metadata.category = page.category
       }
-      await index.upsertDocument(uri, chunk.text, 'md', metadata)
+      await writeChunk(metadata, chunk.text)
       chunkCount++
     }
     pageCount++
@@ -495,7 +456,6 @@ async function main() {
   }
 
   for (const control of metaOnly ? [] : dssControls) {
-    const uri = `dss://${control.categoryCode}/${control.code.toLowerCase()}`
     const metadata = {
       docType: 'dss',
       // techId is the wcagCorpus.js title-boost field. Setting it to the DSS
@@ -508,13 +468,12 @@ async function main() {
       categoryTitle: control.categoryTitle,
       url: control.url,
     }
-    await index.upsertDocument(uri, control.text, 'md', metadata)
+    await writeChunk(metadata, control.text)
     chunkCount++
     pageCount++
   }
 
   for (const section of metaOnly ? [] : oobeeDetails.chunks) {
-    const uri = `oobee://details/${section.slug}`
     const metadata = {
       docType: 'oobee-details',
       title: section.title,
@@ -522,7 +481,7 @@ async function main() {
       sectionTitle: section.sectionTitle,
       url: section.url,
     }
-    await index.upsertDocument(uri, section.text, 'md', metadata)
+    await writeChunk(metadata, section.text)
     chunkCount++
     pageCount++
   }
