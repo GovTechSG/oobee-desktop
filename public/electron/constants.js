@@ -269,6 +269,17 @@ const getWcagIndexPath = () => {
   return fs.existsSync(p) ? p : null;
 };
 
+// On-disk framework/language docs corpus used by the
+// `search_language_and_frameworks` LLM tool. Same packaging rationale as
+// `wcag-index/` above — the whole `public/electron/` tree is asar-unpacked
+// by forge.config.js, so this directory is directly readable in packaged
+// builds. Returns null if the directory is missing so the tool fails
+// gracefully rather than crashing the tool-use loop.
+const getFrameworksIndexPath = () => {
+  const p = path.join(__dirname, 'frameworks-index');
+  return fs.existsSync(p) ? p : null;
+};
+
 // Deep-link scheme used to unlock gated features. Each UUID in the map
 // corresponds to a specific feature — a browser click on
 // `oobee://unlock-feature/<UUID>` writes the mapped `flag` key to
@@ -318,4 +329,5 @@ module.exports = {
   unlockHost,
   unlockFeatureMap,
   getWcagIndexPath,
+  getFrameworksIndexPath,
 };
