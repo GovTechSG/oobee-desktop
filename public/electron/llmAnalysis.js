@@ -1364,8 +1364,9 @@ async function runChatLoop({ session, mainWindow, sessionId }) {
     for (const tu of toolUses) {
       let content
       try {
-        // Most tool cases return synchronously; search_wcag returns a Promise
-        // (Vectra + embedding are async). `await` on a non-Promise is a no-op,
+        // Most tool cases return synchronously; search_wcag and
+        // search_language_and_frameworks return a Promise (the vector leg
+        // awaits the ONNX embedder). `await` on a non-Promise is a no-op,
         // so this is safe for every branch.
         const raw = await runTool(session, tu.name, tu.input)
         // Screenshot returns a special marker with an image block.

@@ -280,6 +280,16 @@ const getFrameworksIndexPath = () => {
   return fs.existsSync(p) ? p : null;
 };
 
+// Xenova/all-MiniLM-L6-v2 sentence-embedding model bundled under
+// `public/electron/embedding-model/`. Same asar-unpacked packaging as the
+// corpora above. The hybrid retrieval path uses this at runtime to embed
+// user queries; if the directory is missing, corpus modules fall back to
+// pure BM25 rather than crashing.
+const getEmbeddingModelPath = () => {
+  const p = path.join(__dirname, 'embedding-model');
+  return fs.existsSync(p) ? p : null;
+};
+
 // Deep-link scheme used to unlock gated features. Each UUID in the map
 // corresponds to a specific feature — a browser click on
 // `oobee://unlock-feature/<UUID>` writes the mapped `flag` key to
@@ -330,4 +340,5 @@ module.exports = {
   unlockFeatureMap,
   getWcagIndexPath,
   getFrameworksIndexPath,
+  getEmbeddingModelPath,
 };

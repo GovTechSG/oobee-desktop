@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /*
- * Build a BM25 search index for WCAG 2.2 documentation.
+ * Build a BM25 + vector search index for WCAG 2.2 documentation.
  *
  * Reads Understanding docs + Techniques + Failures from a local checkout of
  * https://github.com/w3c/wcag pinned at tag `WCAG22-20241212`, chunks each
  * page by top-level <section id="…">, and writes `<uuid>.pb` (JSON metadata)
- * + `<uuid>.txt` (chunk body) pairs to `public/electron/wcag-index/` — the
- * on-disk layout that `wcagCorpus.js` reads for BM25 search at runtime.
+ * + `<uuid>.txt` (chunk body) + `<uuid>.vec` (384-dim fp32 L2-normalized
+ * Xenova/all-MiniLM-L6-v2 embedding) triples to `public/electron/wcag-index/`
+ * — the on-disk layout that `wcagCorpus.js` reads for hybrid BM25+vector
+ * search at runtime.
  *
  * Also pulls Singapore DSS controls (via oobee's DETAILS.md → dssToWcag map)
  * and the DETAILS.md file itself into the same corpus.
@@ -374,10 +376,58 @@ async function collectOobeeDetailsChunks() {
   return { chunks, dssToWcag }
 }
 
-async function writeChunk(metadata, text) {
-  const id = crypto.randomUUID()
-  await fsp.writeFile(path.join(OUT_DIR, `${id}.pb`), JSON.stringify(metadata), 'utf8')
-  await fsp.writeFile(path.join(OUT_DIR, `${id}.txt`), text, 'utf8')
+// Collected in-memory during the page-walk pass; consumed by the batched
+// embed+write pass in main(). Streaming per-chunk embeddings via ONNX one at
+// a time is ~10x slower than batching, so we defer disk writes until we can
+// call the embedder with an array of texts.
+const CHUNK_BUFFER = []
+
+function collectChunk(metadata, text) {
+  // Concatenate metadata surfaces into the embedding input — retrieval
+  // quality is materially better when the title/sectionTitle appears in
+  // the vector, since natural-language queries often paraphrase them.
+  const embedText = [metadata.title || '', metadata.sectionTitle || '', text]
+    .filter(Boolean)
+    .join('\n\n')
+  CHUNK_BUFFER.push({ metadata, text, embedText })
+}
+
+async function writeAllChunks() {
+  const { embedBatch } = require('../public/electron/embeddings.js')
+  const BATCH = 32
+  const total = CHUNK_BUFFER.length
+  console.log(
+    `[wcag-index] embedding ${total} chunks (Xenova/all-MiniLM-L6-v2, batch=${BATCH}) …`
+  )
+  let done = 0
+  const t0 = Date.now()
+  for (let i = 0; i < total; i += BATCH) {
+    const batch = CHUNK_BUFFER.slice(i, i + BATCH)
+    const vectors = await embedBatch(batch.map((c) => c.embedText))
+    for (let j = 0; j < batch.length; j++) {
+      const { metadata, text } = batch[j]
+      const vec = vectors[j]
+      const id = crypto.randomUUID()
+      await fsp.writeFile(
+        path.join(OUT_DIR, `${id}.pb`),
+        JSON.stringify(metadata),
+        'utf8'
+      )
+      await fsp.writeFile(path.join(OUT_DIR, `${id}.txt`), text, 'utf8')
+      // Raw little-endian float32 blob — 384 * 4 = 1536 bytes per file.
+      await fsp.writeFile(
+        path.join(OUT_DIR, `${id}.vec`),
+        Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
+      )
+    }
+    done += batch.length
+    if (done % 320 === 0 || done === total) {
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+      console.log(
+        `[wcag-index] embedded ${done}/${total} chunks (${elapsed}s elapsed)`
+      )
+    }
+  }
 }
 
 async function main() {
@@ -441,7 +491,7 @@ async function main() {
         metadata.techId = page.techId
         metadata.category = page.category
       }
-      await writeChunk(metadata, chunk.text)
+      collectChunk(metadata, chunk.text)
       chunkCount++
     }
     pageCount++
@@ -468,7 +518,7 @@ async function main() {
       categoryTitle: control.categoryTitle,
       url: control.url,
     }
-    await writeChunk(metadata, control.text)
+    collectChunk(metadata, control.text)
     chunkCount++
     pageCount++
   }
@@ -481,9 +531,15 @@ async function main() {
       sectionTitle: section.sectionTitle,
       url: section.url,
     }
-    await writeChunk(metadata, section.text)
+    collectChunk(metadata, section.text)
     chunkCount++
     pageCount++
+  }
+
+  // Batched embed + disk flush. Skipped in --meta-only since CHUNK_BUFFER
+  // is empty on that path and the existing .pb/.txt/.vec files stay intact.
+  if (!metaOnly && CHUNK_BUFFER.length > 0) {
+    await writeAllChunks()
   }
 
   // Aggregate counts for the `list_corpus_metadata` tool. BM25 returns
