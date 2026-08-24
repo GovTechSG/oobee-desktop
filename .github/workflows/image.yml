@@ -126,8 +126,67 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
+  # Same pattern as build-wcag-index, but for the framework/language docs
+  # corpus consumed by the `search_language_and_frameworks` LLM tool. Clones
+  # oobee-ai-rag-index at a pinned `synced/*` tag and chunks the markdown into
+  # BM25 <uuid>.pb/<uuid>.txt pairs. Runs on ubuntu-latest — the output is
+  # platform-agnostic bytes, so both windows/mac platform jobs restore it via
+  # download-artifact.
+  build-frameworks-index:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache oobee-ai-rag-index checkout and built frameworks index
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/frameworks-src
+            public/electron/frameworks-index
+          # Bust the cache when either the ensure script (which pins the tag)
+          # or the build script changes. Bump the -v1 suffix manually to force
+          # a rebuild without touching either script.
+          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v1
+
+      - name: Install dependencies (only needed to build the index)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Clone oobee-ai-rag-index and build frameworks/languages index
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/ensure-frameworks-index.js
+
+      - name: Show index size
+        run: |
+          if [ -d public/electron/frameworks-index ]; then
+            du -sh public/electron/frameworks-index .cache/frameworks-src 2>/dev/null || true
+          fi
+
+      # actions/cache is OS-scoped in practice, so windows-install-purple never
+      # hits this job's cache directly. Re-publish the same paths as a
+      # workflow-run artifact — download-artifact is cross-OS.
+      - name: Upload frameworks/languages index as workflow artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frameworks-docs-index
+          path: |
+            .cache/frameworks-src
+            public/electron/frameworks-index
+          include-hidden-files: true
+          retention-days: 1
+
   windows-install-purple:
-    needs: build-wcag-index
+    needs: [build-wcag-index, build-frameworks-index]
     # Fall back to scraping/embedding locally if the shared build failed.
     if: always()
     runs-on: windows-latest
@@ -146,6 +205,17 @@ jobs:
         continue-on-error: true
         with:
           name: wcag-dss-index
+          path: .
+
+      # Same story for the framework/language docs index — restore from the
+      # build-frameworks-index artifact so make-win doesn't re-clone
+      # oobee-ai-rag-index + re-chunk locally. Fallback: ensure-frameworks-
+      # index.js re-runs during make-win.
+      - name: Download frameworks/languages docs index artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: frameworks-docs-index
           path: .
 
       - name: Enable Long File Path in Registry
@@ -229,7 +299,7 @@ jobs:
             oobee-desktop-windows.zip.sha256.txt
             
   mac-install-purple:
-    needs: [build-llama-vulkan-x64, build-wcag-index]
+    needs: [build-llama-vulkan-x64, build-wcag-index, build-frameworks-index]
     # Run even if the shared builds failed — we fall back to ggml-org's
     # CPU-only binary and a local WCAG/DSS index rebuild in those cases.
     if: always()
@@ -300,6 +370,17 @@ jobs:
         continue-on-error: true
         with:
           name: wcag-dss-index
+          path: ${{github.workspace}}
+
+      # Same story for the framework/language docs index — restore from the
+      # build-frameworks-index artifact so make-mac doesn't re-clone
+      # oobee-ai-rag-index + re-chunk locally. Fallback: ensure-frameworks-
+      # index.js re-runs during make-mac.
+      - name: Download frameworks/languages docs index artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: frameworks-docs-index
           path: ${{github.workspace}}
 
       - name: Set environment variables for Node

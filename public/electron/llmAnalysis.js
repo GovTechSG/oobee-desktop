@@ -10,7 +10,8 @@ const { streamOpenAICompatibleChat, disposeSession: disposeOpenAISession } = req
 const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmModelManager')
 const { readUserDataFromFile, writeUserDetailsToFile } = require('./userDataManager')
 const { searchWcag } = require('./wcagCorpus')
-const { getWcagIndexPath } = require('./constants')
+const { searchLanguageAndFrameworks } = require('./languageFrameworksCorpus')
+const { getWcagIndexPath, getFrameworksIndexPath } = require('./constants')
 
 // Cap full-page DOM payloads aggressively so one get_page_dom call does not
 // dominate subsequent prompt tokens in tool loops.
@@ -130,11 +131,18 @@ const GEMMA_TOOL_SCHEMAS = TOOL_SCHEMAS.filter(
   (t) => t.name !== 'get_page_dom' && t.name !== 'get_page_detail',
 )
 
-// Standalone "New Chat" mode (no scan attached): the model can only call
-// search_wcag against the local WCAG+DSS+DETAILS.md corpus. Every other tool
-// depends on scan artifacts we don't have here, so we hide them from the
+// Standalone "New Chat" mode (no scan attached): the model can only call the
+// retrieval tools — search_wcag (WCAG+DSS+DETAILS.md corpus),
+// search_language_and_frameworks (React/Vue/Angular/JS/TS docs), and
+// list_corpus_metadata (aggregate counts + full DSS catalog). Every other
+// tool depends on scan artifacts we don't have here, so we hide them from the
 // schema rather than let the model call them and get an error.
-const STANDALONE_TOOL_SCHEMAS = TOOL_SCHEMAS.filter((t) => t.name === 'search_wcag')
+const STANDALONE_TOOL_NAMES = new Set([
+  'search_wcag',
+  'search_language_and_frameworks',
+  'list_corpus_metadata',
+])
+const STANDALONE_TOOL_SCHEMAS = TOOL_SCHEMAS.filter((t) => STANDALONE_TOOL_NAMES.has(t.name))
 
 const log = (...args) => console.log('[llmAnalysis]', ...args)
 const warn = (...args) => console.warn('[llmAnalysis]', ...args)
@@ -1024,6 +1032,100 @@ function runTool(session, name, input) {
         return { error: `WCAG search failed: ${e && e.message ? e.message : 'unknown'}` }
       }
     }
+    case 'search_language_and_frameworks': {
+      const query = String(input.query || '').trim()
+      if (!query) {
+        return { error: 'search_language_and_frameworks requires a non-empty query' }
+      }
+      const topK = Math.min(Math.max(Number(input.top_k) || 5, 1), 10)
+      const family = typeof input.family === 'string' ? input.family : null
+      const dir = getFrameworksIndexPath()
+      if (!dir) {
+        return { error: 'Framework/language docs index not available in this build' }
+      }
+      try {
+        return searchLanguageAndFrameworks({ dir, query, topK, family })
+      } catch (e) {
+        log(
+          `search_language_and_frameworks failed: ${
+            e && e.message ? e.message : String(e)
+          }`
+        )
+        return {
+          error: `Framework/language search failed: ${
+            e && e.message ? e.message : 'unknown'
+          }`,
+        }
+      }
+    }
+    case 'list_corpus_metadata': {
+      // Answers "how many X exist" and "list every Y" questions without
+      // hitting the BM25 index. Reads the `_meta.json` files emitted by
+      // scripts/build-wcag-index.js and scripts/build-frameworks-index.js.
+      const source = String(input.source || 'all')
+      const wcagDir = getWcagIndexPath()
+      const frameworksDir = getFrameworksIndexPath()
+      const readMeta = (dir) => {
+        if (!dir) return null
+        const p = path.join(dir, '_meta.json')
+        if (!fs.existsSync(p)) return null
+        try {
+          return JSON.parse(fs.readFileSync(p, 'utf8'))
+        } catch (e) {
+          log(`list_corpus_metadata: failed to parse ${p}: ${e && e.message}`)
+          return null
+        }
+      }
+      const wcagMeta = readMeta(wcagDir)
+      const frameworksMeta = readMeta(frameworksDir)
+      const out = {}
+      const wantAll = source === 'all'
+      if (wantAll || source === 'wcag') {
+        out.wcag = wcagMeta
+          ? { builtAt: wcagMeta.builtAt, ...wcagMeta.wcag }
+          : { error: 'WCAG _meta.json not available in this build' }
+      }
+      if (wantAll || source === 'dss') {
+        out.dss = wcagMeta && wcagMeta.dss
+          ? { builtAt: wcagMeta.builtAt, ...wcagMeta.dss }
+          : { error: 'DSS catalog not available in this build' }
+      }
+      if (wantAll || source === 'oobee-details') {
+        out['oobee-details'] = wcagMeta && wcagMeta.oobeeDetails
+          ? { builtAt: wcagMeta.builtAt, ...wcagMeta.oobeeDetails }
+          : { error: 'Oobee DETAILS.md metadata not available in this build' }
+      }
+      if (wantAll || source === 'frameworks') {
+        out.frameworks = frameworksMeta
+          ? {
+              builtAt: frameworksMeta.builtAt,
+              sourceTag: frameworksMeta.sourceTag,
+              ...frameworksMeta.frameworks,
+              families: (frameworksMeta.families || []).filter(
+                (f) => f.docType === 'framework'
+              ),
+            }
+          : { error: 'Framework/language index not available in this build' }
+      }
+      if (wantAll || source === 'languages') {
+        out.languages = frameworksMeta
+          ? {
+              builtAt: frameworksMeta.builtAt,
+              sourceTag: frameworksMeta.sourceTag,
+              ...frameworksMeta.languages,
+              families: (frameworksMeta.families || []).filter(
+                (f) => f.docType === 'language'
+              ),
+            }
+          : { error: 'Framework/language index not available in this build' }
+      }
+      if (Object.keys(out).length === 0) {
+        return {
+          error: `Unknown source "${source}". Use one of: wcag, dss, oobee-details, frameworks, languages, all.`,
+        }
+      }
+      return out
+    }
     default:
       return { error: `Unknown tool: ${name}` }
   }
@@ -1478,8 +1580,10 @@ function init({ mainWindow, getResultsFolderPath }) {
         chosenModelId = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
       }
       // Standalone "New Chat" branch: no scan folder / artifacts / summary.
-      // The session only exposes `search_wcag` (see STANDALONE_TOOL_SCHEMAS)
-      // — every other tool needs scan artifacts we don't have.
+      // The session only exposes the three corpus tools — `search_wcag`,
+      // `search_language_and_frameworks`, and `list_corpus_metadata` — see
+      // STANDALONE_TOOL_SCHEMAS. Every other tool needs scan artifacts we
+      // don't have here.
       let storagePath = null
       let artifacts = null
       let summary = null
