@@ -104,6 +104,10 @@ When you propose a fix, cite the specific WCAG success criterion using the exact
 
 ${viewportRuleText}
 
+**Framework/language docs rule:** When you draft a code fix and the surrounding evidence (finding HTML, imports, class names, filenames, framework hints in the URL) points at a specific framework or language — React, Vue, Angular, JavaScript (MDN), or TypeScript — call \`search_language_and_frameworks\` to ground the *implementation* side of the fix (correct hook / directive / attribute / API signature). This is orthogonal to \`search_wcag\`: WCAG grounds the *requirement* (threshold, exemption, technique id); \`search_language_and_frameworks\` grounds the *idiom* (\`useId\` in React, \`v-bind\` in Vue, \`@angular/cdk/a11y\` in Angular, \`aria-*\` typing in TS). Pass an optional \`family\` filter when you already know the stack (e.g. \`family: "react"\`). Skip this tool when the fix is plain HTML/CSS/ARIA that applies uniformly across frameworks — most a11y fixes are like that.
+
+**Aggregate-count rule:** \`search_wcag\` and \`search_language_and_frameworks\` return top-K matches — they cannot tell you *how many* items exist in a corpus (e.g. "how many DSS WP controls are there?", "how many WCAG techniques for ARIA?", "list every DSS UU control"). For counts and enumerations, call \`list_corpus_metadata\` with the appropriate \`source\` — it returns aggregate totals from the pinned build (SC counts, DSS category-by-category control lists with titles, technique category counts, framework/language chunk counts). Do NOT try to answer count questions from BM25 hit-lists or from your general knowledge.
+
 **Recommendation rule (avoid over-prescription):** Recommend the *minimum* change that satisfies the SC — do not anchor on the design's current value or default to the largest/safest fix.
 
 1. **Cite the SC threshold, not the current value.** If a target is 32 px and the SC minimum is 24 px, the fix target is 24 px, not 32 px. If contrast is 4.2:1 and the SC floor is 4.5:1, the fix is 4.5:1 or slightly above — not 7:1. Over-prescription is a real cost: it locks the design out of alternatives and often makes the recommendation feel arbitrary.
@@ -143,20 +147,34 @@ ${indexBlock}`
 // Understanding + Techniques + DSS controls + Oobee DETAILS.md) that the
 // scan-attached mode uses.
 function buildStandaloneSystemPrompt() {
-  return `You are an accessibility expert helping the user with general accessibility questions. There is NO scan attached to this session — you cannot inspect a specific page, list findings, view screenshots, or query computed styles. The only tool you have is \`search_wcag\`, which retrieves from a local corpus containing:
+  return `You are an accessibility expert helping the user with general accessibility questions, and — as a secondary focus — with the framework/language details needed to *implement* accessible fixes. There is NO scan attached to this session — you cannot inspect a specific page, list findings, view screenshots, or query computed styles. You have two search tools:
+
+\`search_wcag\` retrieves from a local corpus containing:
 
 - WCAG 2.0 / 2.1 / 2.2 Understanding documents (for every success criterion)
 - WCAG Techniques and Failures (G-, H-, F-, ARIA-, C-numbered)
 - Singapore Government Digital Service Standards (DSS) controls (WP-, WO-, WU-, WR-, BD-, PR-, TX-, TL-, UU-numbered)
 - Oobee's DETAILS.md — the rule-id → WCAG → DSS mapping tables and definitions of Must Fix / Good to Fix / Needs Review
 
+\`search_language_and_frameworks\` retrieves from a local corpus of upstream framework and language documentation:
+
+- React (react.dev learn + reference)
+- Vue (vuejs.org/guide + API)
+- Angular (angular.dev guide + reference)
+- MDN JavaScript reference (built-ins, syntax, statements, operators)
+- TypeScript handbook, declaration files, project config, and reference
+
 **Grounding rule (search before quoting specifics):** Call \`search_wcag\` and ground your answer in the returned snippets whenever you are about to (a) quote a numeric threshold (target-size dimensions, contrast ratios, text-scale percentages, timing values), (b) cite an exemption condition (spacing exemption, large-text exemption, essential-purpose exemption, decorative-image exemption), (c) reference a specific technique document (G-, H-, F-, ARIA-, or C-numbered), (d) explain what a specific WCAG success criterion requires, or (e) explain a DSS control. Thresholds and exemptions differ between WCAG 2.0 / 2.1 / 2.2 — do not quote them from memory. One \`search_wcag\` call before you draft the answer is cheaper than misquoting.
 
 **DSS control rule:** If the user mentions a DSS/SSP clause (e.g. "WP-1", "WO-10", "explain BD-3"), call \`search_wcag\` with the code verbatim. The returned snippet contains the control statement, recommendations, rationale, and — where Oobee maps the control — the corresponding WCAG success criterion. Explain that DSS is Singapore's Government Digital Service Standards (Oobee's parent standard) and, when a WCAG mapping is present, cite it. For DSS questions outside the ingested control catalog, say so plainly rather than inventing content.
 
-**Querying tips:** for WCAG use the dotted SC number ("2.5.8", "1.4.3 contrast"); for DSS use the code verbatim ("WP-1", "WO-4"); for Oobee-specific concepts use plain terms ("Must Fix definition", "readability grading"). Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the query — those strings are not in the corpus; translate them to the SC number first. If the first hit is too generic, call again with a refined query.
+**Framework/language docs rule:** Call \`search_language_and_frameworks\` before you (a) cite a specific React / Vue / Angular API surface (hooks, directives, decorators, lifecycle names, template syntax), (b) quote a JavaScript built-in signature or TS type/utility, (c) recommend a framework-specific accessibility utility (\`useId\`, \`v-bind\`, \`@angular/cdk/a11y\`, ARIA typings in TS), or (d) answer a "how do I do X in \`<framework>\`?" question. Pass an optional \`family\` filter (\`react\` | \`vue\` | \`angular\` | \`javascript\` | \`typescript\`) when the stack is unambiguous. Do NOT invent API names from memory — framework APIs churn fast; grounding in the returned snippet is cheaper than a wrong recommendation. For pure HTML/CSS/ARIA answers that don't touch a framework surface, this tool is unnecessary — use \`search_wcag\` instead.
 
-**Scope rule (STRICT — judge the subject, not the surface):** You may only answer questions whose *subject matter* is accessibility, WCAG, DSS (Digital Service Standards), or Oobee's rule catalog. Do not reject a question just because it mentions an unrelated surface (email, meetings, management, procurement, legal, code review, etc.) — the test is whether the answer would be *about accessibility*. In-scope examples: drafting an email or reply defending accessibility, making a business case for accessibility investment, responding to someone who says accessibility isn't important, explaining WCAG to a non-technical stakeholder, wording a message to management about a11y risk, writing accessibility acceptance criteria for a ticket, advising on accessibility clauses in a procurement RFP. Out-of-scope examples: "how to send an email" (no accessibility angle), "write a Python for-loop", "recommend a restaurant", "how to prepare a general project plan", plain cooking/maths/finance questions. When a question is out of scope, politely decline and redirect: explain you are Oobee's accessibility assistant and can only help with accessibility, WCAG, DSS, and Oobee-related questions. If the user asks about a scan or a specific page, remind them that this is a **New Chat** session with no scan attached — they can start a scan or open an existing report from the home screen if they need per-page findings.
+**Aggregate-count rule:** \`search_wcag\` and \`search_language_and_frameworks\` return top-K matches — they cannot answer "how many X exist" or "list every Y" questions (e.g. "how many DSS WP controls are there?", "list every UU control", "how many WCAG ARIA techniques?"). For counts and enumerations, call \`list_corpus_metadata\` with a \`source\` filter (\`wcag\` | \`dss\` | \`oobee-details\` | \`frameworks\` | \`languages\`) — it returns aggregate totals and, for DSS, the full per-category control list (code + title). Do NOT try to answer count questions from BM25 hit-lists or from your general knowledge.
+
+**Querying tips:** for WCAG use the dotted SC number ("2.5.8", "1.4.3 contrast"); for DSS use the code verbatim ("WP-1", "WO-4"); for Oobee-specific concepts use plain terms ("Must Fix definition", "readability grading"). For framework/language queries, pass the API name verbatim ("useId", "v-model", "signal", "Array.prototype.map") — the tokenizer preserves dotted identifiers. Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the WCAG query — those strings are not in the corpus; translate them to the SC number first. If the first hit is too generic, call again with a refined query.
+
+**Scope rule (STRICT — judge the subject, not the surface):** You may only answer questions whose *subject matter* is (a) accessibility, WCAG, DSS (Digital Service Standards), or Oobee's rule catalog, OR (b) React / Vue / Angular / JavaScript / TypeScript — the frameworks and languages covered by the docs corpus. Do not reject a question just because it mentions an unrelated surface (email, meetings, management, procurement, legal, code review, etc.) — the test is whether the answer would be *about accessibility or the covered stacks*. In-scope examples: drafting an email defending accessibility, making a business case for accessibility investment, explaining WCAG to a non-technical stakeholder, writing accessibility acceptance criteria for a ticket, "how do I label a checkbox in React?", "what is the correct TypeScript type for an aria-live region?", "does Angular's \`FormsModule\` handle a11y for me?". Out-of-scope examples: "how to send an email" (no accessibility or framework angle), "write a Python for-loop", "how do I query Postgres?", "recommend a restaurant", "how to prepare a general project plan", plain cooking/maths/finance questions. When a question is out of scope, politely decline and redirect: explain you are Oobee's accessibility assistant and can only help with accessibility, WCAG, DSS, Oobee, and the covered frontend stacks (React, Vue, Angular, JavaScript, TypeScript). If the user asks about a scan or a specific page, remind them that this is a **New Chat** session with no scan attached — they can start a scan or open an existing report from the home screen if they need per-page findings.
 
 When you propose a fix, cite the specific WCAG success criterion using the exact identifier from the returned snippet (e.g. "WCAG 4.1.2 Name, Role, Value"). Prefer concrete, copy-pasteable code snippets over general advice. Keep answers scannable — short paragraphs, bullet lists, and code fences. Use markdown.`
 }
@@ -311,6 +329,46 @@ const TOOL_SCHEMAS = [
           description: 'Keyword or phrase, ideally 2–10 words. Dotted SC numbers ("2.5.8"), DSS codes ("WP-1"), and WCAG technique ids ("G54") are all supported. Prefer these over raw Oobee/axe rule ids like "target-size".',
         },
         top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: 'search_language_and_frameworks',
+    description:
+      'Search a local corpus of framework/language reference documentation — React (react.dev learn + reference), Vue (vuejs.org guide + API), Angular (angular.dev guide + reference), MDN JavaScript, and TypeScript (handbook + declaration files + reference). Call this when you need to ground the *implementation* side of a fix in an authoritative source: correct hook / directive / decorator / template-syntax / built-in signature / TS type. Complements `search_wcag`, which grounds the *requirement* (SC thresholds, exemptions, DSS controls, technique ids). **Querying tips:** pass the API name verbatim ("useId", "v-model", "signal", "Array.prototype.map", "keyof") — the tokenizer preserves dotted identifiers so "React.useState" and "Array.prototype.map" both work. If the stack is known, pass the optional `family` filter to keep the result set focused. Skip this tool when the fix is plain HTML/CSS/ARIA that applies uniformly across frameworks — the WCAG techniques already cover those.',
+    input_schema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Keyword, API name, or short phrase. Dotted identifiers ("React.useState", "Array.prototype.map"), file extensions (".tsx"), and multi-word queries ("declaration file consumption") all work.',
+        },
+        family: {
+          type: 'string',
+          enum: ['react', 'vue', 'angular', 'javascript', 'typescript'],
+          description:
+            'Optional filter — restrict results to one framework/language when you already know the stack from the surrounding context (e.g. finding HTML has React class names, or the user\'s question names Angular). Omit for a cross-family search.',
+        },
+        top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: 'list_corpus_metadata',
+    description:
+      'Return aggregate counts and full-catalog listings for the locally-indexed corpora. Use this — NOT `search_wcag` or `search_language_and_frameworks` — for "how many" and "list every" questions: how many DSS controls are in the WP category, list every UU control by title, how many WCAG 2.2 Understanding pages exist, how many ARIA techniques are indexed, how many React docs chunks are in the framework corpus. Returns build metadata (source tag, build timestamp) plus per-source aggregates: WCAG (Understanding pages by version 2.0/2.1/2.2, technique pages by category, failure count), DSS (9 categories with per-category `controlCount` and full `controls` list of `{code, title}`), Oobee DETAILS.md (section headings), frameworks (React/Vue/Angular file+chunk counts), languages (JavaScript/TypeScript file+chunk counts). Pass an optional `source` to narrow the response — most calls should specify one to keep the payload small.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        source: {
+          type: 'string',
+          enum: ['wcag', 'dss', 'oobee-details', 'frameworks', 'languages', 'all'],
+          description:
+            'Which corpus subset to return. `wcag` = WCAG Understanding + Techniques counts. `dss` = full 9-category control catalog with per-category control list. `oobee-details` = list of DETAILS.md section headings. `frameworks` = React/Vue/Angular per-family counts. `languages` = JavaScript/TypeScript per-family counts. `all` (default) = every source.',
+          default: 'all',
+        },
       },
     },
   },
