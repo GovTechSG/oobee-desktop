@@ -896,7 +896,10 @@ async function runToolCall({ session, sessionId, toolByName, runTool, call, args
 
   let result
   try {
-    result = runTool(session, name, args)
+    // Some tools (search_wcag, search_language_and_frameworks) return a
+    // Promise — the vector leg awaits the ONNX embedder. `await` on a
+    // non-Promise is a no-op, so this is safe for every tool.
+    result = await runTool(session, name, args)
   } catch (e) {
     send('llmChat:toolCall', { sessionId, id, name, status: 'error', summary: e.message })
     return JSON.stringify({ error: e.message })

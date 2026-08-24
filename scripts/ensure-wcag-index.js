@@ -91,11 +91,26 @@ function ensureDssCorpus() {
   }
 }
 
+function ensureEmbeddingModel() {
+  // WCAG index now includes .vec embeddings — need MiniLM present.
+  // ensure-embedding-model.js is idempotent (sentinel check) so this is a
+  // fast no-op after the first build on a machine.
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'ensure-embedding-model.js')],
+    { stdio: 'inherit' }
+  )
+  if (result.status !== 0) {
+    process.exit(result.status || 1)
+  }
+}
+
 function buildIndex() {
   ensureSourceCheckout()
   ensureOobeeDetailsMd()
   ensureDssCorpus()
-  log('building WCAG+DSS BM25 search index (chunking HTML+markdown docs) …')
+  ensureEmbeddingModel()
+  log('building WCAG+DSS hybrid search index (chunking + embedding) …')
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'build-wcag-index.js')],
