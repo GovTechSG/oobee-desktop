@@ -60,9 +60,24 @@ function ensureSourceCheckout() {
   cloneSource()
 }
 
+function ensureEmbeddingModel() {
+  // Frameworks index now includes .vec embeddings — need MiniLM present.
+  // ensure-embedding-model.js is idempotent (sentinel check) so this is a
+  // fast no-op after the first build on a machine.
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'ensure-embedding-model.js')],
+    { stdio: 'inherit' }
+  )
+  if (result.status !== 0) {
+    process.exit(result.status || 1)
+  }
+}
+
 function buildIndex() {
   ensureSourceCheckout()
-  log('building frameworks/languages search index (chunking markdown docs) …')
+  ensureEmbeddingModel()
+  log('building frameworks/languages hybrid search index (chunking + embedding) …')
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'build-frameworks-index.js')],

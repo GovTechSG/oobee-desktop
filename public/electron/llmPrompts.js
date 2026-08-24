@@ -319,14 +319,14 @@ const TOOL_SCHEMAS = [
   {
     name: 'search_wcag',
     description:
-      'Search the local corpus of (a) WCAG 2.x Understanding and Techniques, (b) Singapore Digital Service Standards (DSS) controls from https://info.standards.tech.gov.sg/control-catalog/dss/, and (c) Oobee\'s DETAILS.md (rule→WCAG→DSS mapping tables and severity definitions). Call this when you need the exact wording of a WCAG success criterion, a WCAG technique (G-, H-, F-, ARIA-, C-numbered), a DSS control (WP-, WO-, WU-, WR-, BD-, PR-, TX-, TL-, UU-numbered), or a definition/mapping from Oobee\'s own docs. **Querying tips:** for WCAG use the dotted SC number ("2.5.8", "1.4.3 contrast"); for DSS use the code verbatim ("WP-1", "WO-4"); for Oobee-specific concepts use plain terms ("Must Fix definition", "readability grading"). Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" as the query — those strings are not in the WCAG corpus; translate them to the SC number first. DSS controls that Oobee maps to a WCAG SC include the mapping in the returned snippet (e.g. WP-1 → WCAG 1.1.1). If the first hit is too generic, call again with a refined query.',
+      'Hybrid (BM25 + vector) search over the local corpus of (a) WCAG 2.x Understanding and Techniques, (b) Singapore Digital Service Standards (DSS) controls from https://info.standards.tech.gov.sg/control-catalog/dss/, and (c) Oobee\'s DETAILS.md (rule→WCAG→DSS mapping tables and severity definitions). Call this when you need the exact wording of a WCAG success criterion, a WCAG technique (G-, H-, F-, ARIA-, C-numbered), a DSS control (WP-, WO-, WU-, WR-, BD-, PR-, TX-, TL-, UU-numbered), or a definition/mapping from Oobee\'s own docs. **Querying tips:** both keyword-shaped and natural-language queries work — use whichever fits. For WCAG, pass the dotted SC number ("2.5.8", "1.4.3 contrast") if you know it; otherwise phrase the question naturally ("how do I make text easier to read for cognitive disabilities", "when to use aria-live polite vs assertive") and the vector layer will match paraphrased concepts. For DSS use the code verbatim ("WP-1", "WO-4"). Do NOT pass raw Oobee/axe rule ids like "target-size" or "color-contrast" — those strings are not in the corpus; translate them to the SC number or describe the requirement. DSS controls that Oobee maps to a WCAG SC include the mapping in the returned snippet (e.g. WP-1 → WCAG 1.1.1). If the first hit is too generic, call again with a refined query.',
     input_schema: {
       type: 'object',
       required: ['query'],
       properties: {
         query: {
           type: 'string',
-          description: 'Keyword or phrase, ideally 2–10 words. Dotted SC numbers ("2.5.8"), DSS codes ("WP-1"), and WCAG technique ids ("G54") are all supported. Prefer these over raw Oobee/axe rule ids like "target-size".',
+          description: 'Keyword, dotted identifier, OR natural-language question — hybrid retrieval handles both. Dotted SC numbers ("2.5.8"), DSS codes ("WP-1"), WCAG technique ids ("G54"), and paraphrased questions ("how do I focus the first invalid form field", "what makes color contrast fail") are all supported. Prefer specific ids/phrases over raw Oobee/axe rule ids like "target-size".',
         },
         top_k: { type: 'integer', default: 5, minimum: 1, maximum: 10 },
       },
@@ -335,7 +335,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'search_language_and_frameworks',
     description:
-      'Search a local corpus of framework/language reference documentation — React (react.dev learn + reference), Vue (vuejs.org guide + API), Angular (angular.dev guide + reference), MDN JavaScript, and TypeScript (handbook + declaration files + reference). Call this when you need to ground the *implementation* side of a fix in an authoritative source: correct hook / directive / decorator / template-syntax / built-in signature / TS type. Complements `search_wcag`, which grounds the *requirement* (SC thresholds, exemptions, DSS controls, technique ids). **Querying tips:** pass the API name verbatim ("useId", "v-model", "signal", "Array.prototype.map", "keyof") — the tokenizer preserves dotted identifiers so "React.useState" and "Array.prototype.map" both work. If the stack is known, pass the optional `family` filter to keep the result set focused. Skip this tool when the fix is plain HTML/CSS/ARIA that applies uniformly across frameworks — the WCAG techniques already cover those.',
+      'Hybrid (BM25 + vector) search over a local corpus of framework/language reference documentation — React (react.dev learn + reference), Vue (vuejs.org guide + API), Angular (angular.dev guide + reference), MDN JavaScript, and TypeScript (handbook + declaration files + reference). Call this when you need to ground the *implementation* side of a fix in an authoritative source: correct hook / directive / decorator / template-syntax / built-in signature / TS type. Complements `search_wcag`, which grounds the *requirement* (SC thresholds, exemptions, DSS controls, technique ids). **Querying tips:** both keyword-shaped and natural-language queries work. Pass an API name verbatim when you know it ("useId", "v-model", "signal", "Array.prototype.map", "keyof") — the tokenizer preserves dotted identifiers so "React.useState" and "Array.prototype.map" both work. When you don\'t know the exact API, phrase the question naturally ("how do I focus the first invalid field in an Angular form", "when should I use a mixin in TypeScript") and the vector layer will match paraphrased concepts. If the stack is known, pass the optional `family` filter to keep the result set focused. Skip this tool when the fix is plain HTML/CSS/ARIA that applies uniformly across frameworks — the WCAG techniques already cover those.',
     input_schema: {
       type: 'object',
       required: ['query'],
@@ -343,7 +343,7 @@ const TOOL_SCHEMAS = [
         query: {
           type: 'string',
           description:
-            'Keyword, API name, or short phrase. Dotted identifiers ("React.useState", "Array.prototype.map"), file extensions (".tsx"), and multi-word queries ("declaration file consumption") all work.',
+            'Keyword, API name, dotted identifier, OR natural-language question — hybrid retrieval handles both. Dotted identifiers ("React.useState", "Array.prototype.map"), file extensions (".tsx"), and paraphrased questions ("how do I bind a checkbox with v-model", "declaration file consumption") all work.',
         },
         family: {
           type: 'string',
