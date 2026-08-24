@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /*
- * Build a BM25 search index for language/framework docs (React, Vue, Angular,
- * MDN JavaScript, TypeScript).
+ * Build a BM25 + vector search index for language/framework docs (React,
+ * Vue, Angular, MDN JavaScript, TypeScript).
  *
  * Reads the docs tree of a local checkout of
  * https://github.com/GovTechSG/oobee-ai-rag-index (pinned at tag
  * synced/2026-08-22 by ensure-frameworks-index.js), splits each markdown file
  * by `##` heading, and writes `<uuid>.pb` (JSON metadata) + `<uuid>.txt`
- * (chunk body) pairs to `public/electron/frameworks-index/` — the same
- * on-disk layout that `wcagCorpus.js` uses so `languageFrameworksCorpus.js`
- * can BM25-search it without embedding.
+ * (chunk body) + `<uuid>.vec` (384-dim fp32 L2-normalized MiniLM embedding)
+ * triples to `public/electron/frameworks-index/` — the same on-disk layout
+ * that `wcagCorpus.js` uses so `languageFrameworksCorpus.js` can hybrid-
+ * search (BM25 + vector via RRF) it at runtime.
  *
  * Usage:
  *   FRAMEWORKS_SRC_DIR=/path/to/oobee-ai-rag-index node scripts/build-frameworks-index.js
@@ -209,13 +210,59 @@ function chunkMarkdown(body, fallbackTitle) {
   return chunks
 }
 
+// Buffered until main() runs the batched embedder — see build-wcag-index.js
+// for the same pattern and rationale (single-item embeds are ~10x slower).
+const CHUNK_BUFFER = []
+
+function collectChunk(metadata, text) {
+  const embedText = [metadata.title || '', metadata.sectionTitle || '', text]
+    .filter(Boolean)
+    .join('\n\n')
+  CHUNK_BUFFER.push({ metadata, text, embedText })
+}
+
+async function writeAllChunks() {
+  const { embedBatch } = require('../public/electron/embeddings.js')
+  const BATCH = 32
+  const total = CHUNK_BUFFER.length
+  log(
+    `embedding ${total} chunks (Xenova/all-MiniLM-L6-v2, batch=${BATCH}) …`
+  )
+  let done = 0
+  const t0 = Date.now()
+  for (let i = 0; i < total; i += BATCH) {
+    const batch = CHUNK_BUFFER.slice(i, i + BATCH)
+    const vectors = await embedBatch(batch.map((c) => c.embedText))
+    for (let j = 0; j < batch.length; j++) {
+      const { metadata, text } = batch[j]
+      const vec = vectors[j]
+      const id = crypto.randomUUID()
+      await fsp.writeFile(
+        path.join(OUT_DIR, `${id}.pb`),
+        JSON.stringify(metadata),
+        'utf8'
+      )
+      await fsp.writeFile(path.join(OUT_DIR, `${id}.txt`), text, 'utf8')
+      await fsp.writeFile(
+        path.join(OUT_DIR, `${id}.vec`),
+        Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
+      )
+    }
+    done += batch.length
+    if (done % 320 === 0 || done === total) {
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+      log(`embedded ${done}/${total} chunks (${elapsed}s elapsed)`)
+    }
+  }
+}
+
 async function processFile({ filePath, family, docType, bucket, sourceCfg, familyRoot }) {
   const body = await fsp.readFile(filePath, 'utf8')
   const title = extractTitle(body, filePath)
   const relativeToFamily = path.relative(familyRoot, filePath).replace(/\\/g, '/')
   const chunks = chunkMarkdown(body, title)
 
-  const written = []
+  let written = 0
   for (const chunk of chunks) {
     const slug = slugifyHeading(chunk.heading)
     const url = urlFor(sourceCfg, relativeToFamily, slug)
@@ -228,12 +275,10 @@ async function processFile({ filePath, family, docType, bucket, sourceCfg, famil
       path: `docs/${bucket}/${family}/${relativeToFamily}`,
       url,
     }
-    const id = crypto.randomUUID()
-    await fsp.writeFile(path.join(OUT_DIR, `${id}.pb`), JSON.stringify(meta), 'utf8')
-    await fsp.writeFile(path.join(OUT_DIR, `${id}.txt`), chunk.text, 'utf8')
-    written.push(id)
+    collectChunk(meta, chunk.text)
+    written += 1
   }
-  return written.length
+  return written
 }
 
 async function main() {
@@ -290,6 +335,12 @@ async function main() {
     totalFiles += files.length
     totalChunks += familyChunks
     log(`${layout.family}: ${files.length} files → ${familyChunks} chunks`)
+  }
+
+  // Batched embed + disk flush across all families at once — a single
+  // pipeline warm-up amortized across ~5,600 chunks beats warming per family.
+  if (CHUNK_BUFFER.length > 0) {
+    await writeAllChunks()
   }
 
   // Aggregate counts for the `list_corpus_metadata` tool.

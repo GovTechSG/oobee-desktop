@@ -147,6 +147,10 @@ dist
 # scripts/build-frameworks-index.js from a checkout of oobee-ai-rag-index).
 /public/electron/frameworks-index/
 
+# Xenova/all-MiniLM-L6-v2 embedding model (fetched at build time by
+# scripts/ensure-embedding-model.js — ~90 MB fp32 ONNX).
+/public/electron/embedding-model/
+
 # llama-server binaries (fetched at build time from llama.cpp releases —
 # see resources/llama-binaries.json for the pinned tag).
 /resources/darwin-arm64/
