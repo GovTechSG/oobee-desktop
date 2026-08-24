@@ -88,6 +88,28 @@ const targetPlatform = process.env.TARGET_PLATFORM || process.platform;
 const targetArch = normalizeArch(process.env.TARGET_ARCH || process.env.npm_config_arch || os.arch());
 const llamaBinaryDir = resolveLlamaBinaryDir(targetPlatform, targetArch);
 
+// @huggingface/transformers pulls in onnxruntime-node (~210MB of native
+// binaries for darwin/linux/win32) and onnxruntime-web (~125MB of WASM we
+// never load from the Electron main process). Left as-is, all of it ends up
+// inside app.asar — bloating the bundle, and on darwin universal builds it
+// pushes @electron/osx-sign past the point where codesign returns exit 1 with
+// "code object is not signed at all". Two-part cleanup:
+//   1. Ignore ORT bin directories for platforms other than the current target
+//      (there's no `darwin/x64` build in ORT, so darwin passes both keep only
+//      `darwin/arm64` — that's fine, x64 Macs run the arm64 slice under
+//      Rosetta if @huggingface/transformers is ever exercised there).
+//   2. Ignore the onnxruntime-web `dist/` tree entirely.
+//   3. asarUnpack the surviving ORT native binaries so codesign signs them as
+//      regular files (also required so Node can dlopen the .dylib/.node at
+//      runtime — they can't be loaded from inside an asar).
+const foreignOrtPlatforms = ['darwin', 'linux', 'win32'].filter(p => p !== targetPlatform);
+const ortPrunePatterns = [
+  new RegExp(`^/node_modules/onnxruntime-web(/|$)`),
+  ...foreignOrtPlatforms.map(
+    p => new RegExp(`^/node_modules/onnxruntime-node/bin/napi-v6/${p}(/|$)`)
+  ),
+];
+
 // PRE_RELEASE builds swap the purple app icon for a pre-generated grey one so
 // QA and staged installs are visually distinguishable from the shipped app.
 const preReleaseFlag = String(process.env.PRE_RELEASE || '').toLowerCase();
@@ -97,6 +119,12 @@ const iconBaseName = isPreRelease ? 'public/oobee-logo-prerelease' : 'public/oob
 module.exports = {
   packagerConfig: {
     icon: iconBaseName,
+    // Native binaries have to sit outside the asar so Node can dlopen them
+    // at runtime and so codesign can sign them as regular files (a hardened
+    // runtime .dylib buried inside an asar seal fails codesign on macOS).
+    asar: {
+      unpack: '**/onnxruntime-node/bin/**/*.{node,dylib,so,dll}',
+    },
     // Declares the `oobee://` URL scheme in macOS Info.plist so Launch
     // Services routes browser clicks (`oobee://unlock-llm/<uuid>`) into
     // the running app. Windows/Linux use runtime registration in main.js.
@@ -138,6 +166,7 @@ module.exports = {
       // Excluding the tree from the app bundle avoids shipping all three copies.
       /^\/resources(\/|$)/,
       /^\/\.cache(\/|$)/,
+      ...ortPrunePatterns,
     ],
     extraResource: [
       llamaBinaryDir,
