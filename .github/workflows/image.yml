@@ -80,7 +80,7 @@ jobs:
           # Bust the cache when the downloader script changes. Bump the -vN
           # suffix manually to force a redownload (e.g. after swapping to
           # a different embedding model).
-          key: embedding-model-${{ hashFiles('scripts/ensure-embedding-model.js', 'scripts/build-embedding-model.js') }}-v1
+          key: embedding-model-${{ hashFiles('scripts/ensure-embedding-model.js', 'scripts/build-embedding-model.js') }}-v2
 
       - name: Download embedding model
         if: steps.cache.outputs.cache-hit != 'true'
@@ -135,7 +135,7 @@ jobs:
           # is fetched from oobee master and is not pinned — bump the -vN
           # suffix manually to force a rebuild when upstream DETAILS.md
           # changes materially.
-          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v3
+          key: wcag-index-${{ hashFiles('scripts/ensure-wcag-index.js', 'scripts/build-wcag-index.js', 'scripts/build-dss-corpus.js') }}-v4
 
       # Pull the embedding-model artifact from the upstream job so
       # build-wcag-index.js can embed the chunks. Cache-hit path skips this —
@@ -218,7 +218,7 @@ jobs:
           # changes (bumping -v1 → -v2 forces a rebuild for the new .vec
           # files). Bump the -vN suffix manually to force a rebuild without
           # touching either script.
-          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v2
+          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v3
 
       - name: Download embedding-model artifact
         if: steps.cache.outputs.cache-hit != 'true'
