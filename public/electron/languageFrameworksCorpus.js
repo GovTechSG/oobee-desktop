@@ -221,7 +221,7 @@ function buildSnippet(body, queryTerms) {
   return snip
 }
 
-const VALID_FAMILIES = new Set(['react', 'vue', 'angular', 'javascript', 'typescript'])
+const VALID_FAMILIES = new Set(['react', 'vue', 'angular', 'javascript', 'typescript', 'html', 'accessibility'])
 
 function scoreVec(docsSubset, corpus, q) {
   const pool = corpus.vecPool
