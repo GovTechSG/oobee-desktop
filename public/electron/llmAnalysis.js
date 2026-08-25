@@ -7,6 +7,8 @@ const { loadLLMConfig } = require('./llm-config')
 const { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
 const { streamOpenAICompatibleChat, disposeSession: disposeOpenAISession } = require('./llmOpenAICompatible')
+const { streamGithubCopilotChat, disposeSession: disposeGithubCopilotSession, listModels: listGithubCopilotModels } = require('./llmGithubCopilot')
+const ghCopilotAuth = require('./githubCopilotAuth')
 const { listModels: listGemmaModels, MODELS: GEMMA_MODELS } = require('./llmModelManager')
 const { readUserDataFromFile, writeUserDetailsToFile } = require('./userDataManager')
 const { searchWcag } = require('./wcagCorpus')
@@ -1561,8 +1563,14 @@ function init({ mainWindow, getResultsFolderPath }) {
     } catch (e) {
       warn(`listGemmaModels failed: ${e.message}`)
     }
+    // GitHub Copilot presence is a pure disk check — no network round-trip
+    // here (the renderer's dropdown just needs to know whether to show
+    // "(not signed in)"). The real token validity is checked lazily when
+    // the user actually sends a chat or opens the Configure modal.
+    const githubCopilotSignedIn = ghCopilotAuth.isSignedIn()
     return {
       anthropic: { available: anthropicAvailable, error: anthropicError },
+      githubCopilot: { available: githubCopilotSignedIn, error: null },
       models,
     }
   })
@@ -1572,7 +1580,13 @@ function init({ mainWindow, getResultsFolderPath }) {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!newChat && !scanId) throw new Error('Missing scanId')
       const chosenProvider =
-        provider === 'gemma' ? 'gemma' : provider === 'openai' ? 'openai' : 'anthropic'
+        provider === 'gemma'
+          ? 'gemma'
+          : provider === 'openai'
+            ? 'openai'
+            : provider === 'github-copilot'
+              ? 'github-copilot'
+              : 'anthropic'
       // Only Gemma cares about modelId. Default to E4B if the renderer
       // forgets to send one — it's the smaller/faster of the two Gemma
       // options and safe for low-resource devices.
@@ -1620,6 +1634,10 @@ function init({ mainWindow, getResultsFolderPath }) {
         // Per-provider schema selection — the same choice we used to make at
         // call sites, now materialised on the session so standalone mode can
         // slot in its own filtered set uniformly.
+        // Anthropic uses its own schema shape; every other provider we
+        // support (Gemma, generic OpenAI-compatible, GitHub Copilot)
+        // speaks the OpenAI /chat/completions wire format and reuses the
+        // same GEMMA_TOOL_SCHEMAS.
         toolSchemas = chosenProvider === 'anthropic' ? TOOL_SCHEMAS : GEMMA_TOOL_SCHEMAS
       }
       // Dispose any prior session state for this id (e.g. provider switch).
@@ -1627,10 +1645,12 @@ function init({ mainWindow, getResultsFolderPath }) {
       if (prior) {
         disposeGemmaSession(prior)
         disposeOpenAISession(prior)
+        disposeGithubCopilotSession(prior)
       }
-      // For the openai provider, load the user's Configure-modal settings
-      // fresh at session start so a just-saved change takes effect on the
-      // next chat without requiring an app restart.
+      // For the openai/github-copilot providers, load the user's
+      // Configure-modal settings fresh at session start so a just-saved
+      // change takes effect on the next chat without requiring an app
+      // restart.
       let customConfig = null
       if (chosenProvider === 'openai') {
         const userData = readUserDataFromFile()
@@ -1639,6 +1659,34 @@ function init({ mainWindow, getResultsFolderPath }) {
           apiKey: userData.customLlmApiKey || '',
           model: userData.customLlmModel || '',
         }
+      } else if (chosenProvider === 'github-copilot') {
+        // No hardcoded default model — Copilot's model catalogue varies by
+        // plan and admin policy, so any specific id we guess (e.g. gpt-4o,
+        // gpt-5.4-mini) risks returning HTTP 400 "unsupported_api_for_model"
+        // on chat/completions. Instead, if the user hasn't picked one, take
+        // the first entry from Copilot's live /models list (already filtered
+        // to chat-capable + policy=enabled in llmGithubCopilot.listModels)
+        // and persist it so subsequent turns are cheap. Only throw if the
+        // list is empty — that means the account has no usable Copilot chat
+        // models at all and the user must resolve it upstream.
+        let stored = ghCopilotAuth.getStoredModel()
+        if (!stored) {
+          try {
+            const models = await listGithubCopilotModels()
+            if (models.length > 0) {
+              stored = models.includes('claude-haiku-4.5') ? 'claude-haiku-4.5' : models[0]
+              ghCopilotAuth.setStoredModel(stored)
+              console.log(`[llmChat] auto-selected Copilot model "${stored}" (no user choice stored)`)
+            } else {
+              throw new Error(
+                'Your GitHub Copilot account has no chat-capable models available. Check your subscription tier or admin policy at github.com/settings/copilot.',
+              )
+            }
+          } catch (e) {
+            throw new Error(`GitHub Copilot: ${e.message}`)
+          }
+        }
+        customConfig = { model: stored }
       }
       sessions.set(sessionId, {
         scanId: newChat ? null : scanId,
@@ -1663,6 +1711,7 @@ function init({ mainWindow, getResultsFolderPath }) {
         messages: [],
         gemma: null,
         openai: null,
+        githubCopilot: null,
         abort: null,
       })
       log(`session ${sessionId} started ${newChat ? '(standalone / no scan)' : `for scanId=${scanId}`} provider=${chosenProvider}${chosenModelId ? ` modelId=${chosenModelId}${cpuOnly ? ' (CPU-only)' : ''}` : ''}${thinking ? ' (thinking enabled)' : ''}`)
@@ -1715,6 +1764,16 @@ function init({ mainWindow, getResultsFolderPath }) {
         })
       } else if (session.provider === 'openai') {
         await streamOpenAICompatibleChat({
+          session,
+          mainWindow,
+          sessionId,
+          userMessage,
+          attachments: parsedAttachments,
+          runTool,
+          toolSchemas: session.toolSchemas || GEMMA_TOOL_SCHEMAS,
+        })
+      } else if (session.provider === 'github-copilot') {
+        await streamGithubCopilotChat({
           session,
           mainWindow,
           sessionId,
@@ -1813,6 +1872,7 @@ function init({ mainWindow, getResultsFolderPath }) {
       if (session.abort) session.abort.abort()
       disposeGemmaSession(session)
       disposeOpenAISession(session)
+      disposeGithubCopilotSession(session)
       sessions.delete(sessionId)
     }
     // unloadGemmaModel()
@@ -1897,6 +1957,100 @@ function init({ mainWindow, getResultsFolderPath }) {
           ? 'Request timed out after 10s.'
           : e?.message || String(e)
       return { ok: false, error: msg }
+    }
+  })
+
+  // --- GitHub Copilot provider ------------------------------------------
+  //
+  // Auth (OAuth device flow), token/model persistence, and the models
+  // list all live in the main process so the GitHub OAuth token and the
+  // short-lived Copilot API token never touch the renderer. The renderer
+  // just drives state transitions through these handlers.
+
+  ipcMain.handle('llmChat:githubCopilotStatus', async () => {
+    // Cheap disk-only check first — a not-signed-in reply doesn't need
+    // network. If the user IS signed in, we also try a live token
+    // exchange so we can report "signed in but no Copilot subscription"
+    // vs. "signed in and ready" distinctly.
+    if (!ghCopilotAuth.isSignedIn()) {
+      return { authenticated: false, model: '', hasCopilotSub: false }
+    }
+    const model = ghCopilotAuth.getStoredModel() || ''
+    try {
+      await ghCopilotAuth.getCopilotApiToken()
+      return { authenticated: true, model, hasCopilotSub: true }
+    } catch (e) {
+      // Distinguish "no Copilot sub" (message from auth module is user-
+      // facing) from "network hiccup" — for the latter we still report
+      // authenticated=true and let the actual chat send surface the error.
+      const msg = e?.message || ''
+      if (msg.includes('does not have an active Copilot subscription')) {
+        return { authenticated: true, model, hasCopilotSub: false, error: msg }
+      }
+      if (msg.includes('sign-in expired')) {
+        return { authenticated: false, model: '', hasCopilotSub: false, error: msg }
+      }
+      return { authenticated: true, model, hasCopilotSub: true, warning: msg }
+    }
+  })
+
+  ipcMain.handle('llmChat:githubCopilotStartAuth', async () => {
+    try {
+      const dev = await ghCopilotAuth.startDeviceFlow()
+      return { ok: true, ...dev }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('llmChat:githubCopilotPollAuth', async (_event, { deviceCode } = {}) => {
+    if (!deviceCode) return { ok: false, error: 'Missing device code.' }
+    try {
+      const res = await ghCopilotAuth.pollDeviceFlow({ deviceCode })
+      if (res.ok) {
+        // Warm the Copilot API token so the caller can immediately list
+        // models without an extra round-trip. Failures here are surfaced
+        // through the returned status shape rather than thrown, since
+        // "signed in with GitHub but no Copilot sub" is a legitimate
+        // end state we still want to reach.
+        try {
+          await ghCopilotAuth.getCopilotApiToken({ forceRefresh: true })
+          return { ok: true, hasCopilotSub: true }
+        } catch (e) {
+          return { ok: true, hasCopilotSub: false, error: e.message }
+        }
+      }
+      return res
+    } catch (e) {
+      return { error: e.message }
+    }
+  })
+
+  ipcMain.handle('llmChat:githubCopilotListModels', async () => {
+    try {
+      const models = await listGithubCopilotModels()
+      if (!models.length) return { ok: false, error: 'Copilot returned no models.' }
+      return { ok: true, models }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('llmChat:githubCopilotSetModel', async (_event, { model } = {}) => {
+    try {
+      ghCopilotAuth.setStoredModel(model)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('llmChat:githubCopilotSignOut', async () => {
+    try {
+      ghCopilotAuth.signOut()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
     }
   })
 }
