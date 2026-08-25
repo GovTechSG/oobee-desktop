@@ -26,7 +26,7 @@ const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'public', 'electron', 'frameworks-index')
 const SRC_DIR = path.join(ROOT, '.cache', 'frameworks-src')
 const REPO_URL = 'https://github.com/GovTechSG/oobee-ai-rag-index.git'
-const EXPECTED_TAG = 'synced/2026-08-22'
+const EXPECTED_TAG = 'synced/2026-08-25'
 
 const force = process.argv.slice(2).includes('--force')
 

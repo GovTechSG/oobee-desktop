@@ -42,6 +42,13 @@ const FAMILY_LAYOUT = [
   { family: 'angular', docType: 'framework', bucket: 'frameworks', exts: ['.md'] },
   { family: 'javascript', docType: 'language', bucket: 'languages', exts: ['.md'] },
   { family: 'typescript', docType: 'language', bucket: 'languages', exts: ['.md'] },
+  // MDN web reference. `html` rides as a language (HTML is a markup language;
+  // fits alongside JS/TS in the languages aggregate). `accessibility` rides
+  // as a framework (WAI-ARIA + a11y patterns feel more like a stack of
+  // conventions than a language spec). Both scraped by oobee-ai-rag-index
+  // into docs/web/{html,accessibility}/ — see its config.yaml `output_dir`.
+  { family: 'html', docType: 'language', bucket: 'web', exts: ['.md'] },
+  { family: 'accessibility', docType: 'framework', bucket: 'web', exts: ['.md'] },
 ]
 
 const MIN_CHUNK_CHARS = 60
