@@ -174,6 +174,18 @@ contextBridge.exposeInMainWorld("services", {
       ipcRenderer.invoke("llmChat:setCustomProviderConfig", { baseUrl, apiKey, model }),
     llmChatListCustomProviderModels: async ({ baseUrl, apiKey }) =>
       ipcRenderer.invoke("llmChat:listCustomProviderModels", { baseUrl, apiKey }),
+    llmChatGithubCopilotStatus: async () =>
+      ipcRenderer.invoke("llmChat:githubCopilotStatus"),
+    llmChatGithubCopilotStartAuth: async () =>
+      ipcRenderer.invoke("llmChat:githubCopilotStartAuth"),
+    llmChatGithubCopilotPollAuth: async ({ deviceCode }) =>
+      ipcRenderer.invoke("llmChat:githubCopilotPollAuth", { deviceCode }),
+    llmChatGithubCopilotListModels: async () =>
+      ipcRenderer.invoke("llmChat:githubCopilotListModels"),
+    llmChatGithubCopilotSetModel: async ({ model }) =>
+      ipcRenderer.invoke("llmChat:githubCopilotSetModel", { model }),
+    llmChatGithubCopilotSignOut: async () =>
+      ipcRenderer.invoke("llmChat:githubCopilotSignOut"),
     llmModelList: async () => ipcRenderer.invoke("llmModel:list"),
     llmModelStatus: async (modelId) => ipcRenderer.invoke("llmModel:status", modelId),
     llmModelDownload: async (modelId) => ipcRenderer.invoke("llmModel:download", modelId),

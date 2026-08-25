@@ -218,7 +218,7 @@ jobs:
           # changes (bumping -v1 → -v2 forces a rebuild for the new .vec
           # files). Bump the -vN suffix manually to force a rebuild without
           # touching either script.
-          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v4
+          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v5
 
       - name: Download embedding-model artifact
         if: steps.cache.outputs.cache-hit != 'true'

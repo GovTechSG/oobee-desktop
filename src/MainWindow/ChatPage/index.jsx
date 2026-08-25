@@ -171,12 +171,22 @@ const NEW_CHAT_SUGGESTED_QUESTIONS = [
 // as it shows one "Anthropic Claude" entry regardless of which Claude
 // model the user's config points at.
 const PROVIDER_STORAGE_KEY = 'llmProvider'
-const BASE_OPTIONS = ['anthropic', 'gemma', 'openai-compatible']
+const BASE_OPTIONS = ['anthropic', 'github-copilot', 'gemma', 'openai-compatible']
 const VALID_OPTIONS = new Set(BASE_OPTIONS)
 const optionToProvider = (id) => {
   if (id === 'anthropic') return 'anthropic'
   if (id === 'openai-compatible') return 'openai'
+  if (id === 'github-copilot') return 'github-copilot'
   return 'gemma'
+}
+// Human-readable label for the dropdown option id — used both by the
+// select's <option> text and by the "Switched to …" divider inserted when
+// the user changes provider mid-conversation.
+const labelForOption = (id) => {
+  if (id === 'anthropic') return 'Anthropic Claude'
+  if (id === 'openai-compatible') return 'OpenAI Compatible Provider'
+  if (id === 'github-copilot') return 'GitHub Copilot'
+  return 'Local (on device)'
 }
 
 // CPU-only mode: a UI-only variant of the same underlying Gemma model —
@@ -336,6 +346,23 @@ const ChatPage = () => {
   const [customModelsList, setCustomModelsList] = useState(null)
   const [isFetchingCustomModels, setIsFetchingCustomModels] = useState(false)
   const [customModelsFetchError, setCustomModelsFetchError] = useState(null)
+  // "GitHub Copilot": OAuth device-flow-based sign-in, model choice
+  // persisted through userDataManager. The auth flow is driven by IPC
+  // handlers in llmAnalysis.js — the renderer only kicks off the flow
+  // and polls until it completes. Kept modal-local; refreshed each time
+  // the modal opens so a "signed in on another window" scenario picks
+  // up without a page reload.
+  const [showCopilotConfigureModal, setShowCopilotConfigureModal] = useState(false)
+  const [copilotStatus, setCopilotStatus] = useState(null)
+  const [copilotModelsList, setCopilotModelsList] = useState(null)
+  const [copilotModelDraft, setCopilotModelDraft] = useState('')
+  const [copilotSignInState, setCopilotSignInState] = useState(null)
+  const [copilotError, setCopilotError] = useState(null)
+  const [copilotBusy, setCopilotBusy] = useState(false)
+  const [copilotCodeCopied, setCopilotCodeCopied] = useState(false)
+  const copilotCopyResetTimerRef = useRef(null)
+  const copilotPollTimerRef = useRef(null)
+
   // Configure modal for Gemma model selection + CPU-only toggle, and
   // Anthropic's Thinking toggle — mirrors the OpenAI Compatible Provider
   // Configure pattern above. Unlike that modal, these controls don't need a
@@ -439,7 +466,9 @@ const ChatPage = () => {
       ? modelStatus?.downloaded === true
       : provider === 'openai'
         ? !!customConfig?.baseUrl && !!customConfig?.model
-        : true
+        : provider === 'github-copilot'
+          ? !!copilotStatus?.authenticated && copilotStatus?.hasCopilotSub !== false
+          : true
 
   // Platform probes gating the CPU-only checkbox (see CPU_ONLY_STORAGE_KEY
   // doc comment). All three failing silently is fine — the checkbox just
@@ -497,6 +526,26 @@ const ChatPage = () => {
     }
   }, [])
 
+  // Load GitHub Copilot auth/model status once on mount. Refreshed
+  // whenever the Configure modal completes a state transition (sign-in,
+  // sign-out, model change) so the header dropdown label and modelReady
+  // gate stay in sync without a page reload.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const s = await window.services.llmChatGithubCopilotStatus()
+        if (!cancelled) setCopilotStatus(s)
+      } catch (_) {
+        // ignore — dropdown just shows "(not signed in)" and Configure
+        // will surface any concrete error when opened.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Probe provider availability + model registry once. If Anthropic isn't
   // configured on this machine (no ANTHROPIC_API_KEY / ~/.claude/settings.json),
   // pre-select the first Gemma model the host can actually run.
@@ -517,7 +566,9 @@ const ChatPage = () => {
               ? anthropicOk
               : selectedOption === 'openai-compatible'
                 ? true
-                : models.find((m) => m.id === gemmaModelId)?.supported !== false
+                : selectedOption === 'github-copilot'
+                  ? true
+                  : models.find((m) => m.id === gemmaModelId)?.supported !== false
           if (!currentSupported) {
             if (anthropicOk) {
               try {
@@ -622,21 +673,27 @@ const ChatPage = () => {
 
   const changeOption = (next) => {
     if (!VALID_OPTIONS.has(next) || next === selectedOption) return
-    // Switching model resets the session, which drops the current chat
-    // history. Only prompt when there's something to lose.
-    if (messages.length > 0) {
-      const confirmed = window.confirm(
-        'Switching model will clear the current conversation. All messages will be permanently lost. Continue?'
-      )
-      if (!confirmed) return
-    }
     try {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, next)
     } catch (_) {
       // localStorage disabled — ignore
     }
     setSelectedOption(next)
-    setMessages([])
+    // Existing messages stay visible as a transcript; the new backend
+    // session (created below via sessionEpoch bump) starts with empty
+    // context, so the new model won't see prior turns. Divider marks the
+    // switch for the reader. Display-only — never transmitted to the
+    // backend (see sendMessage: only new user text goes over IPC).
+    // Skip the divider on an empty chat: nothing to divide from, and
+    // dropping it here keeps the welcome/suggestions view showing.
+    // Force a scroll-to-bottom on the divider append: the user just chose
+    // a new model, so revealing the divider is the point.
+    stickToBottomRef.current = true
+    setMessages((prev) =>
+      prev.length === 0
+        ? prev
+        : [...prev, { role: 'divider', text: `Switched to ${labelForOption(next)}` }],
+    )
     setStartError(null)
     setStreamError(null)
     setDetailsOpen(true)
@@ -676,7 +733,19 @@ const ChatPage = () => {
         if (cpuOnlyChanged) setCpuOnly(cpuOnlyDraft)
         if (thinkingChanged) setThinking(thinkingDraft)
         if (gemmaModelChanged) setGemmaModelId(gemmaModelIdDraft)
-        setMessages([])
+        // Keep prior messages visible as a transcript. The new backend
+        // session (from sessionEpoch bump below) will start with empty
+        // context, mirroring changeOption()'s behaviour so any restart
+        // reason lands consistently in the UI. Skip the divider on an
+        // empty chat: nothing to divide from.
+        // Force scroll-to-bottom so the newly-appended divider is visible
+        // to the user regardless of their prior scroll position.
+        stickToBottomRef.current = true
+        setMessages((prev) =>
+          prev.length === 0
+            ? prev
+            : [...prev, { role: 'divider', text: 'Model settings changed' }],
+        )
         setStartError(null)
         setStreamError(null)
         setDetailsOpen(true)
@@ -1176,6 +1245,212 @@ const ChatPage = () => {
     window.services.llmChatAbort(sessionId)
   }
 
+  // --- GitHub Copilot Configure modal helpers ---------------------------
+  //
+  // The modal has two states:
+  //   1. Not signed in: show a "Sign in with GitHub" button that starts
+  //      the device flow and displays the user code + verification URL.
+  //      A poll timer checks the flow's status until it completes.
+  //   2. Signed in: show the model picker (populated from Copilot's
+  //      models endpoint) and a Sign out button.
+  // openCopilotConfigure resets modal-local state and refreshes the
+  // signed-in status; the modal itself just renders whatever state is in
+  // copilotStatus / copilotSignInState / copilotModelsList.
+  const stopCopilotPolling = () => {
+    if (copilotPollTimerRef.current) {
+      clearTimeout(copilotPollTimerRef.current)
+      copilotPollTimerRef.current = null
+    }
+  }
+
+  const refreshCopilotModels = async () => {
+    setCopilotError(null)
+    try {
+      const res = await window.services.llmChatGithubCopilotListModels()
+      if (res?.ok && Array.isArray(res.models)) {
+        setCopilotModelsList(res.models)
+        // Prefer the currently-stored model, then claude-haiku-4.5 if
+        // available on this account, else the first model in the (already
+        // chat-capable-filtered) list. Copilot's model catalogue varies by
+        // plan and admin policy, so we can't hardcode a fixed default.
+        const stored = copilotStatus?.model || ''
+        const preferred = res.models.includes(stored)
+          ? stored
+          : res.models.includes('claude-haiku-4.5')
+          ? 'claude-haiku-4.5'
+          : res.models[0]
+        setCopilotModelDraft(preferred)
+      } else {
+        setCopilotError(res?.error || 'Failed to fetch models.')
+      }
+    } catch (e) {
+      setCopilotError(e.message)
+    }
+  }
+
+  const openCopilotConfigure = async () => {
+    setCopilotError(null)
+    setCopilotSignInState(null)
+    setCopilotModelsList(null)
+    setCopilotBusy(false)
+    stopCopilotPolling()
+    setShowCopilotConfigureModal(true)
+    // Refresh status in case another window signed in/out since mount.
+    try {
+      const s = await window.services.llmChatGithubCopilotStatus()
+      setCopilotStatus(s)
+      if (s?.authenticated && s?.hasCopilotSub !== false) {
+        await refreshCopilotModels()
+      }
+    } catch (e) {
+      setCopilotError(e.message)
+    }
+  }
+
+  const pollCopilotSignIn = async (deviceCode) => {
+    try {
+      const res = await window.services.llmChatGithubCopilotPollAuth({ deviceCode })
+      if (res?.pending) {
+        copilotPollTimerRef.current = setTimeout(
+          () => pollCopilotSignIn(deviceCode),
+          (copilotSignInState?.interval || 5) * 1000,
+        )
+        return
+      }
+      if (res?.slowDown) {
+        // GitHub asked us to poll less often — respect it.
+        setCopilotSignInState((s) => (s ? { ...s, interval: res.interval || (s.interval + 5) } : s))
+        copilotPollTimerRef.current = setTimeout(
+          () => pollCopilotSignIn(deviceCode),
+          (res.interval || 10) * 1000,
+        )
+        return
+      }
+      if (res?.error) {
+        setCopilotSignInState(null)
+        setCopilotError(res.error)
+        return
+      }
+      if (res?.ok) {
+        setCopilotSignInState(null)
+        // Refresh full status (which also verifies Copilot sub) and load
+        // the models list so the modal can immediately show the picker.
+        const s = await window.services.llmChatGithubCopilotStatus()
+        setCopilotStatus(s)
+        if (s?.hasCopilotSub === false) {
+          setCopilotError(
+            'Signed in, but this GitHub account does not have an active Copilot subscription. Subscribe at github.com/features/copilot and try again.',
+          )
+          return
+        }
+        await refreshCopilotModels()
+      }
+    } catch (e) {
+      setCopilotSignInState(null)
+      setCopilotError(e.message)
+    }
+  }
+
+  const startCopilotSignIn = async () => {
+    setCopilotBusy(true)
+    setCopilotError(null)
+    stopCopilotPolling()
+    try {
+      const res = await window.services.llmChatGithubCopilotStartAuth()
+      if (!res?.ok) {
+        setCopilotError(res?.error || 'Failed to start GitHub sign-in.')
+        return
+      }
+      setCopilotSignInState({
+        userCode: res.userCode,
+        verificationUri: res.verificationUri,
+        interval: res.interval || 5,
+        expiresIn: res.expiresIn || 900,
+      })
+      // Kick off polling on the interval GitHub asked for.
+      copilotPollTimerRef.current = setTimeout(
+        () => pollCopilotSignIn(res.deviceCode),
+        (res.interval || 5) * 1000,
+      )
+    } catch (e) {
+      setCopilotError(e.message)
+    } finally {
+      setCopilotBusy(false)
+    }
+  }
+
+  const cancelCopilotSignIn = () => {
+    stopCopilotPolling()
+    setCopilotSignInState(null)
+    setCopilotError(null)
+  }
+
+  const saveCopilotModel = async () => {
+    setCopilotBusy(true)
+    setCopilotError(null)
+    try {
+      const res = await window.services.llmChatGithubCopilotSetModel({ model: copilotModelDraft })
+      if (!res?.ok) {
+        setCopilotError(res?.error || 'Failed to save model choice.')
+        return
+      }
+      // Refresh status so the header dropdown label + modelReady gate
+      // pick up the new selection.
+      const s = await window.services.llmChatGithubCopilotStatus()
+      setCopilotStatus(s)
+      setShowCopilotConfigureModal(false)
+      // Restart the session so the newly saved model is picked up on the
+      // next send, same pattern as OpenAI Compatible's Save handler.
+      if (selectedOption === 'github-copilot') setSessionEpoch((ep) => ep + 1)
+    } catch (e) {
+      setCopilotError(e.message)
+    } finally {
+      setCopilotBusy(false)
+    }
+  }
+
+  const signOutCopilot = async () => {
+    const confirmed = window.confirm(
+      'Sign out of GitHub Copilot? Your GitHub OAuth token will be removed from this device. You can sign in again anytime.',
+    )
+    if (!confirmed) return
+    setCopilotBusy(true)
+    setCopilotError(null)
+    stopCopilotPolling()
+    try {
+      await window.services.llmChatGithubCopilotSignOut()
+      const s = await window.services.llmChatGithubCopilotStatus()
+      setCopilotStatus(s)
+      setCopilotModelsList(null)
+      setCopilotSignInState(null)
+    } catch (e) {
+      setCopilotError(e.message)
+    } finally {
+      setCopilotBusy(false)
+    }
+  }
+
+  // Clean up any in-flight sign-in poll when the modal closes so we don't
+  // leave a runaway setTimeout chain when the user clicks Cancel or navigates
+  // away. Also fires on unmount via the effect's cleanup.
+  useEffect(() => {
+    if (!showCopilotConfigureModal) {
+      stopCopilotPolling()
+      if (copilotCopyResetTimerRef.current) {
+        clearTimeout(copilotCopyResetTimerRef.current)
+        copilotCopyResetTimerRef.current = null
+      }
+      setCopilotCodeCopied(false)
+    }
+    return () => {
+      stopCopilotPolling()
+      if (copilotCopyResetTimerRef.current) {
+        clearTimeout(copilotCopyResetTimerRef.current)
+        copilotCopyResetTimerRef.current = null
+      }
+    }
+  }, [showCopilotConfigureModal])
+
   const handleDeleteChat = () => {
     const confirmed = window.confirm(
       'Delete this conversation? This will permanently clear all messages in the current chat and cannot be undone.'
@@ -1292,11 +1567,17 @@ const ChatPage = () => {
             {(() => {
               const anthropicUnavailable =
                 providerAvailability?.anthropic?.available === false
+              const copilotSignedIn =
+                copilotStatus?.authenticated === true &&
+                copilotStatus?.hasCopilotSub !== false
               return [
                 <option key="anthropic" value="anthropic" disabled={anthropicUnavailable}>
                   {anthropicUnavailable
                     ? 'Anthropic Claude (not detected)'
                     : 'Anthropic Claude'}
+                </option>,
+                <option key="github-copilot" value="github-copilot">
+                  {copilotSignedIn ? 'GitHub Copilot' : 'GitHub Copilot (not signed in)'}
                 </option>,
                 <option key="gemma" value="gemma">
                   Local (on device)
@@ -1333,6 +1614,15 @@ const ChatPage = () => {
                 setThinkingDraft(thinking)
                 setShowModelOptionsModal(true)
               }}
+            >
+              Configure
+            </button>
+          )}
+          {selectedOption === 'github-copilot' && (
+            <button
+              type="button"
+              className="chat-configure-link"
+              onClick={() => openCopilotConfigure()}
             >
               Configure
             </button>
@@ -1466,6 +1756,39 @@ const ChatPage = () => {
                 Stored locally on this device alongside your other app settings. Leave the API key
                 blank if your endpoint doesn't require one.
               </p>
+              {(customConfig?.baseUrl || customConfig?.apiKey || customConfig?.model) && (
+                <div className="chat-configure-danger-actions">
+                  <button
+                    type="button"
+                    className="btn-danger modal-button"
+                    onClick={async () => {
+                      const confirmed = window.confirm(
+                        'Delete saved OpenAI-compatible provider settings? The base URL, model, and API key will be removed from this device. You can reconfigure at any time.',
+                      )
+                      if (!confirmed) return
+                      setConfigSaveError(null)
+                      try {
+                        const empty = { baseUrl: '', apiKey: '', model: '' }
+                        const res = await window.services.llmChatSetCustomProviderConfig(empty)
+                        if (res?.ok) {
+                          setCustomConfig(empty)
+                          setConfigDraft(empty)
+                          setCustomModelsList(null)
+                          setCustomModelsFetchError(null)
+                          setShowConfigureModal(false)
+                          if (selectedOption === 'openai-compatible') setSessionEpoch((ep) => ep + 1)
+                        } else {
+                          setConfigSaveError(res?.error || 'Failed to delete configuration.')
+                        }
+                      } catch (err) {
+                        setConfigSaveError(err.message)
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
               {configSaveError && (
                 <div className="chat-error-banner" role="alert">
                   {configSaveError}
@@ -1489,6 +1812,205 @@ const ChatPage = () => {
             </>
           }
           setShowModal={setShowConfigureModal}
+        />
+      )}
+
+      {showCopilotConfigureModal && (
+        <Modal
+          id="chat-copilot-configure-modal"
+          showModal={showCopilotConfigureModal}
+          showHeader={true}
+          modalTitle="Configure GitHub Copilot"
+          modalSizeClass="modal-dialog-centered"
+          modalBody={
+            <div id="chat-copilot-configure-form">
+              <p className="chat-configure-hint">
+                Uses GitHub Copilot's chat API. Requires an active Copilot subscription.
+                Model requests are sent to <code>api.githubcopilot.com</code> with your
+                Copilot token.
+              </p>
+
+              {copilotStatus?.authenticated && copilotStatus?.hasCopilotSub !== false ? (
+                <>
+                  <p className="chat-configure-signed-in">
+                    <strong>Signed in to GitHub Copilot.</strong>
+                  </p>
+                  <label htmlFor="chat-copilot-model">Model</label>
+                  <select
+                    id="chat-copilot-model"
+                    className="chat-configure-model-select"
+                    value={
+                      copilotModelsList && copilotModelsList.length > 0
+                        ? copilotModelDraft
+                        : ''
+                    }
+                    onChange={(e) => setCopilotModelDraft(e.target.value)}
+                    disabled={
+                      copilotBusy ||
+                      copilotModelsList === null ||
+                      (copilotModelsList && copilotModelsList.length === 0)
+                    }
+                  >
+                    {copilotModelsList === null ? (
+                      <option value="" disabled>
+                        Loading models…
+                      </option>
+                    ) : copilotModelsList.length === 0 ? (
+                      <option value="" disabled>
+                        No chat-capable models available
+                      </option>
+                    ) : (
+                      copilotModelsList.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  {copilotModelsList && copilotModelsList.length === 0 && (
+                    <p className="chat-configure-models-error" role="alert">
+                      Copilot returned no chat-capable models for this account. Sign out and
+                      back in with a different account, or check your admin policy.
+                    </p>
+                  )}
+                  <p className="chat-configure-security-note">
+                    Signed-in GitHub account details stay on this device. Your Copilot
+                    token is refreshed on demand and never stored in plain text on the
+                    renderer side.
+                  </p>
+                  <div className="chat-configure-danger-actions">
+                    <button
+                      type="button"
+                      className="btn-danger modal-button"
+                      disabled={copilotBusy}
+                      onClick={signOutCopilot}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </>
+              ) : copilotSignInState ? (
+                <ol className="chat-copilot-steps">
+                  <li>
+                    Open{' '}
+                    <a
+                      href={copilotSignInState.verificationUri}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        window.services.openLink(copilotSignInState.verificationUri)
+                      }}
+                    >
+                      {copilotSignInState.verificationUri}
+                    </a>{' '}
+                    in your browser.
+                  </li>
+                  <li>Sign in to GitHub if required.</li>
+                  <li>
+                    Enter this code:
+                    <div className="chat-configure-model-row chat-copilot-user-code">
+                      <input
+                        type="text"
+                        readOnly
+                        aria-label="Device code"
+                        value={copilotSignInState.userCode}
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <button
+                        type="button"
+                        className="chat-configure-list-models"
+                        onClick={() => {
+                          try {
+                            navigator.clipboard.writeText(copilotSignInState.userCode)
+                            setCopilotCodeCopied(true)
+                            if (copilotCopyResetTimerRef.current) {
+                              clearTimeout(copilotCopyResetTimerRef.current)
+                            }
+                            copilotCopyResetTimerRef.current = setTimeout(() => {
+                              setCopilotCodeCopied(false)
+                              copilotCopyResetTimerRef.current = null
+                            }, 1500)
+                          } catch (_) {}
+                        }}
+                      >
+                        {copilotCodeCopied ? 'Copied!' : 'Copy code'}
+                      </button>
+                    </div>
+                  </li>
+                  <li>Waiting for you to authorize the sign-in in your browser…</li>
+                </ol>
+              ) : (
+                <>
+                  {copilotStatus?.authenticated && copilotStatus?.hasCopilotSub === false && (
+                    <p className="chat-configure-models-error" role="alert">
+                      This GitHub account is signed in but does not have an active Copilot
+                      subscription. Subscribe at github.com/features/copilot, then Sign out
+                      and back in.
+                    </p>
+                  )}
+                  <p className="chat-configure-security-note">
+                    Sign in with a GitHub account that has an active Copilot subscription.
+                    You'll be given a short code to enter at{' '}
+                    <code>github.com/login/device</code>.
+                  </p>
+                  <div className="chat-copilot-signin-actions">
+                    <button
+                      type="button"
+                      className="btn-primary modal-button"
+                      disabled={copilotBusy}
+                      onClick={startCopilotSignIn}
+                    >
+                      {copilotBusy ? 'Starting…' : 'Sign in with GitHub'}
+                    </button>
+                    {copilotStatus?.authenticated && copilotStatus?.hasCopilotSub === false && (
+                      <button
+                        type="button"
+                        className="btn-danger modal-button"
+                        disabled={copilotBusy}
+                        onClick={signOutCopilot}
+                      >
+                        Sign out
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {copilotError && (
+                <div className="chat-error-banner" role="alert">
+                  {copilotError}
+                </div>
+              )}
+            </div>
+          }
+          modalFooter={
+            <>
+              <Button
+                type="btn-secondary"
+                onClick={() => {
+                  if (copilotSignInState) cancelCopilotSignIn()
+                  setShowCopilotConfigureModal(false)
+                }}
+              >
+                Cancel
+              </Button>
+              {copilotStatus?.authenticated && copilotStatus?.hasCopilotSub !== false && (
+                <button
+                  type="button"
+                  className="btn-primary modal-button"
+                  disabled={
+                    copilotBusy ||
+                    !copilotModelDraft ||
+                    !copilotModelsList ||
+                    copilotModelsList.length === 0
+                  }
+                  onClick={saveCopilotModel}
+                >
+                  Save
+                </button>
+              )}
+            </>
+          }
+          setShowModal={setShowCopilotConfigureModal}
         />
       )}
 
@@ -1596,6 +2118,27 @@ const ChatPage = () => {
           }
           setShowModal={setShowModelOptionsModal}
         />
+      )}
+
+      {provider === 'github-copilot' && !modelReady && (
+        <div className="chat-model-download" role="region" aria-label="GitHub Copilot sign-in">
+          <h2>GitHub Copilot not signed in</h2>
+          <p>
+            Sign in with a GitHub account that has an active Copilot subscription to use
+            Copilot's chat models. You'll be given a short code to enter at{' '}
+            <code>github.com/login/device</code>.
+          </p>
+          <div className="chat-model-download-actions">
+            <Button type="btn-primary" onClick={() => openCopilotConfigure()}>
+              Configure
+            </Button>
+            {providerAvailability?.anthropic?.available !== false && (
+              <Button type="btn-link" onClick={() => changeOption('anthropic')}>
+                Use Anthropic Claude instead
+              </Button>
+            )}
+          </div>
+        </div>
       )}
 
       {provider === 'openai' && !modelReady && (
@@ -1729,6 +2272,11 @@ const ChatPage = () => {
           </div>
         )}
         {messages.map((m, i) => (
+          m.role === 'divider' ? (
+            <div key={i} className="chat-divider" role="separator" aria-label={m.text}>
+              <span className="chat-divider-label">{m.text}</span>
+            </div>
+          ) : (
           <div key={i} className={`chat-message chat-message-${m.role}`}>
             {m.role === 'assistant' && m.reasoning && (
               <details className="chat-reasoning">
@@ -1922,6 +2470,7 @@ const ChatPage = () => {
               </div>
             )}
           </div>
+          )
         ))}
         {streamError && (
           <div className="chat-error-banner" role="alert">
