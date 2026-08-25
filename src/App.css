@@ -152,6 +152,34 @@ select:disabled {
   padding: 0;
 }
 
+.btn-danger {
+  padding: 0.25rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background-color: #d7260f !important;
+  color: white;
+  transition: 0.1s background-color;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  justify-content: center;
+}
+
+.btn-danger:hover {
+  background-color: #b91c0c !important;
+}
+
+.btn-danger:active,
+.btn-danger:focus {
+  background-color: #991b1b !important;
+}
+
+.btn-danger:disabled {
+  background-color: var(--a11y-black-15) !important;
+  color: var(--a11y-black-50) !important;
+  border: none !important;
+}
+
 .btn-link:hover {
   color: var(--a11y-purple-highlight);
 }

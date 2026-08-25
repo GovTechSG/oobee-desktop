@@ -282,7 +282,8 @@
   // laid out here as a consistent label-above-input stack matching the
   // rest of the chat page's form styling (rounded inputs, purple focus
   // ring, uniform vertical rhythm).
-  #chat-configure-form {
+  #chat-configure-form,
+  #chat-copilot-configure-form {
     display: flex;
     flex-direction: column;
 
@@ -404,6 +405,56 @@
       color: #b91c1c;
       font-size: 0.8rem;
       line-height: 1.4;
+    }
+
+    .chat-configure-signed-in {
+      margin: 0 0 0.75rem;
+      color: #065f46;
+      font-size: 0.9rem;
+    }
+
+    .chat-copilot-steps {
+      margin: 0.75rem 0 0.25rem;
+      padding-left: 1.25rem;
+      color: #111827;
+      font-size: 0.9rem;
+      line-height: 1.5;
+
+      li {
+        margin-bottom: 0.75rem;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+    }
+
+    .chat-copilot-signin-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .chat-configure-danger-actions {
+      display: flex;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+
+    .chat-copilot-user-code {
+      margin: 0.5rem 0 0;
+
+      input[readonly] {
+        font-family: SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 1.1rem;
+        letter-spacing: 0.15em;
+        text-align: center;
+        color: #111827;
+        background: #f9fafb;
+        cursor: text;
+      }
     }
 
     .chat-error-banner {
@@ -845,6 +896,29 @@
         font-size: 0.92rem;
         line-height: 1.45;
         word-wrap: break-word;
+      }
+    }
+
+    .chat-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin: 0.9rem 0;
+      color: #6b7280;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+
+      &::before,
+      &::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: rgba(0, 0, 0, 0.12);
+      }
+
+      .chat-divider-label {
+        white-space: nowrap;
       }
     }
 
