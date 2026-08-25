@@ -159,8 +159,10 @@ async function getStatus(modelId) {
     }
   }
 
-  const remoteWeights = await probeExpectedBytes(modelId, 'weights')
-  const remoteMmproj = await probeExpectedBytes(modelId, 'mmproj')
+  const [remoteWeights, remoteMmproj] = await Promise.all([
+    probeExpectedBytes(modelId, 'weights'),
+    probeExpectedBytes(modelId, 'mmproj'),
+  ])
   return {
     modelId,
     downloaded: false,
@@ -175,13 +177,22 @@ async function getStatus(modelId) {
 async function listModels() {
   const totalGb = os.totalmem() / (1024 ** 3)
   const isMacArm64 = os.platform() === 'darwin' && os.arch() === 'arm64'
-  const out = []
-  for (const m of Object.values(MODELS)) {
-    const status = await getStatus(m.id).catch(() => ({
-      downloaded: false,
-      sizeBytes: 0,
-      expectedBytes: m.totalBytes,
-    }))
+  const models = Object.values(MODELS)
+  // Probe all models in parallel. Serial awaits used to make the Configure
+  // dropdown look blank for a couple of seconds on Windows (6 HEAD requests
+  // to huggingface.co back-to-back, each with a 10s ceiling) — worst case now
+  // is one round-trip's worth of network latency instead of six.
+  const statuses = await Promise.all(
+    models.map((m) =>
+      getStatus(m.id).catch(() => ({
+        downloaded: false,
+        sizeBytes: 0,
+        expectedBytes: m.totalBytes,
+      }))
+    )
+  )
+  return models.map((m, i) => {
+    const status = statuses[i]
     // Strict check against minRamGb (no fudge factor): os.totalmem() on
     // Windows already reports somewhat less than the nominal/marketed RAM
     // (memory reserved for firmware/hardware is excluded), so a "16 GB"
@@ -194,7 +205,7 @@ async function listModels() {
     const effectiveMinRamGb =
       isMacArm64 && m.minRamGbDarwinArm64 != null ? m.minRamGbDarwinArm64 : m.minRamGb
     const supported = totalGb >= effectiveMinRamGb
-    out.push({
+    return {
       id: m.id,
       label: m.label,
       description: m.description,
@@ -204,9 +215,8 @@ async function listModels() {
       unsupportedReason: supported
         ? null
         : `Needs ${effectiveMinRamGb}+ GB RAM (this machine has ~${totalGb.toFixed(0)} GB)`,
-    })
-  }
-  return out
+    }
+  })
 }
 
 // Kick off a resumable download of one file via ipull. Returns the engine so
