@@ -1513,24 +1513,30 @@ const ChatPage = () => {
                   </p>
                   <select
                     id="chat-gemma-model-select"
-                    value={gemmaModelIdDraft}
+                    value={availableModels.length === 0 ? '' : gemmaModelIdDraft}
                     onChange={(e) => setGemmaModelIdDraft(e.target.value)}
-                    disabled={isStreaming || isDownloading}
+                    disabled={isStreaming || isDownloading || availableModels.length === 0}
                   >
-                    {availableModels.map((m) => {
-                      const sizeSuffix = m.sizeBytes ? ` — ${formatBytes(m.sizeBytes)}` : ''
-                      const unsupportedSuffix = m.supported === false ? ' (unsupported)' : ''
-                      return (
-                        <option
-                          key={m.id}
-                          value={m.id}
-                          disabled={m.supported === false}
-                          title={m.supported === false ? m.unsupportedReason || '' : ''}
-                        >
-                          {`${m.label}${sizeSuffix}${unsupportedSuffix}`}
-                        </option>
-                      )
-                    })}
+                    {availableModels.length === 0 ? (
+                      <option value="" disabled>
+                        Loading models…
+                      </option>
+                    ) : (
+                      availableModels.map((m) => {
+                        const sizeSuffix = m.sizeBytes ? ` — ${formatBytes(m.sizeBytes)}` : ''
+                        const unsupportedSuffix = m.supported === false ? ' (unsupported)' : ''
+                        return (
+                          <option
+                            key={m.id}
+                            value={m.id}
+                            disabled={m.supported === false}
+                            title={m.supported === false ? m.unsupportedReason || '' : ''}
+                          >
+                            {`${m.label}${sizeSuffix}${unsupportedSuffix}`}
+                          </option>
+                        )
+                      })
+                    )}
                   </select>
                   {(() => {
                     const draftModel = availableModels.find((m) => m.id === gemmaModelIdDraft)
