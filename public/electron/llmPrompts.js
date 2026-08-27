@@ -358,7 +358,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'list_corpus_metadata',
     description:
-      'Return aggregate counts and full-catalog listings for the locally-indexed corpora. Use this — NOT `search_wcag` or `search_language_and_frameworks` — for "how many" and "list every" questions: how many DSS controls are in the WP category, list every UU control by title, how many WCAG 2.2 Understanding pages exist, how many ARIA techniques are indexed, how many React docs chunks are in the framework corpus. Returns build metadata (source tag, build timestamp) plus per-source aggregates: WCAG (Understanding pages by version 2.0/2.1/2.2, technique pages by category, failure count), DSS (9 categories with per-category `controlCount` and full `controls` list of `{code, title}`), Oobee DETAILS.md (section headings), frameworks (React/Vue/Angular + MDN Accessibility file+chunk counts), languages (JavaScript/TypeScript + MDN HTML file+chunk counts). Pass an optional `source` to narrow the response — most calls should specify one to keep the payload small.',
+      'Return aggregate counts and full-catalog listings for the locally-indexed corpora. Use this — NOT `search_wcag` or `search_language_and_frameworks` — for "how many" and "list every" questions: how many DSS controls are in the WP category, list every UU control by title, list every WCAG clause Oobee detects and its DSS mapping, how many WCAG 2.2 Understanding pages exist, how many ARIA techniques are indexed, how many React docs chunks are in the framework corpus. Returns build metadata (source tag, build timestamp) plus per-source aggregates: WCAG (Understanding pages by version 2.0/2.1/2.2, technique pages by category, failure count), DSS (9 categories with per-category `controlCount` and full `controls` list of `{code, title, wcagRefs}`), Oobee DETAILS.md (section headings PLUS a `coverage` array — one entry per WCAG SC Oobee detects, each with its `dss` clause, `level` A/AA/AAA, and Oobee `category` mustFix/goodToFix/needsReview — this is the deterministic answer to "list every clause Oobee can detect mapped to DSS"), frameworks (React/Vue/Angular + MDN Accessibility file+chunk counts), languages (JavaScript/TypeScript + MDN HTML file+chunk counts). Pass an optional `source` to narrow the response — most calls should specify one to keep the payload small.',
     input_schema: {
       type: 'object',
       properties: {
@@ -366,7 +366,7 @@ const TOOL_SCHEMAS = [
           type: 'string',
           enum: ['wcag', 'dss', 'oobee-details', 'frameworks', 'languages', 'all'],
           description:
-            'Which corpus subset to return. `wcag` = WCAG Understanding + Techniques counts. `dss` = full 9-category control catalog with per-category control list. `oobee-details` = list of DETAILS.md section headings. `frameworks` = React/Vue/Angular per-family counts. `languages` = JavaScript/TypeScript per-family counts. `all` (default) = every source.',
+            'Which corpus subset to return. `wcag` = WCAG Understanding + Techniques counts. `dss` = full 9-category control catalog with per-category control list. `oobee-details` = DETAILS.md section headings PLUS a `coverage` array — one entry per WCAG SC Oobee detects with its DSS clause, level, and Oobee category (the deterministic answer to "list every clause Oobee detects mapped to DSS"). `frameworks` = React/Vue/Angular per-family counts. `languages` = JavaScript/TypeScript per-family counts. `all` (default) = every source.',
           default: 'all',
         },
       },
