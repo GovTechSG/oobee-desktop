@@ -316,16 +316,50 @@ function parseDssToWcagMap(md) {
   //   | WCAG 1.1.1  | WP-1           | A     | Yes ...
   // A DSS code of "—" means "no DSS mapping".
   const map = new Map()
-  const rowRe = /\|\s*WCAG\s+([\d.]+)\s*\|\s*([A-Z]{2}-\d+|—)\s*\|/g
-  let m
-  while ((m = rowRe.exec(md)) !== null) {
-    const wcag = m[1]
-    const dss = m[2]
-    if (dss === '—') continue
-    if (!map.has(dss)) map.set(dss, [])
-    if (!map.get(dss).includes(wcag)) map.get(dss).push(wcag)
+  for (const row of parseCoverageTable(md)) {
+    if (!row.dss) continue
+    if (!map.has(row.dss)) map.set(row.dss, [])
+    if (!map.get(row.dss).includes(row.wcag)) map.get(row.dss).push(row.wcag)
   }
   return map
+}
+
+// Master mapping table columns:
+//   WCAG SC | DSS Clause | Level | Must Fix | Good to Fix | Manual Review
+// Returns one entry per WCAG-anchored row (the Best Practice row is skipped —
+// it aggregates many rules, not a single mapping). Emitted into
+// oobeeDetails.coverage so list_corpus_metadata can answer "list every
+// clause Oobee detects mapped to DSS" deterministically instead of via
+// BM25 top-K over the ingested table chunk.
+function parseCoverageTable(md) {
+  const rowRe = /\|\s*WCAG\s+([\d.]+)\s*\|\s*([A-Z]{2}-\d+|—)\s*\|\s*(A{1,3})\s*\|([^|\n]*)\|([^|\n]*)\|([^|\n]*)\|/g
+  const rows = []
+  let m
+  while ((m = rowRe.exec(md)) !== null) {
+    const hasYes = (cell) => /Yes/.test(cell)
+    const mustFix = hasYes(m[4])
+    const goodToFix = hasYes(m[5])
+    const needsReview = hasYes(m[6])
+    rows.push({
+      wcag: m[1],
+      dss: m[2] === '—' ? null : m[2],
+      level: m[3],
+      mustFix,
+      goodToFix,
+      needsReview,
+      // A single category label so consumers don't have to inspect three
+      // booleans. Priority matches the DETAILS.md legend (Manual Review is
+      // "exclusive to" — takes precedence over Must Fix / Good to Fix).
+      category: needsReview
+        ? 'needsReview'
+        : mustFix
+        ? 'mustFix'
+        : goodToFix
+        ? 'goodToFix'
+        : null,
+    })
+  }
+  return rows
 }
 
 function chunkDetailsMd(md) {
@@ -362,10 +396,18 @@ async function collectOobeeDetailsChunks() {
       `[wcag-index] no oobee DETAILS.md at ${DETAILS_MD_PATH} — skipping. ` +
         'ensure-wcag-index.js fetches this before invoking the builder.'
     )
-    return { chunks: [], dssToWcag: new Map() }
+    return { chunks: [], dssToWcag: new Map(), coverage: [] }
   }
   const md = await fsp.readFile(DETAILS_MD_PATH, 'utf8')
   const dssToWcag = parseDssToWcagMap(md)
+  const coverage = parseCoverageTable(md)
+  if (coverage.length === 0) {
+    console.warn(
+      '[wcag-index] DETAILS.md master mapping table returned 0 rows — ' +
+        'the upstream table shape may have changed. list_corpus_metadata ' +
+        'will not be able to answer "list every clause Oobee detects" questions.'
+    )
+  }
   const chunks = chunkDetailsMd(md).map((s) => ({
     slug: s.slug,
     title: 'Oobee — Scan Issue Details',
@@ -373,7 +415,7 @@ async function collectOobeeDetailsChunks() {
     text: `# Oobee — ${s.heading}\n\n${s.text.replace(/^##\s+.+\n/, '').trim()}`,
     url: `${DETAILS_MD_URL}#${s.slug}`,
   }))
-  return { chunks, dssToWcag }
+  return { chunks, dssToWcag, coverage }
 }
 
 // Collected in-memory during the page-walk pass; consumed by the batched
@@ -586,6 +628,23 @@ async function main() {
         slug: s.slug,
         url: s.url,
       })),
+      // Full parse of the DETAILS.md "Breakdown of WCAG Clauses and Best
+      // Practice" master table — one entry per WCAG SC Oobee covers, with
+      // its DSS clause (or null for AAA rules with no DSS mapping), WCAG
+      // level, and Oobee category. `list_corpus_metadata({source:
+      // 'oobee-details'})` returns this so LLMs can answer "list every
+      // clause Oobee detects mapped to DSS" in one deterministic tool call
+      // instead of hammering search_wcag with BM25 top-K queries.
+      total_coverage_rows: oobeeDetails.coverage.length,
+      coverage_totals_by_level: oobeeDetails.coverage.reduce((acc, r) => {
+        acc[r.level] = (acc[r.level] || 0) + 1
+        return acc
+      }, {}),
+      coverage_totals_by_category: oobeeDetails.coverage.reduce((acc, r) => {
+        if (r.category) acc[r.category] = (acc[r.category] || 0) + 1
+        return acc
+      }, {}),
+      coverage: oobeeDetails.coverage,
     },
   }
   await fsp.writeFile(
