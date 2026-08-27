@@ -160,7 +160,10 @@ module.exports = {
       'playwright-report',
       'installer.ps1',
       'a11y_for_windows.iss',
-      '.github',
+      // Anchored regex so the leading `.` (any-char in regex) doesn't accidentally
+      // match `/github` inside filenames like `githubCopilotAuth.js` and silently
+      // exclude them from the asar.
+      /^\/\.github(\/|$)/,
       // The full resources/ tree contains binaries for every platform we build
       // for — the extraResource below picks only the current target's folder.
       // Excluding the tree from the app bundle avoids shipping all three copies.
