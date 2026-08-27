@@ -176,6 +176,64 @@ function urlForTechnique(category, id) {
   return `${WCAG_BASE}/Techniques/${category}/${id}`
 }
 
+// Lift the structured Success Criterion catalog out of the WCAG source's
+// canonical `guidelines/wcag.json`. This is the same JSON used to generate
+// the WCAG website — one entry per SC with num ("2.5.6"), handle (title),
+// level (A/AA/AAA), and versions. Emitted into wcag.principles /
+// wcag.success_criteria so `list_corpus_metadata({source: 'wcag'})` can
+// answer "list every SC in 2.5" or "what is 2.5.6" deterministically —
+// without the LLM guessing from memory (which produces hallucinations
+// like WCAG 2.5.6 "不易被忽略 (Avoidance of Interference)" — the real
+// 2.5.6 is "Concurrent Input Mechanisms").
+function collectSuccessCriteriaCatalog() {
+  const jsonPath = path.join(SRC_DIR, 'guidelines', 'wcag.json')
+  if (!fs.existsSync(jsonPath)) {
+    console.warn(`[wcag-index] no wcag.json at ${jsonPath} — skipping SC catalog`)
+    return { principles: [], success_criteria: [] }
+  }
+  let doc
+  try {
+    doc = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
+  } catch (e) {
+    console.warn(`[wcag-index] wcag.json parse failed: ${e && e.message}`)
+    return { principles: [], success_criteria: [] }
+  }
+  const principles = []
+  const success_criteria = []
+  for (const p of doc.principles || []) {
+    const pOut = {
+      num: p.num,
+      handle: p.handle,
+      versions: p.versions,
+      guidelines: [],
+    }
+    for (const g of p.guidelines || []) {
+      const gOut = {
+        num: g.num,
+        handle: g.handle,
+        versions: g.versions,
+        success_criteria: [],
+      }
+      for (const sc of g.successcriteria || []) {
+        const slug = sc.id && sc.id.startsWith('WCAG2:') ? sc.id.slice(6) : null
+        const row = {
+          num: sc.num,
+          handle: sc.handle,
+          level: sc.level,
+          versions: sc.versions,
+          slug,
+          url: slug ? urlForUnderstanding(slug) : null,
+        }
+        gOut.success_criteria.push({ num: row.num, handle: row.handle, level: row.level })
+        success_criteria.push(row)
+      }
+      pOut.guidelines.push(gOut)
+    }
+    principles.push(pOut)
+  }
+  return { principles, success_criteria }
+}
+
 async function collectUnderstandingPages() {
   const pages = []
   for (const version of UNDERSTANDING_VERSIONS) {
@@ -601,14 +659,32 @@ async function main() {
   }
   const meta = {
     builtAt: new Date().toISOString(),
-    wcag: {
-      sourceTag: EXPECTED_TAG,
-      total_understanding_pages: understanding.length,
-      understanding_by_version: wcagUnderstandingByVersion,
-      total_technique_pages: techniques.length,
-      techniques_by_category: wcagTechniquesByCategory,
-      failure_pages: wcagFailures,
-    },
+    wcag: (() => {
+      const catalog = collectSuccessCriteriaCatalog()
+      const totalsByLevel = catalog.success_criteria.reduce((acc, sc) => {
+        if (sc.level) acc[sc.level] = (acc[sc.level] || 0) + 1
+        return acc
+      }, {})
+      return {
+        sourceTag: EXPECTED_TAG,
+        total_understanding_pages: understanding.length,
+        understanding_by_version: wcagUnderstandingByVersion,
+        total_technique_pages: techniques.length,
+        techniques_by_category: wcagTechniquesByCategory,
+        failure_pages: wcagFailures,
+        total_success_criteria: catalog.success_criteria.length,
+        success_criteria_totals_by_level: totalsByLevel,
+        // Nested principle → guideline → SC tree (with SC num + handle +
+        // level only inside guidelines). Callers wanting a flat list can
+        // use `success_criteria` below.
+        principles: catalog.principles,
+        // Flat SC catalog: every SC with num, handle, level, versions, slug,
+        // and Understanding-page URL. This is the field to consult when
+        // enumerating SCs ("list every 2.5.x SC", "what is 2.5.6") — do NOT
+        // recite SC numbers/titles from memory.
+        success_criteria: catalog.success_criteria,
+      }
+    })(),
     dss: dssCatalog
       ? {
           fetchedAt: dssCatalog.fetchedAt,
