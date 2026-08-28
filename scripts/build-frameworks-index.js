@@ -49,6 +49,9 @@ const SRC_DIR =
   process.env.FRAMEWORKS_SRC_DIR ||
   path.join(__dirname, '..', '.cache', 'frameworks-src')
 const OUT_DIR = path.join(__dirname, '..', 'public', 'electron', 'frameworks-index')
+// WCAG/DSS/oobee-details chunks from the precomputed zip land here so
+// wcagCorpus.js can find them without a separate ensure-wcag-index.js run.
+const WCAG_OUT_DIR = path.join(__dirname, '..', 'public', 'electron', 'wcag-index')
 const CONFIG_PATH = PRECOMPUTED_DIR
   ? path.join(PRECOMPUTED_DIR, 'config.yaml')
   : path.join(SRC_DIR, 'config.yaml')
@@ -377,16 +380,20 @@ async function mainPrecomputed() {
     )
   }
 
-  if (fs.existsSync(OUT_DIR)) {
-    log(`wiping existing ${OUT_DIR}`)
-    await fsp.rm(OUT_DIR, { recursive: true, force: true })
+  // Wipe + recreate both output dirs so we start clean.
+  for (const dir of [OUT_DIR, WCAG_OUT_DIR]) {
+    if (fs.existsSync(dir)) {
+      log(`wiping existing ${dir}`)
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+    await fsp.mkdir(dir, { recursive: true })
   }
-  await fsp.mkdir(OUT_DIR, { recursive: true })
 
   const vectorsBuf = fs.readFileSync(vectorsPath)
   const bytesPerVec = DIMS * 4
   const perFamilyMap = new Map()
-  let written = 0
+  let writtenFrameworks = 0
+  let writtenWcag = 0
 
   for (let i = 0; i < actualCount; i++) {
     let record
@@ -396,6 +403,34 @@ async function mainPrecomputed() {
     }
     const { namespace, sourceFile, heading, text } = record
     if (!text || text.trim().length < MIN_CHUNK_CHARS) continue
+
+    const vecSlice = vectorsBuf.slice(i * bytesPerVec, i * bytesPerVec + bytesPerVec)
+    const uuid = crypto.randomUUID()
+
+    // ── WCAG / DSS / oobee-details chunks → wcag-index/ ──────────────────
+    if (namespace && namespace.startsWith('wcag:')) {
+      const chunkMeta = record.metadata || {}
+      const pb = {
+        title:         chunkMeta.title         || heading || sourceFile || namespace,
+        sectionTitle:  chunkMeta.sectionTitle  || heading || '',
+        url:           chunkMeta.url           || '',
+        docType:       chunkMeta.docType       || namespace.replace('wcag:', ''),
+        techId:        chunkMeta.techId        || '',
+        wcagVersion:   chunkMeta.wcagVersion   || '',
+        sectionId:     chunkMeta.sectionId     || '',
+        category:      chunkMeta.category      || '',
+        categoryTitle: chunkMeta.categoryTitle || '',
+        namespace,
+      }
+      await fsp.writeFile(path.join(WCAG_OUT_DIR, `${uuid}.pb`), JSON.stringify(pb), 'utf8')
+      await fsp.writeFile(path.join(WCAG_OUT_DIR, `${uuid}.txt`), text, 'utf8')
+      await fsp.writeFile(path.join(WCAG_OUT_DIR, `${uuid}.vec`), vecSlice)
+      writtenWcag += 1
+      if (writtenWcag % 500 === 0) log(`wcag-index: written ${writtenWcag} chunks ...`)
+      continue
+    }
+
+    // ── Framework / language / web chunks → frameworks-index/ ────────────
     const layout = resolveNamespace(namespace)
     if (!layout) { warn(`unknown namespace "${namespace}" on chunk ${i + 1} — skipping`); continue }
     let url = ''
@@ -408,19 +443,20 @@ async function mainPrecomputed() {
       family: layout.family, bucket: layout.bucket,
       path: `docs/${layout.bucket}/${layout.family}/${sourceFile || ''}`, url,
     }
-    const vecSlice = vectorsBuf.slice(i * bytesPerVec, i * bytesPerVec + bytesPerVec)
-    const uuid = crypto.randomUUID()
     await fsp.writeFile(path.join(OUT_DIR, `${uuid}.pb`), JSON.stringify(meta), 'utf8')
     await fsp.writeFile(path.join(OUT_DIR, `${uuid}.txt`), text, 'utf8')
     await fsp.writeFile(path.join(OUT_DIR, `${uuid}.vec`), vecSlice)
     if (!perFamilyMap.has(layout.family)) perFamilyMap.set(layout.family, { files: new Set(), chunks: 0 })
     const fStat = perFamilyMap.get(layout.family)
     if (sourceFile) fStat.files.add(sourceFile)
-    fStat.chunks += 1; written += 1
-    if (written % 500 === 0) log(`written ${written}/${actualCount} chunks ...`)
+    fStat.chunks += 1; writtenFrameworks += 1
+    if (writtenFrameworks % 500 === 0) log(`frameworks-index: written ${writtenFrameworks} chunks ...`)
   }
 
-  log(`written ${written} chunks total`)
+  log(`frameworks-index: ${writtenFrameworks} chunks written`)
+  log(`wcag-index: ${writtenWcag} chunks written`)
+
+  // ── frameworks-index/_meta.json ──────────────────────────────────────────
   const perFamily = [...perFamilyMap.entries()].map(([family, s]) => ({ family, files: s.files.size, chunks: s.chunks }))
   const fwFams = perFamily.filter((f) => { const l = FAMILY_LAYOUT.find((x) => x.family === f.family); return l && l.docType === 'framework' })
   const langFams = perFamily.filter((f) => { const l = FAMILY_LAYOUT.find((x) => x.family === f.family); return l && l.docType === 'language' })
@@ -438,11 +474,29 @@ async function mainPrecomputed() {
     }),
     frameworks: { total_families: fwFams.length, total_files: fwFams.reduce((n, f) => n + f.files, 0), total_chunks: fwFams.reduce((n, f) => n + f.chunks, 0) },
     languages: { total_families: langFams.length, total_files: langFams.reduce((n, f) => n + f.files, 0), total_chunks: langFams.reduce((n, f) => n + f.chunks, 0) },
-    total_files: perFamily.reduce((n, f) => n + f.files, 0), total_chunks: written,
+    total_files: perFamily.reduce((n, f) => n + f.files, 0), total_chunks: writtenFrameworks,
   }
   await fsp.writeFile(path.join(OUT_DIR, '_meta.json'), JSON.stringify(outputMeta, null, 2), 'utf8')
-  log(`DONE (precomputed) — ${written} chunks written to ${OUT_DIR}`)
-  if (written === 0) throw new Error('No chunks written — check PRECOMPUTED_DIR structure.')
+
+  // ── wcag-index/_meta.json ────────────────────────────────────────────────
+  // Shape mirrors build-wcag-index.js output: top-level wcag/dss/oobeeDetails
+  // keys are read directly by list_corpus_metadata in llmAnalysis.js.
+  const wcagOutputMeta = {
+    builtAt: indexMeta.builtAt || new Date().toISOString(),
+    mode: 'precomputed',
+    sourceRepo: 'https://github.com/GovTechSG/oobee-ai-rag-index',
+    sourceTag,
+    precomputedModel: indexMeta.model || 'sentence-transformers/all-MiniLM-L6-v2',
+    total_chunks: writtenWcag,
+    wcag:         indexMeta.wcag         || null,
+    dss:          indexMeta.dss          || null,
+    oobeeDetails: indexMeta.oobeeDetails || null,
+  }
+  await fsp.writeFile(path.join(WCAG_OUT_DIR, '_meta.json'), JSON.stringify(wcagOutputMeta, null, 2), 'utf8')
+
+  log(`DONE (precomputed) — frameworks-index: ${writtenFrameworks}, wcag-index: ${writtenWcag}`)
+  if (writtenFrameworks === 0) throw new Error('No framework chunks written — check PRECOMPUTED_DIR structure.')
+  if (writtenWcag === 0) warn('No wcag:* chunks found in precomputed zip — wcag-index will be empty.')
 }
 
 // ─── Clone+embed mode main ───────────────────────────────────────────────────
