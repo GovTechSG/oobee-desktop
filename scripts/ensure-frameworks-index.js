@@ -1,49 +1,163 @@
 #!/usr/bin/env node
 /*
- * Ensures `public/electron/frameworks-index/` exists before packaging,
- * building it on demand from a cached checkout of
- * https://github.com/GovTechSG/oobee-ai-rag-index pinned at tag
- * `synced/2026-08-22`.
+ * Ensures `public/electron/frameworks-index/` exists before packaging.
  *
- * Runs as part of `npm run make-*` (chained after ensure-wcag-index.js), so a
- * fresh clone of this repo can produce a working
- * `search_language_and_frameworks` tool without any manual setup.
+ * PRIMARY PATH (fast, ~10 MiB download):
+ *   Downloads `docs-index.zip` from the oobee-ai-rag-index GitHub release
+ *   tagged DOCS_INDEX_TAG (default: `latest-precompute`), extracts it to
+ *   `.cache/frameworks-precomputed/`, then calls build-frameworks-index.js
+ *   with FRAMEWORKS_PRECOMPUTED_DIR set -- no clone, no embedding pass.
  *
- * Idempotent: skips the (slow — clone + chunk) rebuild if
- * `public/electron/frameworks-index/` already exists. Pass `--force` to
- * rebuild anyway (e.g. after bumping EXPECTED_TAG).
+ * FALLBACK PATH (slow, requires network + ~1-2 GB disk):
+ *   Clones oobee-ai-rag-index at EXPECTED_TAG, runs ensure-embedding-model.js,
+ *   then calls build-frameworks-index.js in clone+embed mode.
+ *   Disabled by passing `--no-clone-fallback`.
  *
- * The source checkout is cached at `.cache/frameworks-src/` and reused
- * across builds / machines-in-CI-cache — only the first build on a given
- * machine pays the clone cost.
+ * Idempotent: skips rebuild if `public/electron/frameworks-index/` already
+ * exists (non-empty). Pass `--force` to rebuild anyway.
  */
 
 const fs = require('fs')
+const https = require('https')
 const path = require('path')
 const { execFileSync, spawnSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'public', 'electron', 'frameworks-index')
+const PRECOMPUTED_DIR = path.join(ROOT, '.cache', 'frameworks-precomputed')
+const ZIP_PATH = path.join(ROOT, '.cache', 'docs-index.zip')
+
+// Fallback clone+embed constants (kept for --no-clone-fallback opt-out)
 const SRC_DIR = path.join(ROOT, '.cache', 'frameworks-src')
 const REPO_URL = 'https://github.com/GovTechSG/oobee-ai-rag-index.git'
 const EXPECTED_TAG = 'synced/2026-08-25'
 
-const force = process.argv.slice(2).includes('--force')
+// Release tag for docs-index.zip. Override via DOCS_INDEX_TAG env var to pin
+// without editing this file (image.yml passes it as DOCS_INDEX_TAG).
+const DOCS_INDEX_TAG = process.env.DOCS_INDEX_TAG || 'latest-precompute'
+const DOCS_INDEX_URL =
+  process.env.DOCS_INDEX_URL ||
+  `https://github.com/GovTechSG/oobee-ai-rag-index/releases/download/${DOCS_INDEX_TAG}/docs-index.zip`
+
+const args = process.argv.slice(2)
+const force = args.includes('--force')
+const noCloneFallback = args.includes('--no-clone-fallback')
 
 function log(...m) {
   console.log('[ensure-frameworks-index]', ...m)
+}
+function warn(...m) {
+  console.warn('[ensure-frameworks-index]', ...m)
 }
 
 function isNonEmptyDir(dir) {
   try {
     return fs.readdirSync(dir).length > 0
-  } catch (e) {
+  } catch {
     return false
   }
 }
 
+// --- Download helpers --------------------------------------------------------
+
+function downloadFile(url, destPath, redirectsLeft) {
+  if (redirectsLeft === undefined) redirectsLeft = 5
+  return new Promise((resolve, reject) => {
+    if (redirectsLeft === 0) return reject(new Error('Too many redirects: ' + url))
+    log('downloading ' + url + ' ...')
+    const file = fs.createWriteStream(destPath)
+    https
+      .get(url, { headers: { 'User-Agent': 'oobee-desktop/build' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          file.close()
+          try { fs.unlinkSync(destPath) } catch { /* ignore */ }
+          return resolve(downloadFile(res.headers.location, destPath, redirectsLeft - 1))
+        }
+        if (res.statusCode !== 200) {
+          file.close()
+          try { fs.unlinkSync(destPath) } catch { /* ignore */ }
+          return reject(new Error('HTTP ' + res.statusCode + ' from ' + url))
+        }
+        res.pipe(file)
+        file.on('finish', () => file.close(resolve))
+        file.on('error', (err) => {
+          try { fs.unlinkSync(destPath) } catch { /* ignore */ }
+          reject(err)
+        })
+      })
+      .on('error', (err) => {
+        try { fs.unlinkSync(destPath) } catch { /* ignore */ }
+        reject(err)
+      })
+  })
+}
+
+function unzipToDir(zipPath, destDir) {
+  // adm-zip is in dependencies@^0.6.0 -- cross-platform, no shell spawn needed.
+  const AdmZip = require('adm-zip')
+  const zip = new AdmZip(zipPath)
+  fs.mkdirSync(destDir, { recursive: true })
+  zip.extractAllTo(destDir, /* overwrite */ true)
+  log('extracted ' + zipPath + ' -> ' + destDir)
+}
+
+// --- Precomputed primary path ------------------------------------------------
+
+async function buildFromPrecomputed() {
+  fs.mkdirSync(path.dirname(ZIP_PATH), { recursive: true })
+
+  // Re-use a previously downloaded zip if present (e.g. CI cache restored it).
+  if (!force && fs.existsSync(ZIP_PATH)) {
+    log('reusing cached zip at ' + ZIP_PATH)
+  } else {
+    await downloadFile(DOCS_INDEX_URL, ZIP_PATH)
+    log('downloaded docs-index.zip (tag: ' + DOCS_INDEX_TAG + ')')
+  }
+
+  // Extract: zip contains an `index/` subdirectory at its root.
+  if (force && fs.existsSync(PRECOMPUTED_DIR)) {
+    fs.rmSync(PRECOMPUTED_DIR, { recursive: true, force: true })
+  }
+  if (!isNonEmptyDir(PRECOMPUTED_DIR)) {
+    const cacheDir = path.dirname(PRECOMPUTED_DIR)
+    unzipToDir(ZIP_PATH, cacheDir)
+    // zip extracts to <cacheDir>/index/ -- rename to frameworks-precomputed.
+    const extractedIndex = path.join(cacheDir, 'index')
+    if (fs.existsSync(extractedIndex) && !fs.existsSync(PRECOMPUTED_DIR)) {
+      fs.renameSync(extractedIndex, PRECOMPUTED_DIR)
+    }
+  }
+
+  // Verify required files before handing off to the converter.
+  for (const f of ['chunks.jsonl', 'vectors.bin', 'meta.json']) {
+    if (!fs.existsSync(path.join(PRECOMPUTED_DIR, f))) {
+      throw new Error(
+        'docs-index.zip extraction incomplete -- ' + f + ' missing in ' +
+        PRECOMPUTED_DIR + '. Delete .cache/docs-index.zip and retry.'
+      )
+    }
+  }
+
+  log('running build-frameworks-index.js in precomputed mode ...')
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'build-frameworks-index.js')],
+    {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        FRAMEWORKS_PRECOMPUTED_DIR: PRECOMPUTED_DIR,
+        FRAMEWORKS_SRC_TAG: DOCS_INDEX_TAG,
+      },
+    }
+  )
+  if (result.status !== 0) process.exit(result.status || 1)
+}
+
+// --- Clone+embed fallback ----------------------------------------------------
+
 function cloneSource() {
-  log(`cloning ${REPO_URL} @ ${EXPECTED_TAG} into ${SRC_DIR} …`)
+  log('cloning ' + REPO_URL + ' @ ' + EXPECTED_TAG + ' into ' + SRC_DIR + ' ...')
   fs.mkdirSync(path.dirname(SRC_DIR), { recursive: true })
   execFileSync(
     'git',
@@ -52,41 +166,28 @@ function cloneSource() {
   )
 }
 
-function ensureSourceCheckout() {
-  if (isNonEmptyDir(SRC_DIR)) {
-    log(`reusing cached checkout at ${SRC_DIR}`)
-    return
-  }
-  cloneSource()
-}
-
 function ensureEmbeddingModel() {
-  // Frameworks index now includes .vec embeddings — need MiniLM present.
-  // ensure-embedding-model.js is idempotent (sentinel check) so this is a
-  // fast no-op after the first build on a machine.
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'ensure-embedding-model.js')],
     { stdio: 'inherit' }
   )
-  if (result.status !== 0) {
-    process.exit(result.status || 1)
-  }
+  if (result.status !== 0) process.exit(result.status || 1)
 }
 
-function buildIndex() {
-  ensureSourceCheckout()
+function buildFromClone() {
+  if (isNonEmptyDir(SRC_DIR)) {
+    log('reusing cached checkout at ' + SRC_DIR)
+  } else {
+    cloneSource()
+  }
   ensureEmbeddingModel()
-  log('building frameworks/languages hybrid search index (chunking + embedding) …')
+  log('building frameworks/languages hybrid search index (chunking + embedding) ...')
   const result = spawnSync(
     process.execPath,
     [path.join(__dirname, 'build-frameworks-index.js')],
     {
       stdio: 'inherit',
-      // Pass the pinned tag through explicitly. `git describe --tags` on
-      // the shallow clone can pick a moving tag (`latest-sync`) when
-      // multiple tags point at the same commit — that would misrepresent
-      // the actual pin recorded in `_meta.json`.
       env: {
         ...process.env,
         FRAMEWORKS_SRC_DIR: SRC_DIR,
@@ -94,14 +195,35 @@ function buildIndex() {
       },
     }
   )
-  if (result.status !== 0) {
-    process.exit(result.status || 1)
+  if (result.status !== 0) process.exit(result.status || 1)
+}
+
+// --- Entry point -------------------------------------------------------------
+
+async function main() {
+  if (!force && isNonEmptyDir(OUT_DIR)) {
+    log(OUT_DIR + ' already exists -- skipping (pass --force to rebuild)')
+    return
   }
+
+  try {
+    await buildFromPrecomputed()
+    return
+  } catch (e) {
+    warn('precomputed download/extract failed: ' + e.message)
+    if (noCloneFallback) {
+      console.error(
+        '[ensure-frameworks-index] FATAL: precomputed path failed and --no-clone-fallback is set.'
+      )
+      process.exit(1)
+    }
+    warn('falling back to clone+embed path ...')
+  }
+
+  buildFromClone()
 }
 
-if (!force && isNonEmptyDir(OUT_DIR)) {
-  log(`${OUT_DIR} already exists — skipping (pass --force to rebuild)`)
-  process.exit(0)
-}
-
-buildIndex()
+main().catch((e) => {
+  console.error('[ensure-frameworks-index] FATAL:', e)
+  process.exit(1)
+})
