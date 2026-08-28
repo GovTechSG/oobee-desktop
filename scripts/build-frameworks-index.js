@@ -3,20 +3,33 @@
  * Build a BM25 + vector search index for language/framework docs (React,
  * Vue, Angular, MDN JavaScript, TypeScript).
  *
- * Reads the docs tree of a local checkout of
- * https://github.com/GovTechSG/oobee-ai-rag-index (pinned at tag
- * synced/2026-08-22 by ensure-frameworks-index.js), splits each markdown file
- * by `##` heading, and writes `<uuid>.pb` (JSON metadata) + `<uuid>.txt`
- * (chunk body) + `<uuid>.vec` (384-dim fp32 L2-normalized MiniLM embedding)
- * triples to `public/electron/frameworks-index/` — the same on-disk layout
- * that `wcagCorpus.js` uses so `languageFrameworksCorpus.js` can hybrid-
- * search (BM25 + vector via RRF) it at runtime.
+ * TWO MODES — selected by environment variable:
  *
- * Usage:
- *   FRAMEWORKS_SRC_DIR=/path/to/oobee-ai-rag-index node scripts/build-frameworks-index.js
+ * ── Precomputed mode (default, fast) ────────────────────────────────────────
+ *   Set FRAMEWORKS_INDEX_ZIP (path to extracted docs-index.zip contents) or
+ *   FRAMEWORKS_PRECOMPUTED_DIR (path to a directory containing chunks.jsonl,
+ *   vectors.bin and meta.json).  ensure-frameworks-index.js sets
+ *   FRAMEWORKS_PRECOMPUTED_DIR after downloading and unzipping
+ *   docs-index.zip from the oobee-ai-rag-index `latest-precompute` release.
  *
- * FRAMEWORKS_SRC_DIR defaults to .cache/frameworks-src/ (where
- * ensure-frameworks-index.js clones the repo).
+ *   In this mode the script reads precomputed chunks + 384-dim MiniLM
+ *   embeddings directly — no clone, no chunking, no embedding pass —
+ *   and writes the .pb/.txt/.vec triples that languageFrameworksCorpus.js
+ *   expects.
+ *
+ * ── Clone+embed mode (fallback) ─────────────────────────────────────────────
+ *   When FRAMEWORKS_PRECOMPUTED_DIR is absent the script falls back to the
+ *   original behaviour: read a local checkout of oobee-ai-rag-index
+ *   (FRAMEWORKS_SRC_DIR, default .cache/frameworks-src/), split each
+ *   markdown file by ## heading, embed each chunk with MiniLM, and write
+ *   the triples.  ensure-frameworks-index.js still performs this fallback
+ *   unless --no-clone-fallback is passed.
+ *
+ * Output format (both modes):
+ *   public/electron/frameworks-index/<uuid>.pb   — JSON metadata
+ *   public/electron/frameworks-index/<uuid>.txt  — chunk body
+ *   public/electron/frameworks-index/<uuid>.vec  — 384-dim fp32 embedding
+ *   public/electron/frameworks-index/_meta.json  — aggregate counts
  */
 
 const fs = require('fs')
@@ -26,11 +39,19 @@ const crypto = require('crypto')
 const { execSync } = require('child_process')
 const yaml = require('js-yaml')
 
+// ─── Precomputed mode: directory that contains chunks.jsonl / vectors.bin /
+//     meta.json (extracted from docs-index.zip).  ensure-frameworks-index.js
+//     sets this after downloading + unzipping the release asset.
+const PRECOMPUTED_DIR = process.env.FRAMEWORKS_PRECOMPUTED_DIR || null
+
+// ─── Clone+embed mode (fallback) ────────────────────────────────────────────
 const SRC_DIR =
   process.env.FRAMEWORKS_SRC_DIR ||
   path.join(__dirname, '..', '.cache', 'frameworks-src')
 const OUT_DIR = path.join(__dirname, '..', 'public', 'electron', 'frameworks-index')
-const CONFIG_PATH = path.join(SRC_DIR, 'config.yaml')
+const CONFIG_PATH = PRECOMPUTED_DIR
+  ? path.join(PRECOMPUTED_DIR, 'config.yaml')
+  : path.join(SRC_DIR, 'config.yaml')
 
 // docs/<bucket>/<family>/... — where each family lives in the checkout.
 // Matches the `output_dir` layout produced by oobee-ai-rag-index's
@@ -63,6 +84,14 @@ function warn(...m) {
 
 function loadSourcesConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
+    // config.yaml is optional in precomputed mode — it is bundled inside
+    // docs-index.zip since the oobee-ai-rag-index release workflow was updated
+    // to copy it there, but older releases won't have it.  Return null so
+    // callers can skip URL generation gracefully rather than hard-failing.
+    if (PRECOMPUTED_DIR) {
+      warn(`config.yaml not found at ${CONFIG_PATH} — upstream URLs will be omitted`)
+      return null
+    }
     throw new Error(
       `oobee-ai-rag-index config.yaml missing at ${CONFIG_PATH}. ` +
         'Run scripts/ensure-frameworks-index.js first — it clones the source repo.'
@@ -263,6 +292,28 @@ async function writeAllChunks() {
   }
 }
 
+// ─── Namespace → {family, docType, bucket} lookup ───────────────────────────
+// Matches build_local_index.py's walk_corpus() conventions:
+//   framework:<name>  →  bucket=frameworks, docType=framework
+//   lang:<name>       →  bucket=languages,  docType=language
+//   web:<name>        →  bucket=web,         docType varies per FAMILY_LAYOUT
+function resolveNamespace(namespace) {
+  // Exact match from FAMILY_LAYOUT first (handles web/* correctly).
+  for (const layout of FAMILY_LAYOUT) {
+    const expectedNs = `${
+      layout.docType === 'framework' ? 'framework' : layout.bucket === 'web' ? 'web' : 'lang'
+    }:${layout.family}`
+    if (namespace === expectedNs) return layout
+  }
+  // Generic fallback so new families added to oobee-ai-rag-index don't crash.
+  const [prefix, name] = namespace.split(':')
+  if (!name) return null
+  if (prefix === 'framework') return { family: name, docType: 'framework', bucket: 'frameworks' }
+  if (prefix === 'lang') return { family: name, docType: 'language', bucket: 'languages' }
+  if (prefix === 'web') return { family: name, docType: 'framework', bucket: 'web' }
+  return null
+}
+
 async function processFile({ filePath, family, docType, bucket, sourceCfg, familyRoot }) {
   const body = await fsp.readFile(filePath, 'utf8')
   const title = extractTitle(body, filePath)
@@ -288,6 +339,113 @@ async function processFile({ filePath, family, docType, bucket, sourceCfg, famil
   return written
 }
 
+// ─── Precomputed mode main ───────────────────────────────────────────────────
+async function mainPrecomputed() {
+  const chunksPath = path.join(PRECOMPUTED_DIR, 'chunks.jsonl')
+  const vectorsPath = path.join(PRECOMPUTED_DIR, 'vectors.bin')
+  const metaPath = path.join(PRECOMPUTED_DIR, 'meta.json')
+
+  for (const [label, p] of [
+    ['chunks.jsonl', chunksPath],
+    ['vectors.bin', vectorsPath],
+    ['meta.json', metaPath],
+  ]) {
+    if (!fs.existsSync(p)) {
+      throw new Error(`${label} missing at ${p}. Re-download docs-index.zip.`)
+    }
+  }
+
+  const indexMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+  const DIMS = indexMeta.dims || 384
+  const expectedCount = indexMeta.count
+  log(`precomputed mode: ${expectedCount} chunks, ${DIMS} dims`)
+
+  // Optional config.yaml for upstream URL generation.
+  const sources = loadSourcesConfig()
+
+  const chunkLines = fs.readFileSync(chunksPath, 'utf8').split('\n').filter(Boolean)
+  if (chunkLines.length !== expectedCount) {
+    warn(`chunks.jsonl has ${chunkLines.length} lines but meta.json says ${expectedCount}`)
+  }
+  const actualCount = chunkLines.length
+  const expectedBytes = actualCount * DIMS * 4
+  const actualBytes = fs.statSync(vectorsPath).size
+  if (actualBytes !== expectedBytes) {
+    throw new Error(
+      `vectors.bin size mismatch: ${actualBytes} bytes but expected ${expectedBytes} ` +
+        `(${actualCount} x ${DIMS} dims x 4 bytes)`
+    )
+  }
+
+  if (fs.existsSync(OUT_DIR)) {
+    log(`wiping existing ${OUT_DIR}`)
+    await fsp.rm(OUT_DIR, { recursive: true, force: true })
+  }
+  await fsp.mkdir(OUT_DIR, { recursive: true })
+
+  const vectorsBuf = fs.readFileSync(vectorsPath)
+  const bytesPerVec = DIMS * 4
+  const perFamilyMap = new Map()
+  let written = 0
+
+  for (let i = 0; i < actualCount; i++) {
+    let record
+    try { record = JSON.parse(chunkLines[i]) } catch (e) {
+      warn(`failed to parse chunks.jsonl line ${i + 1}: ${e.message} — skipping`)
+      continue
+    }
+    const { namespace, sourceFile, heading, text } = record
+    if (!text || text.trim().length < MIN_CHUNK_CHARS) continue
+    const layout = resolveNamespace(namespace)
+    if (!layout) { warn(`unknown namespace "${namespace}" on chunk ${i + 1} — skipping`); continue }
+    let url = ''
+    if (sources && sources[layout.family]) {
+      url = urlFor(sources[layout.family], sourceFile || '', slugifyHeading(heading || ''))
+    }
+    const title = heading || path.basename(sourceFile || '', path.extname(sourceFile || ''))
+    const meta = {
+      title, sectionTitle: heading || title, docType: layout.docType,
+      family: layout.family, bucket: layout.bucket,
+      path: `docs/${layout.bucket}/${layout.family}/${sourceFile || ''}`, url,
+    }
+    const vecSlice = vectorsBuf.slice(i * bytesPerVec, i * bytesPerVec + bytesPerVec)
+    const uuid = crypto.randomUUID()
+    await fsp.writeFile(path.join(OUT_DIR, `${uuid}.pb`), JSON.stringify(meta), 'utf8')
+    await fsp.writeFile(path.join(OUT_DIR, `${uuid}.txt`), text, 'utf8')
+    await fsp.writeFile(path.join(OUT_DIR, `${uuid}.vec`), vecSlice)
+    if (!perFamilyMap.has(layout.family)) perFamilyMap.set(layout.family, { files: new Set(), chunks: 0 })
+    const fStat = perFamilyMap.get(layout.family)
+    if (sourceFile) fStat.files.add(sourceFile)
+    fStat.chunks += 1; written += 1
+    if (written % 500 === 0) log(`written ${written}/${actualCount} chunks ...`)
+  }
+
+  log(`written ${written} chunks total`)
+  const perFamily = [...perFamilyMap.entries()].map(([family, s]) => ({ family, files: s.files.size, chunks: s.chunks }))
+  const fwFams = perFamily.filter((f) => { const l = FAMILY_LAYOUT.find((x) => x.family === f.family); return l && l.docType === 'framework' })
+  const langFams = perFamily.filter((f) => { const l = FAMILY_LAYOUT.find((x) => x.family === f.family); return l && l.docType === 'language' })
+  const sourceTag = process.env.FRAMEWORKS_SRC_TAG || indexMeta.commitSha || null
+  const outputMeta = {
+    builtAt: new Date().toISOString(), mode: 'precomputed',
+    sourceRepo: 'https://github.com/GovTechSG/oobee-ai-rag-index', sourceTag,
+    precomputedModel: indexMeta.model || 'sentence-transformers/all-MiniLM-L6-v2',
+    precomputedDims: DIMS, precomputedGeneratedAt: indexMeta.generatedAt || null,
+    families: perFamily.map((f) => {
+      const l = FAMILY_LAYOUT.find((x) => x.family === f.family)
+      const src = (sources && sources[f.family]) || {}
+      return { family: f.family, docType: l ? l.docType : null, bucket: l ? l.bucket : null,
+        upstreamRepo: src.repo || null, upstreamDocsPath: src.docs_path || null, files: f.files, chunks: f.chunks }
+    }),
+    frameworks: { total_families: fwFams.length, total_files: fwFams.reduce((n, f) => n + f.files, 0), total_chunks: fwFams.reduce((n, f) => n + f.chunks, 0) },
+    languages: { total_families: langFams.length, total_files: langFams.reduce((n, f) => n + f.files, 0), total_chunks: langFams.reduce((n, f) => n + f.chunks, 0) },
+    total_files: perFamily.reduce((n, f) => n + f.files, 0), total_chunks: written,
+  }
+  await fsp.writeFile(path.join(OUT_DIR, '_meta.json'), JSON.stringify(outputMeta, null, 2), 'utf8')
+  log(`DONE (precomputed) — ${written} chunks written to ${OUT_DIR}`)
+  if (written === 0) throw new Error('No chunks written — check PRECOMPUTED_DIR structure.')
+}
+
+// ─── Clone+embed mode main ───────────────────────────────────────────────────
 async function main() {
   if (!fs.existsSync(SRC_DIR)) {
     throw new Error(
@@ -417,7 +575,8 @@ async function main() {
   }
 }
 
-main().catch((e) => {
+// ─── Entry point — route to the right mode ───────────────────────────────────
+;(PRECOMPUTED_DIR ? mainPrecomputed() : main()).catch((e) => {
   console.error('[frameworks-index] FATAL:', e)
   process.exit(1)
 })

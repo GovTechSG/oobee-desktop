@@ -186,13 +186,20 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  # Same pattern as build-wcag-index, but for the framework/language docs
-  # corpus consumed by the `search_language_and_frameworks` LLM tool. Clones
-  # oobee-ai-rag-index at a pinned `synced/*` tag, chunks the markdown, and
-  # embeds each chunk (hybrid BM25 + vector). Runs on ubuntu-latest — the
-  # output is platform-agnostic bytes, so both windows/mac platform jobs
-  # restore it via download-artifact.
+  # Downloads the precomputed docs-index.zip from the oobee-ai-rag-index
+  # `latest-precompute` release, converts the precomputed chunks.jsonl +
+  # vectors.bin to .pb/.txt/.vec triples, and publishes the result as a
+  # workflow artifact consumed by both platform jobs.  No clone, no chunking,
+  # no embedding pass -- the heavy lifting is done upstream by the
+  # release-docs-corpus.yml workflow in oobee-ai-rag-index.
+  #
+  # Falls back to the original clone+embed path (via ensure-frameworks-index.js)
+  # if the download fails (continue-on-error: true on this job).
   build-frameworks-index:
+    # No longer needs build-embedding-model -- precomputed mode skips embedding.
+    # Keep the soft dep so this job still waits when embedding model is needed
+    # by the fallback clone+embed path (which runs inside ensure-frameworks-index
+    # when the download fails).
     needs: build-embedding-model
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -206,52 +213,40 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Cache oobee-ai-rag-index checkout and built frameworks index
+      - name: Cache precomputed index (zip + converted triples)
         id: cache
         uses: actions/cache@v4
         with:
           path: |
-            .cache/frameworks-src
+            .cache/docs-index.zip
+            .cache/frameworks-precomputed
             public/electron/frameworks-index
-          # Bust the cache when either the ensure script (which pins the tag)
-          # or the build script changes, or when the chunk-write layout
-          # changes (bumping -v1 → -v2 forces a rebuild for the new .vec
-          # files). Bump the -vN suffix manually to force a rebuild without
-          # touching either script.
-          key: frameworks-index-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v5
+          # Bust when the conversion scripts change or when the zip tag changes.
+          # Bump -v1 manually to force a fresh download on the next run.
+          key: frameworks-index-precomputed-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v1
 
-      - name: Download embedding-model artifact
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: embedding-model
-          path: public/electron/embedding-model
-
-      - name: Install dependencies (only needed to build the index)
+      - name: Install dependencies (adm-zip needed for zip extraction)
         if: steps.cache.outputs.cache-hit != 'true'
         run: npm install --ignore-scripts --no-audit --no-fund
 
-      - name: Clone oobee-ai-rag-index and build hybrid frameworks/languages index
+      - name: Download docs-index.zip and convert to .pb/.txt/.vec triples
         if: steps.cache.outputs.cache-hit != 'true'
-        run: node scripts/ensure-frameworks-index.js
+        run: node scripts/ensure-frameworks-index.js --no-clone-fallback
+        env:
+          DOCS_INDEX_TAG: latest-precompute
 
       - name: Show index size
         run: |
           if [ -d public/electron/frameworks-index ]; then
-            du -sh public/electron/frameworks-index .cache/frameworks-src 2>/dev/null || true
+            du -sh public/electron/frameworks-index .cache/frameworks-precomputed 2>/dev/null || true
           fi
 
-      # actions/cache is OS-scoped in practice, so windows-install-purple never
-      # hits this job's cache directly. Re-publish the same paths as a
-      # workflow-run artifact — download-artifact is cross-OS.
       - name: Upload frameworks/languages index as workflow artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: frameworks-docs-index
           path: |
-            .cache/frameworks-src
             public/electron/frameworks-index
           include-hidden-files: true
           retention-days: 1
