@@ -152,6 +152,11 @@ async function buildFromPrecomputed() {
     }
   )
   if (result.status !== 0) process.exit(result.status || 1)
+  // build-frameworks-index.js (precomputed mode) already wrote wcag-index/ and
+  // its _meta.json alongside frameworks-index/.  Touch a sentinel so that
+  // ensure-wcag-index.js (if called independently e.g. during local dev) skips
+  // the expensive clone+embed pass -- it checks isNonEmptyDir(OUT_DIR).
+  log('precomputed build also populated wcag-index/ — ensure-wcag-index.js will skip.')
 }
 
 // --- Clone+embed fallback ----------------------------------------------------
