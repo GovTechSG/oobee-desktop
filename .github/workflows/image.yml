@@ -162,15 +162,20 @@ jobs:
             du -sh public/electron/frameworks-index .cache/frameworks-precomputed 2>/dev/null || true
           fi
 
+      - name: Pack index dirs into single tar (avoids upload-artifact glob stack overflow)
+        if: success()
+        run: |
+          tar -czf /tmp/frameworks-docs-index.tar.gz \
+            -C public/electron \
+            frameworks-index \
+            wcag-index
+
       - name: Upload frameworks/languages + WCAG index as workflow artifact
         if: success()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: frameworks-docs-index
-          path: |
-            public/electron/frameworks-index
-            public/electron/wcag-index
-          include-hidden-files: true
+          path: /tmp/frameworks-docs-index.tar.gz
           retention-days: 1
 
   windows-install-purple:
@@ -193,7 +198,13 @@ jobs:
         continue-on-error: true
         with:
           name: frameworks-docs-index
-          path: .
+          path: /tmp/frameworks-artifact
+
+      - name: Unpack frameworks + WCAG index
+        continue-on-error: true
+        run: |
+          mkdir -p public/electron
+          tar -xzf /tmp/frameworks-artifact/frameworks-docs-index.tar.gz -C public/electron
 
       # Restore the bundled MiniLM embedding model. Needed at runtime for
       # the hybrid search vector leg AND at build time as a fallback when
@@ -357,7 +368,13 @@ jobs:
         continue-on-error: true
         with:
           name: frameworks-docs-index
-          path: ${{github.workspace}}
+          path: /tmp/frameworks-artifact
+
+      - name: Unpack frameworks + WCAG index
+        continue-on-error: true
+        run: |
+          mkdir -p ${{github.workspace}}/public/electron
+          tar -xzf /tmp/frameworks-artifact/frameworks-docs-index.tar.gz -C ${{github.workspace}}/public/electron
 
       # Restore the bundled MiniLM embedding model. Needed at runtime for
       # the hybrid search vector leg AND at build time as a fallback when
