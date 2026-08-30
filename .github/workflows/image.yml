@@ -94,7 +94,7 @@ jobs:
 
       - name: Upload embedding model as workflow artifact
         if: success()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: embedding-model
           path: public/electron/embedding-model
@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload frameworks/languages + WCAG index as workflow artifact
         if: success()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: frameworks-docs-index
           path: |
@@ -189,7 +189,7 @@ jobs:
       # On failure (upstream job failed or artifact missing) continue anyway —
       # ensure-frameworks-index.js will rebuild locally during npm run make-win.
       - name: Download frameworks + WCAG index artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: frameworks-docs-index
@@ -200,7 +200,7 @@ jobs:
       # the WCAG/frameworks index artifacts miss (ensure-embedding-model.js
       # would otherwise fetch it from Hugging Face during make-win).
       - name: Download embedding-model artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: embedding-model
@@ -271,7 +271,7 @@ jobs:
           [System.IO.File]::WriteAllText("oobee-desktop-windows.zip.sha256.txt", $hash)
       
       - name: Upload Oobee Windows setup artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: oobee-desktop-windows
           path: |
@@ -353,7 +353,7 @@ jobs:
       # On failure continue anyway — ensure-frameworks-index.js will rebuild
       # locally during npm run make-mac.
       - name: Download frameworks + WCAG index artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: frameworks-docs-index
@@ -364,7 +364,7 @@ jobs:
       # the WCAG/frameworks index artifacts miss (ensure-embedding-model.js
       # would otherwise fetch it from Hugging Face during make-mac).
       - name: Download embedding-model artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: embedding-model
@@ -461,7 +461,7 @@ jobs:
           printf "%s" "$hash" > oobee-desktop-macos.zip.sha256.txt
       
       - name: Upload Mac artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: oobee-desktop-macos
           path: |
