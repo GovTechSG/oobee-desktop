@@ -93,12 +93,24 @@ function downloadFile(url, destPath, redirectsLeft) {
 }
 
 function unzipToDir(zipPath, destDir) {
-  // adm-zip is in dependencies@^0.6.0 -- cross-platform, no shell spawn needed.
+  // adm-zip@0.6.0's extractAllTo() recurses over every entry and blows the
+  // call stack on large zips (~5-10 MB with 1,200+ chunks).  Iterate entries
+  // manually instead — same result, O(1) stack depth.
   const AdmZip = require('adm-zip')
   const zip = new AdmZip(zipPath)
   fs.mkdirSync(destDir, { recursive: true })
-  zip.extractAllTo(destDir, /* overwrite */ true)
-  log('extracted ' + zipPath + ' -> ' + destDir)
+  let count = 0
+  for (const entry of zip.getEntries()) {
+    const entryPath = path.join(destDir, entry.entryName)
+    if (entry.isDirectory) {
+      fs.mkdirSync(entryPath, { recursive: true })
+    } else {
+      fs.mkdirSync(path.dirname(entryPath), { recursive: true })
+      fs.writeFileSync(entryPath, entry.getData())
+      count++
+    }
+  }
+  log('extracted ' + count + ' files from ' + zipPath + ' -> ' + destDir)
 }
 
 // --- Precomputed primary path ------------------------------------------------
