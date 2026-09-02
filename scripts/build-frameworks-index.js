@@ -402,7 +402,19 @@ async function mainPrecomputed() {
       continue
     }
     const { namespace, sourceFile, heading, text } = record
-    if (!text || text.trim().length < MIN_CHUNK_CHARS) continue
+    // NOTE: MIN_CHUNK_CHARS is deliberately *not* applied here.
+    //
+    // That threshold exists for the local chunker, where splitting markdown can
+    // emit stub fragments. Chunks in a precomputed bundle were already filtered
+    // upstream by embed.py, and each one has a matching vector at the same
+    // offset in vectors.bin. Dropping a "short" chunk therefore discards a real
+    // embedding and desynchronises this index from the published corpus.
+    //
+    // At MIN_CHUNK_CHARS=60 this silently dropped 78 of 571 WCAG clause chunks
+    // across 50 criteria (5,585 chunks corpus-wide) — short-but-meaningful
+    // headings such as "Sufficient Techniques" and situation labels, which are
+    // exactly the navigational anchors clause lookups rely on.
+    if (!text || !text.trim()) continue
 
     const vecSlice = vectorsBuf.slice(i * bytesPerVec, i * bytesPerVec + bytesPerVec)
     const uuid = crypto.randomUUID()
