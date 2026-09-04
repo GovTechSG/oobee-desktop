@@ -155,13 +155,6 @@ const isValidCustomFlowLabel = (customFlowLabel) => {
   return { isValid: true }
 }
 
-const mailReport = async (formDetails, scanId) => {
-  const response = await window.services.mailReport(formDetails, scanId)
-  return response
-}
-
-const getIsWindows = async () => window.services.getIsWindows()
-
 const isValidName = (name) => {
   // Allow only printable characters from any language
   const regex = /^[\p{L}\p{N}\s'".,()\[\]{}!?:؛،؟…]+$/u
@@ -196,8 +189,6 @@ const services = {
   getDataForForm,
   getFeedbackFormUrl,
   isValidEmail,
-  mailReport,
-  getIsWindows,
   isValidName,
   isValidCustomFlowLabel,
   getErrorLog,

@@ -136,19 +136,10 @@ contextBridge.exposeInMainWorld("services", {
   openLink: (url) => {
     ipcRenderer.send("openLink", url);
   },
-  mailReport: async (formDetails, scanId) => {
-    const response = await ipcRenderer.invoke(
-      "mailReport",
-      formDetails,
-      scanId
-    );
-    return response;
-  },
     selectFile: async (options) => {
       const filePath = await ipcRenderer.invoke("selectFile", options);
       return filePath;
     },
-    getIsWindows: async () => ipcRenderer.invoke("isWindows"),
     checkNeedsElevation: async () => ipcRenderer.invoke("checkNeedsElevation"),
     getProxySettings: async () => ipcRenderer.invoke("getProxySettings"),
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),

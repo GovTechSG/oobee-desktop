@@ -165,21 +165,15 @@ function createMainWindow() {
 
 // TODO set ipcMain messages
 app.on('ready', async () => {
-  // Get user data to check if email exists
   const userData = await userDataManager.readUserDataFromFile();
-  
-  // Set user context in Sentry with userId
+
   Sentry.setUser({
     id: userData.userId,
-    email: userData.email || undefined,
-    hasEmail: !!userData.email
   });
 
-  // Track app launch event
   Sentry.captureMessage('App Launched', {
     level: 'info',
     tags: {
-      hasEmail: !!userData.email,
       os: os.platform(),
       version: constants.appVersion,
       userId: userData.userId
@@ -461,8 +455,6 @@ app.on('ready', async () => {
     }
   })
 
-  ipcMain.handle('isWindows', (_event) => constants.isWindows)
-
   ipcMain.handle('selectFile', async (event, options = {}) => {
     const result = await dialog.showOpenDialog(mainWindow, options)
 
@@ -569,14 +561,11 @@ app.on('quit', () => {
   //     }
   //   })
   // }
-  // Get user data to check if email exists
   const userData = userDataManager.readUserDataFromFile();
-  
-  // Track app quit event
+
   Sentry.captureMessage('App Quit', {
     level: 'info',
     tags: {
-      hasEmail: !!userData.email,
       os: os.platform(),
       version: constants.appVersion,
       userId: userData.userId
