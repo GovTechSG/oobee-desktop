@@ -52,11 +52,8 @@ const writeUserDetailsToFile = (data) => {
     const updatedData = { ...userData, ...data };
     fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
 
-    // Update Sentry user context with both ID and email
     Sentry.setUser({
-        id: userData.userId, // Keep the existing userId
-        email: data.email || userData.email || undefined,
-        hasEmail: !!(data.email || userData.email)
+        id: userData.userId,
     });
 }
 
