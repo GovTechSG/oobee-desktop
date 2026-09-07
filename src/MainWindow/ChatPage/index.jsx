@@ -1546,6 +1546,82 @@ const ChatPage = () => {
     }
   }
 
+  const exportChatAsPDF = async () => {
+    const rows = messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => {
+        const label = m.role === 'user' ? 'You' : 'Assistant'
+        const body =
+          m.role === 'assistant'
+            ? marked.parse(normalizeLLMMarkdown(m.content || ''))
+            : `<p>${(m.content || '').replace(/</g, '&lt;')}</p>`
+        const toolCalls = Array.isArray(m.toolCalls) && m.toolCalls.length > 0
+          ? m.toolCalls
+              .map((tc) => {
+                const statusLabel = tc.status === 'error' ? `${tc.name} failed` : `Called ${tc.name}`
+                const inputBlock = tc.input && Object.keys(tc.input).length > 0
+                  ? `<div style="font-weight:600;font-size:11px;margin-top:4px">Input</div><pre style="margin:2px 0;font-size:11px;white-space:pre-wrap">${JSON.stringify(tc.input, null, 2).replace(/</g, '&lt;')}</pre>`
+                  : ''
+                const resultBlock = tc.result
+                  ? `<div style="font-weight:600;font-size:11px;margin-top:4px">Result</div><pre style="margin:2px 0;font-size:11px;white-space:pre-wrap;max-height:200px;overflow:hidden">${String(tc.result).replace(/</g, '&lt;').slice(0, 2000)}</pre>`
+                  : ''
+                const errorBlock = tc.error
+                  ? `<div style="font-weight:600;font-size:11px;margin-top:4px;color:#b91c1c">Error</div><pre style="margin:2px 0;font-size:11px">${String(tc.error).replace(/</g, '&lt;')}</pre>`
+                  : ''
+                return `<details style="margin:4px 0;border:1px solid #e5e7eb;border-radius:4px;padding:4px 8px;font-size:12px;background:#fafafa"><summary style="cursor:pointer">${statusLabel}</summary>${inputBlock}${resultBlock}${errorBlock}</details>`
+              })
+              .join('')
+          : ''
+        const reasoning = m.reasoning
+          ? `<details style="margin:4px 0;border:1px solid #e0e7ff;border-radius:4px;padding:4px 8px;font-size:12px;background:#f5f7ff"><summary style="cursor:pointer">Thinking</summary><pre style="margin:2px 0;font-size:11px;white-space:pre-wrap">${m.reasoning.replace(/</g, '&lt;')}</pre></details>`
+          : ''
+        const imgs = Array.isArray(m.attachments)
+          ? m.attachments
+              .map(
+                (a) =>
+                  `<figure style="margin:8px 0"><img src="${a.dataUri || ''}" style="max-width:100%;border:1px solid #ccc;border-radius:4px" /></figure>`
+              )
+              .join('')
+          : ''
+        return `<div style="margin-bottom:16px"><strong>${label}</strong>${reasoning}${toolCalls}${body}${imgs}</div>`
+      })
+      .join('<hr style="border:none;border-top:1px solid #ddd;margin:12px 0" />')
+    let metaBlock = ''
+    if (summary) {
+      const lines = []
+      if (summary.siteName || summary.urlScanned)
+        lines.push(`<tr><td><strong>Site</strong></td><td>${(summary.siteName || summary.urlScanned || '').replace(/</g, '&lt;')}</td></tr>`)
+      if (summary.urlScanned)
+        lines.push(`<tr><td><strong>URL</strong></td><td>${summary.urlScanned.replace(/</g, '&lt;')}</td></tr>`)
+      if (summary.startTime)
+        lines.push(`<tr><td><strong>Scan time</strong></td><td>${new Date(summary.startTime).toLocaleString()}</td></tr>`)
+      if (summary.viewport)
+        lines.push(`<tr><td><strong>Viewport</strong></td><td>${summary.viewport}</td></tr>`)
+      if (summary.totalPagesScanned != null)
+        lines.push(`<tr><td><strong>Pages scanned</strong></td><td>${summary.totalPagesScanned}</td></tr>`)
+      if (summary.wcagPassPercentage != null)
+        lines.push(`<tr><td><strong>WCAG pass rate</strong></td><td>${summary.wcagPassPercentage}%</td></tr>`)
+      if (summary.mustFixOccurrences != null)
+        lines.push(`<tr><td><strong>Must Fix</strong></td><td>${summary.mustFixRules} rules, ${summary.mustFixOccurrences} occurrences</td></tr>`)
+      if (summary.goodToFixOccurrences != null)
+        lines.push(`<tr><td><strong>Good to Fix</strong></td><td>${summary.goodToFixRules} rules, ${summary.goodToFixOccurrences} occurrences</td></tr>`)
+      if (summary.needsReviewOccurrences != null)
+        lines.push(`<tr><td><strong>Needs Review</strong></td><td>${summary.needsReviewRules} rules, ${summary.needsReviewOccurrences} occurrences</td></tr>`)
+      if (lines.length > 0)
+        metaBlock = `<table style="border-collapse:collapse;margin-bottom:12px;font-size:13px">${lines.map(l => l.replace(/<td>/g, '<td style="padding:2px 12px 2px 0;vertical-align:top">')).join('')}</table>`
+    }
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Oobee Chat Export</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;font-size:14px;color:#222}
+pre{background:#f5f5f5;padding:12px;border-radius:4px;overflow-x:auto;font-size:13px}code{font-size:13px}img{max-width:100%}
+h1,h2,h3{margin-top:16px}hr{margin:16px 0}</style></head>
+<body><h2>Oobee LLM Chat Export</h2><p style="color:#666;font-size:12px">${new Date().toLocaleString()}</p>${metaBlock}<hr/>${rows}</body></html>`
+    try {
+      await window.services.exportChatToPDF(html)
+    } catch (_) {
+      // Save dialog cancelled or write failed — nothing to surface.
+    }
+  }
+
   return (
     <div id="chat-page">
       <div className="chat-page-header">
@@ -2426,6 +2502,15 @@ const ChatPage = () => {
                       {copiedIndex && copiedIndex.index === i && copiedIndex.kind === 'md'
                         ? 'Copied!'
                         : 'Copy as Markdown'}
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-copy-btn"
+                      onClick={exportChatAsPDF}
+                      aria-label="Export full conversation as PDF"
+                      title="Export full conversation as PDF"
+                    >
+                      Export as PDF
                     </button>
                   </div>
                 )}

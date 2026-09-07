@@ -596,6 +596,27 @@ app.on('ready', async () => {
     return userDataManager.setIncludeProxy(includeProxyValue)
   })
 
+  ipcMain.handle('exportChatToPDF', async (_event, htmlString) => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Chat as PDF',
+      defaultPath: `oobee-chat-${Date.now()}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    })
+    if (canceled || !filePath) return { ok: false }
+    const hiddenWin = new BrowserWindow({ show: false, width: 800, height: 600 })
+    try {
+      await hiddenWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlString)}`)
+      const pdfBuf = await hiddenWin.webContents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+      })
+      await require('fs-extra').writeFile(filePath, pdfBuf)
+      return { ok: true, filePath }
+    } finally {
+      hiddenWin.destroy()
+    }
+  })
+
   await mainReady
 
   mainWindow.webContents.send('appStatus', 'ready')

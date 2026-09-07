@@ -150,6 +150,7 @@ contextBridge.exposeInMainWorld("services", {
     setProxySettings: async (proxyValue) => ipcRenderer.invoke("setProxySettings", proxyValue),
     getIncludeProxy: async () => ipcRenderer.invoke("getIncludeProxy"),
     setIncludeProxy: async (includeProxyValue) => ipcRenderer.invoke("setIncludeProxy", includeProxyValue),
+    exportChatToPDF: async (htmlString) => ipcRenderer.invoke("exportChatToPDF", htmlString),
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),

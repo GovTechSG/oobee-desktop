@@ -4,7 +4,7 @@ const path = require('path')
 const zlib = require('zlib')
 const axios = require('axios')
 const { loadLLMConfig } = require('./llm-config')
-const { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS } = require('./llmPrompts')
+const { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS, SIBLING_QUERY_HINT, SIBLING_QUERY_PATTERN } = require('./llmPrompts')
 const { streamGemmaChat, disposeSession: disposeGemmaSession, unloadModel: unloadGemmaModel, ensureModel: ensureGemmaModel } = require('./llmGemma')
 const { streamOpenAICompatibleChat, disposeSession: disposeOpenAISession } = require('./llmOpenAICompatible')
 const { streamGithubCopilotChat, disposeSession: disposeGithubCopilotSession, listModels: listGithubCopilotModels } = require('./llmGithubCopilot')
@@ -1751,6 +1751,12 @@ function init({ mainWindow, getResultsFolderPath }) {
           })
           .filter(Boolean)
       : []
+    // Detect sibling/comparison queries and inject a one-shot tool-use hint
+    // so even small models (Gemma 4B) know to call get_element_context +
+    // get_finding_detail instead of speculating.
+    if (!session.newChat && SIBLING_QUERY_PATTERN.test(userMessage)) {
+      userMessage = `${userMessage}\n\n${SIBLING_QUERY_HINT}`
+    }
     try {
       if (session.provider === 'gemma') {
         await streamGemmaChat({
