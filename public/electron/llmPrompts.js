@@ -378,4 +378,20 @@ const TOOL_SCHEMAS = [
   },
 ]
 
-module.exports = { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS }
+// Small models (Gemma 4B) lack the reasoning depth to infer that a "why isn't
+// this flagged on sibling elements?" question requires calling get_element_context
+// with a high ancestor_depth + get_finding_detail to compare flagged vs unflagged
+// HTML. Larger models (GPT, Claude) figure this out from the tool descriptions
+// alone. When the user's message matches SIBLING_QUERY_PATTERN, we append
+// SIBLING_QUERY_HINT to the message so the model gets an explicit nudge.
+// Applied to all providers — harmless for large models, critical for small ones.
+const SIBLING_QUERY_HINT =
+  '[Hint: The user is asking about why certain elements are flagged while similar nearby elements are not. ' +
+  'Call get_element_context with ancestor_depth=3 to see sibling elements in context. ' +
+  'Then call get_finding_detail to see which specific elements are flagged for this rule. ' +
+  'Compare the flagged element\'s HTML attributes with its siblings to identify the difference.]'
+
+const SIBLING_QUERY_PATTERN =
+  /(?:why\s+(?:is|isn['']?t|not|only|aren['']?t)|not\s+flagged|compare\b.*\belements?\b|sibling|adjacent|nearby|surrounding|neighbou?ring|other\s+(?:elements?|headings?|buttons?|links?|inputs?|images?))/i
+
+module.exports = { buildSystemPrompt, buildStandaloneSystemPrompt, TOOL_SCHEMAS, SIBLING_QUERY_HINT, SIBLING_QUERY_PATTERN }
