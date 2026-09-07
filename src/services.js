@@ -190,11 +190,6 @@ const isValidCustomFlowLabel = (customFlowLabel) => {
   return { isValid: true }
 }
 
-const mailReport = async (formDetails, scanId) => {
-  const response = await window.services.mailReport(formDetails, scanId)
-  return response
-}
-
 const getIsWindows = async () => window.services.getIsWindows()
 const getIsSnapdragon = async () => window.services.getIsSnapdragon()
 const getIsIntelMac = async () => window.services.getIsIntelMac()
@@ -234,7 +229,6 @@ const services = {
   getDataForForm,
   getFeedbackFormUrl,
   isValidEmail,
-  mailReport,
   getIsWindows,
   getIsSnapdragon,
   getIsIntelMac,
