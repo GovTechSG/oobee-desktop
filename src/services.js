@@ -193,6 +193,7 @@ const isValidCustomFlowLabel = (customFlowLabel) => {
 const getIsWindows = async () => window.services.getIsWindows()
 const getIsSnapdragon = async () => window.services.getIsSnapdragon()
 const getIsIntelMac = async () => window.services.getIsIntelMac()
+const exportChatToPDF = async (htmlString) => window.services.exportChatToPDF(htmlString)
 
 
 const isValidName = (name) => {
@@ -232,6 +233,7 @@ const services = {
   getIsWindows,
   getIsSnapdragon,
   getIsIntelMac,
+  exportChatToPDF,
   isValidName,
   isValidCustomFlowLabel,
   getErrorLog,
