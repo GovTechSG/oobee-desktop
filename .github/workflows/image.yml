@@ -143,8 +143,8 @@ jobs:
             public/electron/wcag-index
           # Bust when the conversion scripts change or when the zip tag changes.
           # wcag-index is now also produced here (from wcag:* chunks in the zip).
-          # Bump -v2 to force a fresh download after this change.
-          key: frameworks-index-precomputed-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v2
+          # Bump -vN to force a fresh download of the latest precomputed index.
+          key: frameworks-index-precomputed-${{ hashFiles('scripts/ensure-frameworks-index.js', 'scripts/build-frameworks-index.js') }}-v3
 
       - name: Install dependencies (adm-zip needed for zip extraction)
         if: steps.cache.outputs.cache-hit != 'true'
