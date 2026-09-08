@@ -11,20 +11,34 @@ const { exec, spawn } = require("child_process");
 // aborts install rather than extracting an unverified zip. The sidecar file
 // content is expected to be a single 64-char hex digest, optionally followed
 // by whitespace and a filename (shasum -a 256 output format).
+//
+// GitHub release-asset URLs (github.com/.../releases/download/...) always
+// respond with HTTP 302 to a short-lived release-assets.githubusercontent.com
+// URL. Node's `https.get` does not auto-follow redirects, so we walk up to
+// MAX_REDIRECTS hops manually. Each hop must remain on https:// — a downgrade
+// to http would let a network attacker who can rewrite Location: hand us an
+// attacker-controlled sidecar with a matching (attacker-picked) hash.
 const verifyArtifactSha256 = (artifactUrl, artifactPath) => new Promise((resolve, reject) => {
-  const hashUrl = `${artifactUrl}.sha256`;
-  const req = https.get(hashUrl, { timeout: 15000 }, (res) => {
-    if (res.statusCode !== 200) {
-      res.resume();
-      return reject(new Error(`Missing SHA-256 sidecar at ${hashUrl} (HTTP ${res.statusCode})`));
-    }
+  const MAX_REDIRECTS = 5;
+  const originalHashUrl = `${artifactUrl}.sha256`;
+
+  const consumeBody = (res) => {
     let body = "";
+    let aborted = false;
     res.setEncoding("utf8");
-    res.on("data", (chunk) => { body += chunk; if (body.length > 4096) req.destroy(new Error("sha256 sidecar too large")); });
+    res.on("data", (chunk) => {
+      if (aborted) return;
+      body += chunk;
+      if (body.length > 4096) {
+        aborted = true;
+        res.destroy(new Error("sha256 sidecar too large"));
+      }
+    });
     res.on("end", () => {
+      if (aborted) return;
       const expected = (body.trim().split(/\s+/)[0] || "").toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(expected)) {
-        return reject(new Error(`Invalid SHA-256 digest at ${hashUrl}`));
+        return reject(new Error(`Invalid SHA-256 digest at ${originalHashUrl}`));
       }
       const hash = crypto.createHash("sha256");
       const stream = fs.createReadStream(artifactPath);
@@ -38,9 +52,39 @@ const verifyArtifactSha256 = (artifactUrl, artifactPath) => new Promise((resolve
         resolve();
       });
     });
-  });
-  req.on("timeout", () => req.destroy(new Error(`Timed out fetching ${hashUrl}`)));
-  req.on("error", reject);
+    res.on("error", reject);
+  };
+
+  const fetch = (currentUrl, redirectsLeft) => {
+    const req = https.get(currentUrl, { timeout: 15000 }, (res) => {
+      const { statusCode, headers } = res;
+      if (statusCode >= 300 && statusCode < 400 && headers.location) {
+        res.resume();
+        if (redirectsLeft <= 0) {
+          return reject(new Error(`Too many redirects fetching ${originalHashUrl}`));
+        }
+        let nextUrl;
+        try {
+          nextUrl = new URL(headers.location, currentUrl).toString();
+        } catch (e) {
+          return reject(new Error(`Invalid redirect target for ${originalHashUrl}: ${headers.location}`));
+        }
+        if (!nextUrl.startsWith("https://")) {
+          return reject(new Error(`Refusing non-https redirect from ${originalHashUrl} to ${nextUrl}`));
+        }
+        return fetch(nextUrl, redirectsLeft - 1);
+      }
+      if (statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`Missing SHA-256 sidecar at ${originalHashUrl} (HTTP ${statusCode})`));
+      }
+      consumeBody(res);
+    });
+    req.on("timeout", () => req.destroy(new Error(`Timed out fetching ${originalHashUrl}`)));
+    req.on("error", reject);
+  };
+
+  fetch(originalHashUrl, MAX_REDIRECTS);
 });
 const {
   getFrontendVersion,
