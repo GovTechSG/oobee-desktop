@@ -156,7 +156,19 @@ const init = async () => {
             console.error('openResultsFolder received an invalid path');
             return;
         }
-        shell.openPath(path.normalize(safeResultsPath));
+
+        // Confine the path to the configured export directory (or the default)
+        // so a renderer-side XSS / malformed IPC payload can't drive shell.openPath
+        // to launch arbitrary local files with their OS default handler.
+        const userData = readUserDataFromFile();
+        const exportRoot = path.resolve(userData.exportDir || defaultExportDir);
+        const target = path.resolve(exportRoot, safeResultsPath);
+        const rel = path.relative(exportRoot, target);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            console.error('openResultsFolder rejected: path escapes exportDir', { target, exportRoot });
+            return;
+        }
+        shell.openPath(target);
     })
 }
 

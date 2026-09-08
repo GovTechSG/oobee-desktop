@@ -130,7 +130,19 @@ export const installChromeUrl = `https://www.google.com/chrome/?brand=CHBD&brand
 
 export const handleClickLink = (e, url) => {
   e.preventDefault()
-  window.services.openLink(url)
+  // Release-notes / announcement HTML is fetched from a remote catalog, so
+  // anchor hrefs are not fully trusted. Only allow http/https/mailto here —
+  // the main-process ipcMain.on('openLink') handler enforces the same
+  // allowlist as a second layer.
+  if (typeof url !== 'string' || url.length === 0 || url.length > 4096) return
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch (err) {
+    return
+  }
+  if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return
+  window.services.openLink(parsed.toString())
 }
 
 export const forbiddenCharactersInDirPath = [
