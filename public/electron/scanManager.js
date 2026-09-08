@@ -51,6 +51,45 @@ const sanitizeLogPath = (rawPath) => {
     .trim()
 }
 
+// Ensure ``candidate`` is a plain path that resolves inside one of the
+// app-controlled directories (appPath / resultsPath / scanResultsPath, plus
+// an OOBEE_LOGS_PATH override when the operator has set one). We derive the
+// error log path from scan-subprocess stdout; a malicious scan target could
+// in principle poison stdout with an absolute path pointing at an arbitrary
+// system file which would then be opened via shell.openPath. Reject anything
+// that escapes the allowlist or has an unexpected extension.
+const getAllowedLogRoots = () => {
+  const roots = [appPath, resultsPath, scanResultsPath]
+  if (process.env.OOBEE_LOGS_PATH) roots.push(process.env.OOBEE_LOGS_PATH)
+  return roots.filter(Boolean).map((r) => {
+    try { return path.resolve(r) } catch { return null }
+  }).filter(Boolean)
+}
+
+const isPathContainedIn = (candidate, root) => {
+  if (!candidate || !root) return false
+  const rel = path.relative(root, candidate)
+  // path.relative returns an absolute path when the two live on different
+  // Windows drives; treat that as "not contained".
+  if (path.isAbsolute(rel)) return false
+  // A leading '..' means the candidate escapes root via traversal.
+  return !rel.startsWith('..')
+}
+
+const isSafeErrorLogPath = (rawPath) => {
+  if (!rawPath || typeof rawPath !== 'string') return false
+  if (rawPath.length > 4096) return false
+  // Reject NUL bytes and any explicit remote-file scheme.
+  if (rawPath.includes('\0')) return false
+  const lowered = rawPath.trim().toLowerCase()
+  if (lowered.startsWith('file:') || lowered.startsWith('smb:') || lowered.startsWith('\\\\')) return false
+  let resolved
+  try { resolved = path.resolve(rawPath) } catch { return false }
+  const ext = path.extname(resolved).toLowerCase()
+  if (ext !== '.txt' && ext !== '.log') return false
+  return getAllowedLogRoots().some((root) => isPathContainedIn(resolved, root))
+}
+
 const killChildProcess = () => {
   if (currentChildProcess) {
     const proc = currentChildProcess
@@ -435,10 +474,13 @@ const startScan = async (scanDetails, scanEvent) => {
           const prefix = 'Logger writing to: '
           const index = message.indexOf(prefix)
           if (index !== -1) {
-            process.env.OOBEE_ERROR_LOG_PATH = message
-              .substring(index + prefix.length)
-              .trim()
-            console.log('Error log path set to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+            const candidate = message.substring(index + prefix.length).trim()
+            if (isSafeErrorLogPath(candidate)) {
+              process.env.OOBEE_ERROR_LOG_PATH = candidate
+              console.log('Error log path set to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+            } else {
+              console.warn('Rejected out-of-scope error log path from stdout')
+            }
           }
         } catch (error) {
           console.error('Failed to parse log data as JSON:', error)
@@ -449,9 +491,11 @@ const startScan = async (scanDetails, scanEvent) => {
         const match = trimmedLine.match(
           /An error occured\. Log file is located at:\s*(\S+?\.txt)(?=\s|$)/
         )
-        if (match && match[1]) {
+        if (match && match[1] && isSafeErrorLogPath(match[1])) {
           process.env.OOBEE_ERROR_LOG_PATH = match[1]
           console.log('Error log path changed to:\n', process.env.OOBEE_ERROR_LOG_PATH)
+        } else if (match && match[1]) {
+          console.warn('Rejected out-of-scope error log path from error message')
         }
         resolveOnce({ success: false })
         return
@@ -783,7 +827,15 @@ const init = (scanEvent) => {
   ipcMain.handle(
     'getErrorLog',
     async (event, timeOfScanString, timeOfError) => {
-      const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt');
+      // Fall back to the vetted default when OOBEE_ERROR_LOG_PATH points at
+      // something outside the app-controlled log roots. Defense in depth:
+      // isSafeErrorLogPath already runs at the stdout ingestion sites, but
+      // OOBEE_ERROR_LOG_PATH is a plain process env var that any code in
+      // this process could set, so we re-check at the read/open site too.
+      const envPath = process.env.OOBEE_ERROR_LOG_PATH
+      const errorLogPath = (envPath && isSafeErrorLogPath(envPath))
+        ? envPath
+        : path.join(appPath, 'errors.txt')
       const errorLog = fs.readFileSync(errorLogPath, 'utf-8')
       const regex = /{.*?}/gs
       const entries = errorLog.match(regex)
@@ -828,7 +880,13 @@ const init = (scanEvent) => {
   )
 
   ipcMain.handle('openErrorLog', async () => {
-    const errorLogPath = process.env.OOBEE_ERROR_LOG_PATH || path.join(appPath, 'errors.txt')
+    // Re-validate at the shell.openPath sink: if OOBEE_ERROR_LOG_PATH has
+    // been mutated to point outside the app-controlled log roots, fall
+    // back to the safe default rather than opening an arbitrary file.
+    const envPath = process.env.OOBEE_ERROR_LOG_PATH
+    const errorLogPath = (envPath && isSafeErrorLogPath(envPath))
+      ? envPath
+      : path.join(appPath, 'errors.txt')
     if (!fs.existsSync(errorLogPath)) {
       return { success: false, reason: 'not-found' }
     }
