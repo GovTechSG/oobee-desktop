@@ -2,7 +2,46 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const https = require("https");
 const { exec, spawn } = require("child_process");
+
+// Download a `<artifactUrl>.sha256` sidecar (over verified TLS) and match it
+// against the actual SHA-256 of the on-disk artifact. Any failure — network
+// error, missing sidecar, malformed digest, mismatch — throws, so the caller
+// aborts install rather than extracting an unverified zip. The sidecar file
+// content is expected to be a single 64-char hex digest, optionally followed
+// by whitespace and a filename (shasum -a 256 output format).
+const verifyArtifactSha256 = (artifactUrl, artifactPath) => new Promise((resolve, reject) => {
+  const hashUrl = `${artifactUrl}.sha256`;
+  const req = https.get(hashUrl, { timeout: 15000 }, (res) => {
+    if (res.statusCode !== 200) {
+      res.resume();
+      return reject(new Error(`Missing SHA-256 sidecar at ${hashUrl} (HTTP ${res.statusCode})`));
+    }
+    let body = "";
+    res.setEncoding("utf8");
+    res.on("data", (chunk) => { body += chunk; if (body.length > 4096) req.destroy(new Error("sha256 sidecar too large")); });
+    res.on("end", () => {
+      const expected = (body.trim().split(/\s+/)[0] || "").toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(expected)) {
+        return reject(new Error(`Invalid SHA-256 digest at ${hashUrl}`));
+      }
+      const hash = crypto.createHash("sha256");
+      const stream = fs.createReadStream(artifactPath);
+      stream.on("error", reject);
+      stream.on("data", (d) => hash.update(d));
+      stream.on("end", () => {
+        const actual = hash.digest("hex");
+        if (actual !== expected) {
+          return reject(new Error(`SHA-256 mismatch on ${artifactPath}: expected ${expected}, got ${actual}`));
+        }
+        resolve();
+      });
+    });
+  });
+  req.on("timeout", () => req.destroy(new Error(`Timed out fetching ${hashUrl}`)));
+  req.on("error", reject);
+});
 const {
   getFrontendVersion,
   getEngineVersion,
@@ -25,6 +64,52 @@ const {
 let currentChildProcess;
 let isLabMode = false;
 let powershellAvailable = null;
+
+// Values under this module's control get interpolated into shell / PowerShell
+// scripts and macOS admin AppleScript. The `baseUrl`, `tag`, `macAppName`,
+// `macZipName`, `windowsZipName`, and `windowsInstallerName` fields all flow
+// from the remotely-fetched release catalog (latest-release.json). Treat those
+// as untrusted and reject anything outside an allowlist before it can reach
+// bash `-c` / powershell `-Command` / osascript `do shell script`.
+
+// Only allow the two GovTechSG repos we ship from. Any redirect target the
+// catalog claims still has to match one of these — otherwise an attacker who
+// mutates the JSON (e.g. via MITM before TLS was fixed, or by taking over the
+// docs origin) could point the client at their own release zip.
+const ALLOWED_BASE_URLS = new Set([
+  "https://github.com/GovTechSG/oobee-desktop",
+  "https://github.com/GovTechSG/oobee",
+]);
+// Version tag: allow the release-line pattern (with optional v prefix, plus
+// optional pre-release suffix like -beta.1). Deliberately narrow so it can't
+// carry shell metacharacters.
+const TAG_RE = /^v?\d+(?:\.\d+){0,3}(?:-[A-Za-z0-9._-]+)?$/;
+// Asset filenames: letters, digits, dot, dash, underscore. No slashes, spaces,
+// or shell metacharacters. macAppName ends with `.app`.
+const ASSET_ZIP_RE = /^[A-Za-z0-9._-]{1,128}\.zip$/;
+const ASSET_EXE_RE = /^[A-Za-z0-9._-]{1,128}\.exe$/;
+const ASSET_APP_RE = /^[A-Za-z0-9._-]{1,128}\.app$/;
+
+const validateBaseUrl = (v) => {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !ALLOWED_BASE_URLS.has(v)) {
+    throw new Error(`Rejecting untrusted baseUrl: ${v}`);
+  }
+  return v;
+};
+const validateTag = (v) => {
+  if (typeof v !== "string" || !TAG_RE.test(v)) {
+    throw new Error(`Rejecting untrusted tag: ${v}`);
+  }
+  return v;
+};
+const validateAssetName = (v, re, kind) => {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !re.test(v)) {
+    throw new Error(`Rejecting untrusted ${kind}: ${v}`);
+  }
+  return v;
+};
 
 function checkPowerShellAvailable() {
   if (powershellAvailable !== null) return powershellAvailable; // cache result
@@ -201,29 +286,54 @@ const getLatestFrontendVersion = (latestRelease, latestPreRelease) => {
  * @returns {Promise<void>} void if the frontend was downloaded and unzipped successfully
  */
 const downloadAndUnzipFrontendWindows = async (tag, baseUrl = undefined, windowsZipName = undefined, windowsInstallerName = undefined) => {
+  // The tag / baseUrl / asset-name fields all flow from the remote release
+  // catalog, and the download URL and the PowerShell script are built by
+  // string interpolation. Validate up front so a hostile catalog can't inject
+  // `"; Invoke-Expression ...` payloads.
+  const safeTag = validateTag(tag);
+  const safeBaseUrl = validateBaseUrl(baseUrl) || "https://github.com/GovTechSG/oobee-desktop";
   // Remote asset name from latest-release.json — lets a future release rename
   // the zip (e.g. new repo with a different asset naming scheme).
-  const remoteZipName = windowsZipName || "oobee-desktop-windows.zip";
-  const installerName = windowsInstallerName || "Oobee-setup.exe";
+  const remoteZipName = validateAssetName(windowsZipName, ASSET_ZIP_RE, "windowsZipName") || "oobee-desktop-windows.zip";
+  const installerName = validateAssetName(windowsInstallerName, ASSET_EXE_RE, "windowsInstallerName") || "Oobee-setup.exe";
 
-  const downloadUrl = `${baseUrl || "https://github.com/GovTechSG/oobee-desktop"}/releases/download/${tag}/${remoteZipName}`;
+  const downloadUrl = `${safeBaseUrl}/releases/download/${safeTag}/${remoteZipName}`;
 
   // Local paths are internal — keep stable names so we don't churn folder layout.
   const localZipPath = `${resultsPath}\\oobee-desktop-windows.zip`;
   const extractDir = `${resultsPath}\\oobee-desktop-windows`;
   const installerPath = path.join(extractDir, installerName);
 
+  // Download the sidecar (`<downloadUrl>.sha256`) alongside the artifact and
+  // compare the digests before Expand-Archive runs. If either the sidecar
+  // is missing/malformed or the hashes don't match, PowerShell exits 3 and
+  // the caller aborts install — matching the enforcement in installer.ps1.
   const shellScript = `
+  $ErrorActionPreference = "Stop"
   $webClient = New-Object System.Net.WebClient
   try {
     If (!(Test-Path -Path "${resultsPath}")) {
       New-Item -ItemType Directory -Path "${resultsPath}"
     }
     $webClient.DownloadFile("${downloadUrl}", "${localZipPath}")
+    $webClient.DownloadFile("${downloadUrl}.sha256", "${localZipPath}.sha256")
   } catch {
     Write-Host "Error: Unable to download frontend"
     throw "Unable to download frontend"
     exit 1
+  }
+
+  try {
+    $expected = (Get-Content -Raw -Path "${localZipPath}.sha256").Trim().Split()[0].ToLower()
+    if (-not $expected -or $expected.Length -ne 64) { throw "Invalid SHA-256 sidecar" }
+    $actual = (Get-FileHash -Path "${localZipPath}" -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $expected) { throw "SHA-256 mismatch: expected $expected got $actual" }
+    Remove-Item -Path "${localZipPath}.sha256" -Force -ErrorAction SilentlyContinue
+  } catch {
+    Write-Host "Error: Frontend integrity check failed"
+    Remove-Item -Path "${localZipPath}","${localZipPath}.sha256" -Force -ErrorAction SilentlyContinue
+    throw "Frontend integrity check failed"
+    exit 3
   }
 
   try {
@@ -266,18 +376,23 @@ const downloadAndUnzipFrontendWindows = async (tag, baseUrl = undefined, windows
  * Spawns a Shell Command process to download and unzip the frontend
  */
 const downloadAndUnzipFrontendMac = async (tag, baseUrl = undefined, macAppName = undefined, macZipName = undefined) => {
+  // Same rationale as downloadAndUnzipFrontendWindows: every string that flows
+  // into the download URL or the shell / osascript install command comes from
+  // the remote release catalog. Validate up front so a hostile catalog value
+  // like `x'; rm -rf ~; :'.zip` can't reach bash.
+  const safeTag = validateTag(tag);
+  const safeBaseUrl = validateBaseUrl(baseUrl) || "https://github.com/GovTechSG/oobee-desktop";
   // Remote asset name from latest-release.json so a future release can rename
   // the zip asset (e.g. when moving to a new repo with different naming).
-  const remoteZipName = macZipName || "oobee-desktop-macos.zip";
-  const downloadUrl = `${baseUrl || "https://github.com/GovTechSG/oobee-desktop"}/releases/download/${tag}/${remoteZipName}`;
+  const remoteZipName = validateAssetName(macZipName, ASSET_ZIP_RE, "macZipName") || "oobee-desktop-macos.zip";
+  const downloadUrl = `${safeBaseUrl}/releases/download/${safeTag}/${remoteZipName}`;
 
   const parentDir = path.join(macOSExecutablePath, "..");
 
   // Path of the freshly-extracted .app. `macAppName` comes from latest-release.json
   // so a future release can rename the bundle (e.g. "Oobee Scanner.app") without a
   // client rebuild — the zip's top-level directory just has to match this name.
-  // Spaces are safe because every shell interpolation below is single-quoted.
-  const newAppName = macAppName || "Oobee.app";
+  const newAppName = validateAssetName(macAppName, ASSET_APP_RE, "macAppName") || "Oobee.app";
   const newAppPath = path.join(parentDir, newAppName);
 
   // `curl -fL`: `-f` makes curl exit non-zero on HTTP 4xx/5xx instead of writing
@@ -303,6 +418,19 @@ const downloadAndUnzipFrontendMac = async (tag, baseUrl = undefined, macAppName 
   const installCommand = `{ [ ! -e '${macOSExecutablePath}' ] || mv '${macOSExecutablePath}' '${parentDir}/${tempAppName}'; } && ditto -xk '${localZipPath}' '${parentDir}' && rm -f '${localZipPath}' && rm -rf '${parentDir}/${tempAppName}' && (xattr -rd com.apple.quarantine '${newAppPath}' 2>/dev/null || true)`;
 
   await execCommand(downloadCommand);
+
+  // Verify the downloaded zip against the SHA-256 sidecar published alongside
+  // the artifact BEFORE any elevation prompt fires. If the sidecar is missing
+  // or the hashes disagree, throw so we do not run ditto (which would extract
+  // an unverified bundle into /Applications) or trigger an admin prompt on
+  // behalf of an attacker-supplied zip.
+  try {
+    await verifyArtifactSha256(downloadUrl, localZipPath);
+    consoleLogger.info(`Integrity check passed for ${downloadUrl}`);
+  } catch (err) {
+    try { fs.unlinkSync(localZipPath); } catch (_) {}
+    throw new Error(`Frontend integrity check failed: ${err.message}`);
+  }
 
   // Try unprivileged first. If it fails for any reason (POSIX denial, MDM/Admin
   // By Request policy, SIP, etc.), fall back to the elevated path which triggers
@@ -349,7 +477,7 @@ const downloadAndUnzipFrontendMac = async (tag, baseUrl = undefined, macAppName 
     }
 
     // `tag` may be prefixed with "v" (e.g. "v0.11.2"); Info.plist stores the bare version.
-    const expected = tag.replace(/^v/, "");
+    const expected = safeTag.replace(/^v/, "");
     if (installedVersion !== expected) {
       throw new Error(
         `Update verification failed: expected version ${expected} but installed bundle reports ${installedVersion}`

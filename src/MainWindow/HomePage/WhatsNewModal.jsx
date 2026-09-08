@@ -11,6 +11,30 @@ const HTML_TO_REACT_ATTR = {
   for: "htmlFor",
 };
 
+// Release notes / announcements come from a remotely-fetched release catalog,
+// so treat the HTML as untrusted. Only these tags/attributes survive parsing;
+// everything else (scripts, iframes, event handlers, javascript: hrefs) is
+// dropped before it can reach React.createElement.
+const ALLOWED_TAGS = new Set([
+  "a","p","br","hr","strong","em","b","i","u","code","pre",
+  "h1","h2","h3","h4","h5","h6","ul","ol","li","blockquote","span","div",
+]);
+const ALLOWED_ATTRS_BY_TAG = {
+  a: new Set(["href","title"]),
+  code: new Set(["class"]),
+  pre: new Set(["class"]),
+  span: new Set(["class"]),
+  div: new Set(["class"]),
+};
+const SAFE_URL_SCHEMES = /^(https?:|mailto:)/i;
+
+const isSafeHref = (v) => {
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (s.startsWith("/") || s.startsWith("#")) return true;
+  return SAFE_URL_SCHEMES.test(s);
+};
+
 // Walk an HTML DOM node and produce a React element tree. Every <a href>
 // gets the external-link icon appended as an extra child so hyperlinks in
 // markdown-authored release notes / announcements have the same visual
@@ -19,9 +43,15 @@ const htmlNodeToReact = (node, key) => {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent;
   if (node.nodeType !== Node.ELEMENT_NODE) return null;
   const tag = node.tagName.toLowerCase();
+  if (!ALLOWED_TAGS.has(tag)) return null;
+  const allowedAttrs = ALLOWED_ATTRS_BY_TAG[tag] || new Set();
   const props = { key };
   for (const attr of node.attributes) {
-    const name = HTML_TO_REACT_ATTR[attr.name] || attr.name;
+    const rawName = attr.name.toLowerCase();
+    if (rawName.startsWith("on")) continue;
+    if (!allowedAttrs.has(rawName)) continue;
+    if (rawName === "href" && !isSafeHref(attr.value)) continue;
+    const name = HTML_TO_REACT_ATTR[rawName] || rawName;
     props[name] = attr.value;
   }
   const children = Array.from(node.childNodes).map((c, i) => htmlNodeToReact(c, i));
@@ -108,7 +138,8 @@ const WhatsNewModal = ({
             // matches "See previous versions" and the announcement anchors.
             // The parent modal-body div has a delegated click handler that
             // intercepts the click and routes it through shell.openExternal.
-            const href = child.getAttribute("href");
+            const rawHref = child.getAttribute("href");
+            const href = isSafeHref(rawHref) ? rawHref : "#";
             liChildElems.push(
               createElement(
                 "a",

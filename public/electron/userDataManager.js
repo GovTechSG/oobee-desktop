@@ -47,9 +47,32 @@ const setIncludeProxy = (includeProxyValue) => {
     return { success: true };
 }
 
+// Only these keys may be updated by editUserData / writeUserDetailsToFile. The
+// data payload is renderer-controlled (arrives via ipcMain.on('editUserData')),
+// so a `{...userData, ...data}` spread would let it overwrite server-managed
+// fields (userId, autoUpdate, exportDir, etc.). Keep this list in sync with
+// fields written elsewhere by the main process.
+const USER_DATA_WRITABLE_FIELDS = new Set([
+    'name',
+    'email',
+    'browser',
+    'event',
+    'autoUpdate',
+    'isLabMode',
+    'firstLaunchOnUpdate',
+]);
+
 const writeUserDetailsToFile = (data) => {
     const userData = readUserDataFromFile();
-    const updatedData = { ...userData, ...data };
+    const clean = {};
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        for (const key of Object.keys(data)) {
+            if (USER_DATA_WRITABLE_FIELDS.has(key)) {
+                clean[key] = data[key];
+            }
+        }
+    }
+    const updatedData = { ...userData, ...clean };
     fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
 
     Sentry.setUser({
