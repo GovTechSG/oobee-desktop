@@ -35,9 +35,18 @@ jobs:
 
       - name: Determine new version
         id: bump
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [[ "${{ github.event.inputs.version }}" != "" ]]; then
-            new_version=$(npm version "${{ github.event.inputs.version }}" --no-git-tag-version)
+          if [[ -n "$RAW_VERSION" ]]; then
+            # Only allow either a semver-ish literal (1.2.3, 1.2.3-beta.1) or
+            # one of the npm-version keywords. Anything else is a shell-metachar
+            # injection vector — reject early rather than passing to npm.
+            if [[ ! "$RAW_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|major|minor|patch|premajor|preminor|prepatch|prerelease)$ ]]; then
+              echo "Invalid version input: $RAW_VERSION" >&2
+              exit 1
+            fi
+            new_version=$(npm version "$RAW_VERSION" --no-git-tag-version)
           else
             new_version=$(npm version patch --no-git-tag-version)
           fi

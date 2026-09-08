@@ -47,9 +47,32 @@ const setIncludeProxy = (includeProxyValue) => {
     return { success: true };
 }
 
+// Only these keys may be updated by editUserData / writeUserDetailsToFile. The
+// data payload is renderer-controlled (arrives via ipcMain.on('editUserData')),
+// so a `{...userData, ...data}` spread would let it overwrite server-managed
+// fields (userId, autoUpdate, exportDir, etc.). Keep this list in sync with
+// fields written elsewhere by the main process.
+const USER_DATA_WRITABLE_FIELDS = new Set([
+    'name',
+    'email',
+    'browser',
+    'event',
+    'autoUpdate',
+    'isLabMode',
+    'firstLaunchOnUpdate',
+]);
+
 const writeUserDetailsToFile = (data) => {
     const userData = readUserDataFromFile();
-    const updatedData = { ...userData, ...data };
+    const clean = {};
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        for (const key of Object.keys(data)) {
+            if (USER_DATA_WRITABLE_FIELDS.has(key)) {
+                clean[key] = data[key];
+            }
+        }
+    }
+    const updatedData = { ...userData, ...clean };
     fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
 
     Sentry.setUser({
@@ -133,7 +156,19 @@ const init = async () => {
             console.error('openResultsFolder received an invalid path');
             return;
         }
-        shell.openPath(path.normalize(safeResultsPath));
+
+        // Confine the path to the configured export directory (or the default)
+        // so a renderer-side XSS / malformed IPC payload can't drive shell.openPath
+        // to launch arbitrary local files with their OS default handler.
+        const userData = readUserDataFromFile();
+        const exportRoot = path.resolve(userData.exportDir || defaultExportDir);
+        const target = path.resolve(exportRoot, safeResultsPath);
+        const rel = path.relative(exportRoot, target);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+            console.error('openResultsFolder rejected: path escapes exportDir', { target, exportRoot });
+            return;
+        }
+        shell.openPath(target);
     })
 }
 

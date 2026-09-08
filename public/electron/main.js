@@ -1,27 +1,3 @@
-/**
- * Suppresses the "Setting the NODE_TLS_REJECT_UNAUTHORIZED 
- * environment variable to '0' is insecure" warning,
- * then disables TLS validation globally.
- */
-function suppressTlsRejectWarning() {
-  // Monkey-patch process.emitWarning
-  const originalEmitWarning = process.emitWarning;
-  process.emitWarning = (warning, ...args) => {
-    const msg = typeof warning === 'string' ? warning : warning.message;
-    if (msg.includes('NODE_TLS_REJECT_UNAUTHORIZED')) {
-      // swallow only that one warning
-      return;
-    }
-    // forward everything else
-    originalEmitWarning.call(process, warning, ...args);
-  };
-
-  // Now turn off cert validation
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
-// Allow Sentry to send data on proxied environments
-suppressTlsRejectWarning();
-
 const {
   app: electronApp,
   BrowserWindow,
@@ -69,8 +45,6 @@ function captureCmd(bin, args) {
 }
 
 const app = electronApp
-
-app.commandLine.appendSwitch('ignore-certificate-errors');
 
 // Initialize Sentry
 Sentry.init({
@@ -183,7 +157,7 @@ app.on('ready', async () => {
   const axiosInstance = axios.create({
     timeout: 5000,
     httpsAgent: new https.Agent({
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
       headers: {
         // 'X-Forwarded-For': 'xxx',
         'User-Agent': 'axios',
@@ -435,7 +409,19 @@ app.on('ready', async () => {
   })
 
   ipcMain.on('openLink', (_event, url) => {
-    shell.openExternal(url)
+    // Anything reachable through preload's contextBridge is renderer-controlled,
+    // so validate before shelling out to the OS. Only allow http/https/mailto —
+    // reject file://, javascript:, chrome-extension: etc. that could exec code
+    // or leak local files when passed to shell.openExternal.
+    if (typeof url !== 'string' || url.length === 0 || url.length > 4096) return
+    let parsed
+    try {
+      parsed = new URL(url)
+    } catch (e) {
+      return
+    }
+    if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return
+    shell.openExternal(parsed.toString())
   })
 
   ipcMain.handle('getEngineVersion', () => {
@@ -485,9 +471,31 @@ app.on('ready', async () => {
 
   mainWindow.webContents.send('appStatus', 'ready')
 
+  // Strip tags / attributes / URL schemes that could execute JavaScript when
+  // the marked-rendered HTML is later assigned to innerHTML in the renderer.
+  // The release-notes catalog is remotely fetched, so treat its markdown as
+  // untrusted. Defense-in-depth: WhatsNewModal.jsx also allowlists tags on
+  // render, but sanitizing at the source stops <script>/<iframe> etc. from
+  // ever crossing the IPC boundary.
+  const sanitizeRenderedMarkdown = (html) => {
+    if (typeof html !== 'string' || html.length === 0) return ''
+    let out = html
+    // Drop entire dangerous elements (with their contents).
+    out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[^>]*>/gi, '')
+    // Drop inline event handlers (onclick=, onerror=, ...).
+    out = out.replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '')
+    out = out.replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
+    out = out.replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
+    // Neutralize javascript:/vbscript:/data: URLs on href and src.
+    out = out.replace(/(\s(?:href|src|xlink:href)\s*=\s*")(\s*(?:javascript|vbscript|data)\s*:[^"]*)"/gi, '$1#"')
+    out = out.replace(/(\s(?:href|src|xlink:href)\s*=\s*')(\s*(?:javascript|vbscript|data)\s*:[^']*)'/gi, "$1#'")
+    return out
+  }
+
   const markdownToHTML = (md) => {
     if (typeof md !== 'string' || md.length === 0) return ''
-    return marked.parse(md)
+    return sanitizeRenderedMarkdown(marked.parse(md))
   }
 
   if (releaseInfo) {

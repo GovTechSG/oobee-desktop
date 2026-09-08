@@ -1,5 +1,17 @@
 $backendTag = $args[0];
 
+# Reject any tag value that does not match a strict version/tag allowlist.
+# The tag is interpolated into a here-string that is later executed by an
+# elevated PowerShell process, so a value containing quotes, semicolons,
+# backticks, or newlines would land as executable code in that elevated
+# session. Restrict to characters that legitimately appear in oobee release
+# tags (letters, digits, '.', '_', '-') and cap the length so runaway input
+# cannot slip through.
+if ([string]::IsNullOrWhiteSpace($backendTag) -or $backendTag.Length -gt 64 -or ($backendTag -notmatch '^[A-Za-z0-9._-]+$')) {
+    Write-Error "Rejected backend tag: value must match ^[A-Za-z0-9._-]+$ and be <=64 chars."
+    exit 1
+}
+
 $purpleA11yDirectory = 'C:\Program Files\Oobee Desktop';
 $purpleA11yBackendDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend';
 $purpleA11yBackendPHDirectory = 'C:\Program Files\Oobee Desktop\Oobee Backend\oobee';
