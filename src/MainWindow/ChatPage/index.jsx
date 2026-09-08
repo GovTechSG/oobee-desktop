@@ -1116,8 +1116,19 @@ const ChatPage = () => {
       msgLower.includes('could not be determined') ||
       msgLower.includes('background image') ||
       msgLower.includes('background gradient')
+    // Placeholder colour lives on `::placeholder`, not on the input's own
+    // `color`. Without this nudge the model reads `styles.color` (the input
+    // text colour, e.g. #000) and either agrees with axe's false-positive
+    // or invents an explanation. Only inject on inputs/textareas to avoid
+    // diluting the hint on unrelated contrast findings.
+    const isFieldSnippet =
+      /<(input|textarea)\b/i.test(htmlSnippet) &&
+      (ruleLower.includes('color-contrast') || ruleLower.includes('contrast'))
     const cssHint = isCssDependent
-      ? 'This is a CSS-dependent rule. Before answering, call `get_page_computed_styles` with pageUrl set to the URL above and selector set to the XPath/selector shown (axe reports CSS selectors under the "xpath" field). That returns the actually-applied browser styles — the definitive answer for colour and contrast. If it errors because the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1, fall back to `get_page_css` for the inline `<style>` blocks and say plainly if the failing rule lives in an external stylesheet that was not captured.'
+      ? 'This is a CSS-dependent rule. Before answering, call `get_page_computed_styles` with pageUrl set to the URL above and selector set to the XPath/selector shown (axe reports CSS selectors under the "xpath" field). That returns the actually-applied browser styles — the definitive answer for colour and contrast. If it errors because the scan was run without OOBEE_SAVE_COMPUTED_STYLES=1, fall back to `get_page_css` for the inline `<style>` blocks and say plainly if the failing rule lives in an external stylesheet that was not captured.' +
+        (isFieldSnippet
+          ? ' The failing element is an `<input>`/`<textarea>` — if this is a placeholder colour-contrast issue, read `pseudoStyles["::placeholder"].color` on the returned record, NOT `styles.color`. The element\'s own `color` is the input\'s text colour and is unrelated to the placeholder\'s visible colour; a rule like `input::placeholder { color: rgb(58, 58, 58); }` in an external stylesheet is the actual placeholder colour and appears on `pseudoStyles["::placeholder"]`. If `pseudoStyles["::placeholder"]` is absent, the placeholder inherits the input\'s `color` and axe\'s finding likely reflects that inherited value.'
+          : '')
       : null
     // DOM-context-dependent rules (ARIA names, labels, landmarks, headings,
     // duplicate ids, skip-link targets) can't be answered from the element

@@ -136,7 +136,7 @@ Nine tools, all defined in `TOOL_SCHEMAS` in
 | `list_page_captures` | which pages have DOM / screenshot artifacts | pre-flight before requesting a DOM or screenshot |
 | `get_page_dom` | ~30 KB of captured HTML | model needs to reason about actual document markup |
 | `get_page_css` | inline `<style>` block bodies + list of external stylesheet URLs | model is answering a CSS-dependent rule and no computed styles are captured (fallback) |
-| `get_page_computed_styles` | selector-filtered `getComputedStyle` output for matching elements (colour, background, font, outline, border, …) | model is answering a CSS-dependent rule (color-contrast, focus-visible) and computed styles are available |
+| `get_page_computed_styles` | selector-filtered `getComputedStyle` output for matching elements (colour, background, font, outline, border, …), plus a `pseudoStyles` object per record for `::placeholder` / `::before` / `::after` / `::file-selector-button` / `::marker` when they render meaningful content | model is answering a CSS-dependent rule (color-contrast, focus-visible) and computed styles are available; the `pseudoStyles` slot is what to read for placeholder / file-button / list-marker colour contrast, since the element's own `color` is the text colour, not the pseudo's |
 | `get_page_screenshot` | full-page screenshot (Claude sees image, Gemma gets a pointer) | model needs visual context |
 
 ### Why `get_page_computed_styles` is the preferred tool for CSS rules
@@ -159,6 +159,17 @@ branch). Each element is stored with:
   `background-color`, `background-image`, `opacity`, `font-*`,
   `outline-*`, `border-*`, `visibility`, `display`, `pointer-events`,
   `cursor`.
+- a `pseudoStyles` object (present only when meaningful) keyed by
+  pseudo-element: `::placeholder` for `<input>` / `<textarea>` with a
+  `placeholder` attribute; `::before` / `::after` when their `content`
+  is not `none` / `normal` / `""`; `::file-selector-button` for
+  `<input type="file">`; `::marker` on any `display: list-item`
+  element. Each pseudo record holds the same 22-property snapshot;
+  `::before` / `::after` also include `content`. This is what
+  disambiguates contrast findings that live on inner pseudo-boxes —
+  the element's own `color` is unrelated to the pseudo's visible
+  colour (e.g. an input's `color` is the text colour, not the
+  placeholder's).
 
 The tool takes a required `selector` argument (the same value axe
 reports under the finding's `xpath` field — despite the name, axe

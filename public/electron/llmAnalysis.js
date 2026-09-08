@@ -929,6 +929,8 @@ function runTool(session, name, input) {
         selector: q,
         leafMatched: leafText,
         propertiesCaptured: doc.properties || [],
+        pseudoPropertiesCaptured: doc.pseudoProperties || [],
+        capturedPseudoElements: doc.capturedPseudoElements || [],
         totalMatches: matches.length,
         truncated: matches.length > limit,
         matches: sliced,
