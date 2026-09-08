@@ -18,6 +18,10 @@ const HTML_TO_REACT_ATTR = {
 const ALLOWED_TAGS = new Set([
   "a","p","br","hr","strong","em","b","i","u","code","pre",
   "h1","h2","h3","h4","h5","h6","ul","ol","li","blockquote","span","div",
+  // Markdown-authored release notes commonly embed screenshots/badges via
+  // ![alt](url), which marked converts to <img>. Keep it in the allowlist so
+  // those images survive sanitization; src is validated through isSafeHref.
+  "img",
 ]);
 const ALLOWED_ATTRS_BY_TAG = {
   a: new Set(["href","title"]),
@@ -25,6 +29,7 @@ const ALLOWED_ATTRS_BY_TAG = {
   pre: new Set(["class"]),
   span: new Set(["class"]),
   div: new Set(["class"]),
+  img: new Set(["src","alt","title","width","height"]),
 };
 const SAFE_URL_SCHEMES = /^(https?:|mailto:)/i;
 
@@ -50,7 +55,7 @@ const htmlNodeToReact = (node, key) => {
     const rawName = attr.name.toLowerCase();
     if (rawName.startsWith("on")) continue;
     if (!allowedAttrs.has(rawName)) continue;
-    if (rawName === "href" && !isSafeHref(attr.value)) continue;
+    if ((rawName === "href" || rawName === "src") && !isSafeHref(attr.value)) continue;
     const name = HTML_TO_REACT_ATTR[rawName] || rawName;
     props[name] = attr.value;
   }
