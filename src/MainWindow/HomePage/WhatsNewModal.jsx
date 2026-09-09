@@ -72,11 +72,15 @@ const htmlNodeToReact = (node, key) => {
   return createElement(tag, props, ...children);
 };
 
+// Parse untrusted HTML with DOMParser so the resulting document is inert:
+// <img>/<iframe>/etc. resources do not load and inline event handlers
+// (onerror/onload) do not fire during parsing. Assigning the same HTML to a
+// live document's innerHTML would fire those side-effects before the
+// allowlist rebuild below can strip the attributes.
 const htmlStringToReact = (html) => {
   if (typeof html !== "string" || html.length === 0) return null;
-  const container = document.createElement("div");
-  container.innerHTML = html;
-  return Array.from(container.childNodes).map((c, i) => htmlNodeToReact(c, i));
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(doc.body.childNodes).map((c, i) => htmlNodeToReact(c, i));
 };
 
 const WhatsNewModal = ({
@@ -109,9 +113,11 @@ const WhatsNewModal = ({
 
   // create react elements from release notes html string
   const getReleaseNotes = () => {
-    // inject parsed release notes into div element
-    const releaseNotesNode = document.createElement("div");
-    releaseNotesNode.innerHTML = releaseNotes;
+    // Parse into an inert document (same reasoning as htmlStringToReact) so
+    // any image/handler side-effects in untrusted release-notes HTML do not
+    // fire before we slice out the h4/ul sections below.
+    const doc = new DOMParser().parseFromString(releaseNotes, "text/html");
+    const releaseNotesNode = doc.body;
 
     // remove unneeded info
     const allElements = releaseNotesNode.childNodes;

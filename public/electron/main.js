@@ -507,25 +507,31 @@ app.on('ready', async () => {
   //
   // HTML allows any of whitespace, `/`, or `=` following an attribute name,
   // so `\s+on...` alone is bypassable (e.g. `<img/onerror=alert(1) src=x>`).
-  // The event-handler and URL-scheme regexes below treat `[\s/]` as valid
-  // attribute separators before the attribute name.
+  // Per the HTML5 tokenizer, a quote immediately followed by an attribute
+  // name (e.g. `<img src="x"onerror=...>`) is a recoverable parse error that
+  // still creates a distinct attribute, so `"`/`'` must also count as valid
+  // separators. The regexes below use a lookbehind so the preceding character
+  // is checked but not consumed (consuming a closing quote would leave the
+  // prior attribute unterminated).
   const sanitizeRenderedMarkdown = (html) => {
     if (typeof html !== 'string' || html.length === 0) return ''
     let out = html
     // Drop entire dangerous elements (with their contents).
     out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
     out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[^>]*>/gi, '')
-    // Drop inline event handlers (onclick=, onerror=, ...). Match `/` or
-    // whitespace as the separator between the previous attribute/tag and
-    // the `on*` attribute name so `<img/onerror=...>` is also caught.
-    out = out.replace(/[\s/]+on[a-z]+\s*=\s*"[^"]*"/gi, ' ')
-    out = out.replace(/[\s/]+on[a-z]+\s*=\s*'[^']*'/gi, ' ')
-    out = out.replace(/[\s/]+on[a-z]+\s*=\s*[^\s>]+/gi, ' ')
+    // Drop inline event handlers (onclick=, onerror=, ...). Match against a
+    // preceding whitespace, `/`, `"`, or `'` via lookbehind so both
+    // `<img/onerror=...>` and `<img src="x"onerror=...>` are caught without
+    // consuming the closing quote of the previous attribute.
+    out = out.replace(/(?<=[\s/"'])on[a-z]+\s*=\s*"[^"]*"/gi, ' ')
+    out = out.replace(/(?<=[\s/"'])on[a-z]+\s*=\s*'[^']*'/gi, ' ')
+    out = out.replace(/(?<=[\s/"'])on[a-z]+\s*=\s*[^\s>]+/gi, ' ')
     // Neutralize javascript:/vbscript:/data: URLs on href and src. Same
-    // separator rule as above so `<a/href=javascript:...>` is normalized.
-    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*")(\s*(?:javascript|vbscript|data)\s*:[^"]*)"/gi, '$1#"')
-    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*')(\s*(?:javascript|vbscript|data)\s*:[^']*)'/gi, "$1#'")
-    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*)(?!["'])(\s*(?:javascript|vbscript|data)\s*:[^\s>]*)/gi, '$1#')
+    // lookbehind treatment so `<a/href=javascript:...>` and
+    // `<a title="x"href=javascript:...>` are both normalized.
+    out = out.replace(/((?<=[\s/"'])(?:href|src|xlink:href)\s*=\s*")(\s*(?:javascript|vbscript|data)\s*:[^"]*)"/gi, '$1#"')
+    out = out.replace(/((?<=[\s/"'])(?:href|src|xlink:href)\s*=\s*')(\s*(?:javascript|vbscript|data)\s*:[^']*)'/gi, "$1#'")
+    out = out.replace(/((?<=[\s/"'])(?:href|src|xlink:href)\s*=\s*)(?!["'])(\s*(?:javascript|vbscript|data)\s*:[^\s>]*)/gi, '$1#')
     return out
   }
 
