@@ -324,6 +324,16 @@ const getScanOptions = (details) => {
 
 
 const startScan = async (scanDetails, scanEvent) => {
+  // Enforce the module invariant "only one active child scan process at a
+  // time." Without this guard, invoking startScan while a scan is running
+  // overwrites currentChildProcess and orphans the earlier node/cli.js child
+  // (plus its Chromium/Edge subprocesses), leaking file locks on the results
+  // directory and stranding the earlier scan's stdout listeners.
+  if (currentChildProcess) {
+    console.warn('[scanManager] startScan called while a scan is already in progress; rejecting')
+    return { scanAlreadyRunning: true }
+  }
+
   const userData = readUserDataFromFile()
 
   if (userData) {

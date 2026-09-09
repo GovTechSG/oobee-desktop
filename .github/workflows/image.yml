@@ -11,23 +11,45 @@ jobs:
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
 
       - name: Enable Long File Path in Registry
         shell: pwsh
         run: |
           Start-Process powershell -Verb runAs -ArgumentList 'New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -PropertyType "DWORD" -Value "1"'
-      
+
       - name: Download node.js version from nodejs.org
+        shell: pwsh
         run: |
-          curl -o ./nodejs-win.zip --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip
-          mkdir nodejs-win && tar -xzf nodejs-win.zip -C nodejs-win --strip-components=1 && rm ./nodejs-win.zip
+          # Pinned SHA-256 for node-v22.19.0-win-x64.zip from
+          # https://nodejs.org/dist/v22.19.0/SHASUMS256.txt. Verify before
+          # extracting — the runtime is placed on PATH and executes the build,
+          # so a swapped download would compromise the signed installer we ship.
+          $expected = "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86"
+          curl.exe -fL -o ./nodejs-win.zip --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip
+          $actual = (Get-FileHash -Algorithm SHA256 ./nodejs-win.zip).Hash.ToLower()
+          if ($actual -ne $expected) {
+            Write-Error "SHA-256 mismatch for nodejs-win.zip: expected $expected, got $actual"
+            exit 1
+          }
+          mkdir nodejs-win
+          tar -xzf nodejs-win.zip -C nodejs-win --strip-components=1
+          Remove-Item ./nodejs-win.zip
         working-directory: ${{github.workspace}}
 
       - name: Download and Install Inno Setup
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe" -OutFile "${{github.workspace}}\is.exe" 
+          # Pinned SHA-256 for innosetup-6.7.3.exe on the jrsoftware/issrc GitHub
+          # release. is.exe is executed with /VERYSILENT here, so a tampered
+          # download would run arbitrary code in the release job.
+          $expected = "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe" -OutFile "${{github.workspace}}\is.exe"
+          $actual = (Get-FileHash -Algorithm SHA256 "${{github.workspace}}\is.exe").Hash.ToLower()
+          if ($actual -ne $expected) {
+            Write-Error "SHA-256 mismatch for innosetup-6.7.3.exe: expected $expected, got $actual"
+            exit 1
+          }
           Start-Process -FilePath "${{github.workspace}}\is.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
           echo "${env:programfiles(x86)}\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           
@@ -47,13 +69,42 @@ jobs:
       
       - name: Download Oobee Backend
         shell: pwsh
+        env:
+          BE_TAG: ${{ vars.BE_TAG }}
         run: |
-          $PHbackendUrl = "https://github.com/GovTechSG/oobee/releases/download/${{ vars.BE_TAG }}/oobee-portable-windows.zip"
+          # Read BE_TAG from an env var instead of expanding vars.BE_TAG
+          # directly into the PowerShell script — the value comes from repo
+          # variables today (trusted), but env access stays inert against
+          # future changes that might let untrusted inputs reach this step.
+          $PHbackendUrl = "https://github.com/GovTechSG/oobee/releases/download/$env:BE_TAG/oobee-portable-windows.zip"
           $BEdestinationPath = "${{github.workspace}}\PHLatest.zip"
           $BEextractPath = "D:\a\Oobee Backend"
           Invoke-WebRequest -Uri $PHbackendUrl -OutFile $BEdestinationPath
+          # Verify SHA-256 against the .sha256 sidecar published alongside the
+          # backend release. If the sidecar is absent (older tag), fail closed:
+          # the backend zip is unpacked into the shipped installer, so an
+          # unverified swap would ride into the signed artifact end users run.
+          $PHbackendSha256Url = "$PHbackendUrl.sha256"
+          $sidecarPath = "$BEdestinationPath.sha256"
+          try {
+            Invoke-WebRequest -Uri $PHbackendSha256Url -OutFile $sidecarPath -ErrorAction Stop
+          } catch {
+            Write-Error "Missing SHA-256 sidecar at $PHbackendSha256Url — refusing to package unverified backend."
+            exit 1
+          }
+          $expected = (Get-Content $sidecarPath -Raw).Trim().Split()[0].ToLower()
+          if ($expected -notmatch '^[0-9a-f]{64}$') {
+            Write-Error "Invalid SHA-256 digest fetched from $PHbackendSha256Url"
+            exit 1
+          }
+          $actual = (Get-FileHash -Algorithm SHA256 $BEdestinationPath).Hash.ToLower()
+          if ($actual -ne $expected) {
+            Write-Error "SHA-256 mismatch for oobee-portable-windows.zip: expected $expected, got $actual"
+            exit 1
+          }
           Expand-Archive -Path $BEdestinationPath -DestinationPath $BEextractPath -Force
           Remove-Item -Path $BEdestinationPath
+          Remove-Item -Path $sidecarPath
 
       - name: Execute Inno Setup script to compile installer
         shell: pwsh
@@ -77,15 +128,15 @@ jobs:
           [System.IO.File]::WriteAllText("oobee-desktop-windows.zip.sha256", $hash)
       
       - name: Upload Oobee Windows setup artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: oobee-desktop-windows
           path: |
             oobee-desktop-windows.zip
             oobee-desktop-windows.zip.sha256
-        
+
       - name: Release Windows artifact
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1 / v0.1.15
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
@@ -121,15 +172,25 @@ jobs:
          rm -rf ./.??* || true
 
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
           path: ${{github.workspace}}
 
       - name: Download node.js version from nodejs.org
         run: |
-          curl -o ./nodejs-mac-arm64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-arm64.tar.gz
+          set -euo pipefail
+          # Pinned SHA-256s from https://nodejs.org/dist/v22.19.0/SHASUMS256.txt.
+          # The mac job builds the signed universal binary shipped to end users
+          # via Apple notarization, so verify each runtime archive before use.
+          NODE_ARM64_SHA256="c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d"
+          NODE_X64_SHA256="3cfed4795cd97277559763c5f56e711852d2cc2420bda1cea30c8aa9ac77ce0c"
+
+          curl -fL -o ./nodejs-mac-arm64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-arm64.tar.gz
+          echo "${NODE_ARM64_SHA256}  nodejs-mac-arm64.tar.gz" | shasum -a 256 -c -
           mkdir nodejs-mac-arm64 && tar -xzf nodejs-mac-arm64.tar.gz -C nodejs-mac-arm64 --strip-components=1 && rm ./nodejs-mac-arm64.tar.gz
-          curl -o ./nodejs-mac-x64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-x64.tar.gz
+
+          curl -fL -o ./nodejs-mac-x64.tar.gz --create-dirs https://nodejs.org/dist/v22.19.0/node-v22.19.0-darwin-x64.tar.gz
+          echo "${NODE_X64_SHA256}  nodejs-mac-x64.tar.gz" | shasum -a 256 -c -
           mkdir nodejs-mac-x64 && tar -xzf nodejs-mac-x64.tar.gz -C nodejs-mac-x64 --strip-components=1 && rm ./nodejs-mac-x64.tar.gz
         working-directory: ${{github.workspace}}
 
@@ -223,15 +284,15 @@ jobs:
           printf "%s" "$hash" > oobee-desktop-macos.zip.sha256
       
       - name: Upload Mac artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: oobee-desktop-macos
           path: |
             oobee-desktop-macos.zip
             oobee-desktop-macos.zip.sha256
-          
+
       - name: Release Mac artifact
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1 / v0.1.15
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |

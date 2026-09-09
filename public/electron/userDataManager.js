@@ -57,7 +57,10 @@ const USER_DATA_WRITABLE_FIELDS = new Set([
     'email',
     'browser',
     'event',
-    'autoUpdate',
+    // 'autoUpdate' is intentionally excluded — the invariant above lists it
+    // as a server-managed field. A renderer-driven write here would let a
+    // compromised UI (e.g. via the release-notes XSS surface) silently
+    // disable the app's update prompt on the next launch.
     'isLabMode',
     'firstLaunchOnUpdate',
 ]);
