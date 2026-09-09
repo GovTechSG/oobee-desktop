@@ -566,14 +566,6 @@ const spawnScriptToLaunchInstaller = (installerPath) => {
   }
 };
 
-
-const downloadBackend = async (tag, zipPath) => {
-  const downloadUrl = `https://github.com/GovTechSG/oobee/releases/download/${tag}/oobee-portable-mac.zip`;
-  const command = `curl '${downloadUrl}' -o '${zipPath}' -L && rm -rf '${backendPath}' && mkdir '${backendPath}'`;
-
-  return execCommand(command);
-};
-
 // MacOS only
 const validateZipFile = async (zipPath) => {
   const isZipValid = async (zipPath) => {
