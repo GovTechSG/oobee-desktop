@@ -72,11 +72,15 @@ const htmlNodeToReact = (node, key) => {
   return createElement(tag, props, ...children);
 };
 
+// Parse via DOMParser (inert document): unlike a live-document `<div>`,
+// resources such as `<img src>` do NOT load and inline event handlers
+// (onerror/onload/…) do NOT fire during parsing. That closes the XSS
+// window that would otherwise open before htmlNodeToReact's allowlist
+// gets a chance to strip them.
 const htmlStringToReact = (html) => {
   if (typeof html !== "string" || html.length === 0) return null;
-  const container = document.createElement("div");
-  container.innerHTML = html;
-  return Array.from(container.childNodes).map((c, i) => htmlNodeToReact(c, i));
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(doc.body.childNodes).map((c, i) => htmlNodeToReact(c, i));
 };
 
 const WhatsNewModal = ({
@@ -109,9 +113,13 @@ const WhatsNewModal = ({
 
   // create react elements from release notes html string
   const getReleaseNotes = () => {
-    // inject parsed release notes into div element
-    const releaseNotesNode = document.createElement("div");
-    releaseNotesNode.innerHTML = releaseNotes;
+    // Parse into an inert document so <img> in the release-notes HTML
+    // doesn't kick off a network fetch and fire onerror before we walk
+    // the tree. `body` is a drop-in replacement for the previous live
+    // div; getElementsByTagName / childNodes / .innerHTML / .innerText
+    // all work the same on a DOMParser-owned element in Chromium.
+    const releaseNotesNode = new DOMParser()
+      .parseFromString(releaseNotes || "", "text/html").body;
 
     // remove unneeded info
     const allElements = releaseNotesNode.childNodes;
