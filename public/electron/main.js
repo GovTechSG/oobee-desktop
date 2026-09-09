@@ -205,13 +205,40 @@ app.on('ready', async () => {
     releaseInfo && typeof releaseInfo.alwaysShowAnnouncement === 'string'
       ? releaseInfo.alwaysShowAnnouncement
       : ''
+  // The catalog can redirect the client to a new location, but only within a
+  // vetted set of GovTech-controlled hosts. Without this allowlist, a single
+  // tampered value at the bootstrap URL could pivot the client to an
+  // attacker-run origin, from which everything — including the release-notes
+  // markdown that reaches the sanitizer above — would then be sourced.
+  const RELEASE_INFO_ALLOWED_HOSTS = new Set([
+    'govtechsg.github.io',
+    'raw.githubusercontent.com',
+    'github.com',
+    'api.github.com',
+  ])
+  const isAllowedReleaseInfoUrl = (url) => {
+    if (typeof url !== 'string' || url.length === 0) return false
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'https:') return false
+      return RELEASE_INFO_ALLOWED_HOSTS.has(parsed.hostname)
+    } catch (e) {
+      return false
+    }
+  }
   if (
     releaseInfo &&
     releaseInfo.releaseInfo &&
     releaseInfo.releaseInfo !== BOOTSTRAP_RELEASE_INFO_URL
   ) {
-    const redirected = await fetchReleaseData(releaseInfo.releaseInfo)
-    if (redirected) releaseInfo = redirected
+    if (isAllowedReleaseInfoUrl(releaseInfo.releaseInfo)) {
+      const redirected = await fetchReleaseData(releaseInfo.releaseInfo)
+      if (redirected) releaseInfo = redirected
+    } else {
+      console.log(
+        `Rejecting releaseInfo redirect to disallowed URL: ${releaseInfo.releaseInfo}`
+      )
+    }
   }
 
   const {
@@ -477,19 +504,28 @@ app.on('ready', async () => {
   // untrusted. Defense-in-depth: WhatsNewModal.jsx also allowlists tags on
   // render, but sanitizing at the source stops <script>/<iframe> etc. from
   // ever crossing the IPC boundary.
+  //
+  // HTML allows any of whitespace, `/`, or `=` following an attribute name,
+  // so `\s+on...` alone is bypassable (e.g. `<img/onerror=alert(1) src=x>`).
+  // The event-handler and URL-scheme regexes below treat `[\s/]` as valid
+  // attribute separators before the attribute name.
   const sanitizeRenderedMarkdown = (html) => {
     if (typeof html !== 'string' || html.length === 0) return ''
     let out = html
     // Drop entire dangerous elements (with their contents).
     out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
     out = out.replace(/<\s*(script|style|iframe|object|embed|link|meta|base|form|input|textarea|button)\b[^>]*>/gi, '')
-    // Drop inline event handlers (onclick=, onerror=, ...).
-    out = out.replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '')
-    out = out.replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
-    out = out.replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
-    // Neutralize javascript:/vbscript:/data: URLs on href and src.
-    out = out.replace(/(\s(?:href|src|xlink:href)\s*=\s*")(\s*(?:javascript|vbscript|data)\s*:[^"]*)"/gi, '$1#"')
-    out = out.replace(/(\s(?:href|src|xlink:href)\s*=\s*')(\s*(?:javascript|vbscript|data)\s*:[^']*)'/gi, "$1#'")
+    // Drop inline event handlers (onclick=, onerror=, ...). Match `/` or
+    // whitespace as the separator between the previous attribute/tag and
+    // the `on*` attribute name so `<img/onerror=...>` is also caught.
+    out = out.replace(/[\s/]+on[a-z]+\s*=\s*"[^"]*"/gi, ' ')
+    out = out.replace(/[\s/]+on[a-z]+\s*=\s*'[^']*'/gi, ' ')
+    out = out.replace(/[\s/]+on[a-z]+\s*=\s*[^\s>]+/gi, ' ')
+    // Neutralize javascript:/vbscript:/data: URLs on href and src. Same
+    // separator rule as above so `<a/href=javascript:...>` is normalized.
+    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*")(\s*(?:javascript|vbscript|data)\s*:[^"]*)"/gi, '$1#"')
+    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*')(\s*(?:javascript|vbscript|data)\s*:[^']*)'/gi, "$1#'")
+    out = out.replace(/([\s/](?:href|src|xlink:href)\s*=\s*)(?!["'])(\s*(?:javascript|vbscript|data)\s*:[^\s>]*)/gi, '$1#')
     return out
   }
 
