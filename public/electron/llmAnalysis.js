@@ -1665,28 +1665,37 @@ function init({ mainWindow, getResultsFolderPath }) {
         // No hardcoded default model — Copilot's model catalogue varies by
         // plan and admin policy, so any specific id we guess (e.g. gpt-4o,
         // gpt-5.4-mini) risks returning HTTP 400 "unsupported_api_for_model"
-        // on chat/completions. Instead, if the user hasn't picked one, take
-        // the first entry from Copilot's live /models list (already filtered
-        // to chat-capable + policy=enabled in llmGithubCopilot.listModels)
-        // and persist it so subsequent turns are cheap. Only throw if the
-        // list is empty — that means the account has no usable Copilot chat
-        // models at all and the user must resolve it upstream.
+        // on chat/completions. Take the choice from Copilot's live /models
+        // list instead (already filtered to chat-capable + policy=enabled in
+        // llmGithubCopilot.listModels). A stored id is re-checked against
+        // that list on every session start because GitHub withdraws model
+        // ids over time, and a withdrawn one fails every single chat with
+        // "The requested model is not available for integrator" until it is
+        // replaced.
         let stored = ghCopilotAuth.getStoredModel()
-        if (!stored) {
-          try {
-            const models = await listGithubCopilotModels()
-            if (models.length > 0) {
-              stored = models.includes('claude-haiku-4.5') ? 'claude-haiku-4.5' : models[0]
-              ghCopilotAuth.setStoredModel(stored)
-              console.log(`[llmChat] auto-selected Copilot model "${stored}" (no user choice stored)`)
-            } else {
-              throw new Error(
-                'Your GitHub Copilot account has no chat-capable models available. Check your subscription tier or admin policy at github.com/settings/copilot.',
-              )
-            }
-          } catch (e) {
-            throw new Error(`GitHub Copilot: ${e.message}`)
-          }
+        let available = null
+        try {
+          available = await listGithubCopilotModels()
+        } catch (e) {
+          // A transient list failure shouldn't block a chat when there is
+          // already a stored model worth trying.
+          if (!stored) throw new Error(`GitHub Copilot: ${e.message}`)
+          warn(`could not verify stored Copilot model "${stored}": ${e.message}`)
+        }
+        if (available && available.length === 0) {
+          throw new Error(
+            'GitHub Copilot: your account has no chat-capable models available. Check your subscription tier or admin policy at github.com/settings/copilot.',
+          )
+        }
+        if (available && !available.includes(stored)) {
+          const next = available.includes('claude-haiku-4.5') ? 'claude-haiku-4.5' : available[0]
+          log(
+            stored
+              ? `stored Copilot model "${stored}" is no longer offered — switching to "${next}"`
+              : `auto-selected Copilot model "${next}" (no user choice stored)`,
+          )
+          ghCopilotAuth.setStoredModel(next)
+          stored = next
         }
         customConfig = { model: stored }
       }
@@ -1855,8 +1864,8 @@ function init({ mainWindow, getResultsFolderPath }) {
   })
 
   ipcMain.handle('llmChat:preloadModel', async (_event, modelId, cpuOnly) => {
+    const chosen = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
     try {
-      const chosen = GEMMA_MODELS[modelId] ? modelId : 'gemma-e4b'
       // Forward cpuOnly so the preloaded server starts in the mode the user
       // actually selected — without this, preload always spun up the GPU
       // (-ngl 999) config, and the first real chat message would then detect

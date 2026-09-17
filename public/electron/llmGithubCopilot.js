@@ -277,6 +277,13 @@ async function streamGithubCopilotChat({
               `GitHub Copilot: The selected model "${cfg.model}" isn't available on your Copilot plan${msg ? ` (${msg})` : ''}. Open Configure and pick a different model.`,
             )
           }
+          // Withdrawn model id. Carries no error code, and its message
+          // appends the integrator's whole model catalogue — useless to show.
+          if (/not available for integrator/i.test(msg || text)) {
+            throw new Error(
+              `GitHub Copilot: The model "${cfg.model}" is no longer offered for this editor integration. Open Configure and pick a different model.`,
+            )
+          }
           throw new Error(`GitHub Copilot returned HTTP 400: ${msg || text.slice(0, 500)}`)
         }
         throw new Error(`GitHub Copilot returned HTTP ${res.status}: ${text.slice(0, 500)}`)
