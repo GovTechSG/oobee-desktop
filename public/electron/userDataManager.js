@@ -47,12 +47,12 @@ const setIncludeProxy = (includeProxyValue) => {
     return { success: true };
 }
 
-// Only these keys may be updated by editUserData / writeUserDetailsToFile. The
-// data payload is renderer-controlled (arrives via ipcMain.on('editUserData')),
-// so a `{...userData, ...data}` spread would let it overwrite server-managed
-// fields (userId, autoUpdate, exportDir, etc.). Keep this list in sync with
-// fields written elsewhere by the main process.
-const USER_DATA_WRITABLE_FIELDS = new Set([
+// Only these keys may be updated by a payload that arrives from the renderer
+// — ipcMain.on('editUserData') and the onboarding 'userDataReceived' hop. An
+// unfiltered `{...userData, ...data}` spread on those paths would let a
+// compromised UI overwrite server-managed fields (userId, autoUpdate,
+// exportDir) or plant a value the main process later trusts.
+const RENDERER_WRITABLE_FIELDS = new Set([
     'name',
     'email',
     'browser',
@@ -65,22 +65,30 @@ const USER_DATA_WRITABLE_FIELDS = new Set([
     'firstLaunchOnUpdate',
 ]);
 
+// Trusted writer, for main-process callers that pass their own literal keys.
+// Deliberately unfiltered: an allowlist here silently drops any field a caller
+// forgets to register, which is indistinguishable from a successful save.
 const writeUserDetailsToFile = (data) => {
     const userData = readUserDataFromFile();
-    const clean = {};
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
-        for (const key of Object.keys(data)) {
-            if (USER_DATA_WRITABLE_FIELDS.has(key)) {
-                clean[key] = data[key];
-            }
-        }
-    }
-    const updatedData = { ...userData, ...clean };
+    const patch = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    const updatedData = { ...userData, ...patch };
     fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
 
     Sentry.setUser({
         id: userData.userId,
     });
+}
+
+const writeRendererSuppliedUserDetails = (data) => {
+    const clean = {};
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        for (const key of Object.keys(data)) {
+            if (RENDERER_WRITABLE_FIELDS.has(key)) {
+                clean[key] = data[key];
+            }
+        }
+    }
+    writeUserDetailsToFile(clean);
 }
 
 const createExportDir = (path) => {
@@ -137,7 +145,7 @@ const init = async () => {
     })
 
     ipcMain.on("editUserData", (_event, data) => {
-        writeUserDetailsToFile(data);
+        writeRendererSuppliedUserDetails(data);
     })
 
     ipcMain.handle("setExportDir", (_event) => {
@@ -183,7 +191,7 @@ const setData = async (userDataEvent) => {
            userDataEvent.emit("userDataDoesNotExist", resolve);
         })
         const userDetailsReceived = await userData; 
-        writeUserDetailsToFile(userDetailsReceived);
+        writeRendererSuppliedUserDetails(userDetailsReceived);
         createExportDir(data.exportDir); 
     } else {
         userDataEvent.emit("userDataDoesExist");
