@@ -146,6 +146,24 @@ const STANDALONE_TOOL_NAMES = new Set([
 ])
 const STANDALONE_TOOL_SCHEMAS = TOOL_SCHEMAS.filter((t) => STANDALONE_TOOL_NAMES.has(t.name))
 
+// Box-model properties in oobee's computed-style capture. Scans from older
+// backends captured appearance only (colour / font / outline / border), so
+// their payloads cannot settle a target-size verdict at all — and a model
+// handed such a payload will reach for `line-height` instead of saying so.
+// Presence of these plus a per-element `rect` is what get_page_computed_styles
+// reports as `geometryCaptured`.
+const GEOMETRY_CSS_PROPERTIES = [
+  'box-sizing',
+  'height',
+  'width',
+  'min-height',
+  'min-width',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+]
+
 const log = (...args) => console.log('[llmAnalysis]', ...args)
 const warn = (...args) => console.warn('[llmAnalysis]', ...args)
 
@@ -537,6 +555,61 @@ function runTool(session, name, input) {
     log(`tool: ${name}`)
   }
   switch (name) {
+    case 'get_scan_metadata': {
+      // Answers "why does this scan not flag X when another one does?". The
+      // model's instinct is to blame configuration — a different rule set, a
+      // WCAG 2.1-vs-2.2 difference — and both are impossible: oobee runs a
+      // fixed axe ruleset in which target-size is enabled unconditionally
+      // (oobee src/crawlers/custom/getAxeConfiguration.ts). What DOES vary is
+      // the viewport, the page state at scan time, and oobee's post-scan
+      // re-measure pruning, which drops size-driven failures whose element
+      // meets minSize once hydration settles (oobee
+      // src/crawlers/commonCrawlerFunc.ts, pruning pass over contentOverflow /
+      // notCloseEnoughToEdge / tooManyRects occurrences).
+      const sd = artifacts.scanData || {}
+      const manifest = artifacts.getManifest()
+      const pages = Array.isArray(manifest.pages) ? manifest.pages : []
+      const countSlot = (key) => pages.filter((p) => !!p[key]).length
+      const adv = sd.advancedScanOptionsSummaryItems || {}
+      const notScanned = Array.isArray(sd.pagesNotScanned) ? sd.pagesNotScanned : []
+      return {
+        oobeeAppVersion: sd.oobeeAppVersion ?? null,
+        scanType: sd.scanType ?? null,
+        isCustomFlow: sd.isCustomFlow ?? null,
+        customFlowLabel: sd.customFlowLabel ?? null,
+        deviceChosen: sd.deviceChosen ?? null,
+        viewport: sd.viewport ?? null,
+        startTime: sd.startTime ?? null,
+        endTime: sd.endTime ?? null,
+        urlScanned: sd.urlScanned ?? sd.url ?? null,
+        siteName: sd.siteName ?? null,
+        totalPagesScanned: sd.totalPagesScanned ?? 0,
+        totalPagesNotScanned: sd.totalPagesNotScanned ?? 0,
+        pagesNotScanned: notScanned.slice(0, 20),
+        advancedScanOptions: {
+          includeScreenshots: !!adv.showIncludeScreenshots,
+          allowSubdomains: !!adv.showAllowSubdomains,
+          enableCustomChecks: !!adv.showEnableCustomChecks,
+          enableWcagAaa: !!adv.showEnableWcagAaa,
+          slowScanMode: !!adv.showSlowScanMode,
+          adhereRobots: !!adv.showAdhereRobots,
+        },
+        captureAvailability: {
+          pagesInManifest: pages.length,
+          desktopDom: countSlot('desktopDom'),
+          mobileDom: countSlot('mobileDom'),
+          desktopScreenshot: countSlot('desktopScreenshot'),
+          mobileScreenshot: countSlot('mobileScreenshot'),
+          desktopComputedStyles: countSlot('desktopComputedStyles'),
+          mobileComputedStyles: countSlot('mobileComputedStyles'),
+          pagesWithCaptureErrors: pages.filter(
+            (p) => Array.isArray(p.errors) && p.errors.length > 0
+          ).length,
+        },
+        rulesetNote:
+          'Oobee runs a FIXED axe ruleset. target-size (WCAG 2.5.8) is enabled unconditionally on every scan, and there is no per-scan rule selection and no WCAG-version switch to configure. So a rule missing from mustFix / goodToFix / needsReview NEVER means the rule was disabled, nor that this scan tested an older WCAG version. Absence means one of: (a) zero violations at THIS viewport and THIS page state, (b) the failing page was not in this scan\'s page set, or (c) oobee\'s post-scan re-measure pruning dropped the occurrence — size-driven failures are re-measured after the page settles and discarded once the element meets the minimum size. `enableWcagAaa` below only ADDS AAA-level rules (e.g. color-contrast-enhanced); it never removes AA rules. If you cannot distinguish between (a), (b) and (c), say so instead of picking one.',
+      }
+    }
     case 'list_findings': {
       const sis = artifacts.scanIssuesSummary || {}
       const cats = input.category
@@ -683,6 +756,10 @@ function runTool(session, name, input) {
           hasMobileScreenshot: !!p.mobileScreenshot,
           hasDesktopComputedStyles: !!p.desktopComputedStyles,
           hasMobileComputedStyles: !!p.mobileComputedStyles,
+          // A capture can be absent because it was never requested OR because
+          // it was attempted and failed. Without these the two are
+          // indistinguishable and the model blames configuration.
+          captureErrors: Array.isArray(p.errors) ? p.errors : [],
         })),
       }
     }
@@ -813,9 +890,15 @@ function runTool(session, name, input) {
     case 'get_page_computed_styles': {
       // Reads the per-page computed-styles JSON produced by oobee when the
       // scan runs with OOBEE_SAVE_COMPUTED_STYLES=1. The file lists every
-      // element on the page with a curated ~22-property getComputedStyle
-      // dump. This is the only way to see CSS that lives in an external
-      // stylesheet (which get_page_css cannot reach).
+      // element on the page with a curated getComputedStyle dump. This is the
+      // only way to see CSS that lives in an external stylesheet (which
+      // get_page_css cannot reach).
+      //
+      // The captured property set differs by backend version: newer scans also
+      // carry box-model properties, a measured `rect`, per-element
+      // `pseudoStyles`, and the real `viewportSize`. `geometryCaptured` below
+      // tells the model which of those it actually has, so an old scan degrades
+      // to "not captured" instead of being answered from typography.
       const manifest = artifacts.getManifest()
       const entry = (manifest.pages || []).find((p) => p.url === input.pageUrl)
       if (!entry) return { error: `Page not captured: ${input.pageUrl}` }
@@ -923,18 +1006,40 @@ function runTool(session, name, input) {
         }
       }
 
-      return {
+      const propertiesCaptured = Array.isArray(doc.properties) ? doc.properties : []
+      const layoutProperties = GEOMETRY_CSS_PROPERTIES.every((p) =>
+        propertiesCaptured.includes(p)
+      )
+      const rect = sliced.some((e) => e && e.rect && typeof e.rect === 'object')
+      const viewportSize = doc.viewportSize || null
+      const geometryCaptured = { layoutProperties, rect, viewportSize: !!viewportSize }
+
+      const result = {
         pageUrl: input.pageUrl,
         viewport,
+        // The slot label above is not proof of the rendered width: oobee
+        // captures its "desktop" slot at whatever viewport the scan was
+        // configured for, so on a Mobile scan both slots hold narrow geometry.
+        // viewportSize is the measured size and is what should be cited.
+        viewportSize,
         selector: q,
         leafMatched: leafText,
-        propertiesCaptured: doc.properties || [],
+        propertiesCaptured,
         pseudoPropertiesCaptured: doc.pseudoProperties || [],
         capturedPseudoElements: doc.capturedPseudoElements || [],
+        authoredPseudoElements: doc.authoredPseudoElements || [],
+        documentPseudoStyles: doc.documentPseudoStyles || {},
+        unreadableStylesheets: doc.unreadableStylesheets ?? null,
+        geometryCaptured,
         totalMatches: matches.length,
         truncated: matches.length > limit,
         matches: sliced,
       }
+      if (!layoutProperties && !rect) {
+        result.geometryNote =
+          'This scan captured APPEARANCE properties only — no box model and no measured rect. You CANNOT determine tap-target or element size from this payload. Do NOT substitute line-height or font-size for height; they are typographic metrics and unrelated to the rendered box. Instead read the measured dimensions from the occurrence `message` returned by get_finding_detail — for size failures oobee embeds "Insufficient target size: {width}px by {height}px (box-sizing: …)" and the spacing diameter there. If no occurrence message carries a measurement, say the geometry was not captured in this scan rather than estimating one.'
+      }
+      return result
     }
     case 'get_page_css': {
       // Extract inline <style> block bodies and external stylesheet URLs from
