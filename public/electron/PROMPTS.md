@@ -129,14 +129,15 @@ Nine tools, all defined in `TOOL_SCHEMAS` in
 
 | Tool | Returns | Used when |
 |------|---------|-----------|
+| `get_scan_metadata` | how this scan was configured (version, scan type, device/viewport, times, page counts, advanced options) + capture availability counts + a `rulesetNote` | model is asked why a rule appears in another scan but not this one, or whether the scans were configured differently |
 | `list_findings` | slim rules with category/count/conformance | model wants to filter or plan |
 | `get_finding_detail` | full rule detail + occurrences (HTML, xpath, message) + element screenshots | model needs actual DOM context or the user asked about a specific rule |
 | `list_pages` | pages scanned with per-page issue count | model wants to find "worst page" |
 | `get_page_detail` | all findings on one page | model needs to answer "what's wrong with page X" |
-| `list_page_captures` | which pages have DOM / screenshot artifacts | pre-flight before requesting a DOM or screenshot |
+| `list_page_captures` | which pages have DOM / screenshot / computed-style artifacts, plus each page's `captureErrors` | pre-flight before requesting a DOM or screenshot; `captureErrors` distinguishes a capture that failed from one that was never requested |
 | `get_page_dom` | ~30 KB of captured HTML | model needs to reason about actual document markup |
 | `get_page_css` | inline `<style>` block bodies + list of external stylesheet URLs | model is answering a CSS-dependent rule and no computed styles are captured (fallback) |
-| `get_page_computed_styles` | selector-filtered `getComputedStyle` output for matching elements (colour, background, font, outline, border, …), plus a `pseudoStyles` object per record for `::placeholder` / `::before` / `::after` / `::file-selector-button` / `::marker` when they render meaningful content | model is answering a CSS-dependent rule (color-contrast, focus-visible) and computed styles are available; the `pseudoStyles` slot is what to read for placeholder / file-button / list-marker colour contrast, since the element's own `color` is the text colour, not the pseudo's |
+| `get_page_computed_styles` | selector-filtered `getComputedStyle` output for matching elements (colour, background, font, outline, border, box model, …), a measured `rect`, a `pseudoStyles` object per record, page-wide `documentPseudoStyles`, the measured `viewportSize`, and a `geometryCaptured` capability flag | model is answering a CSS-dependent rule (color-contrast, focus-visible) or needs a size measurement (target-size, spacing); `rect` is the authoritative geometry source, `pseudoStyles` is what to read for placeholder / file-button / list-marker colour contrast since the element's own `color` is the text colour, not the pseudo's |
 | `get_page_screenshot` | full-page screenshot (Claude sees image, Gemma gets a pointer) | model needs visual context |
 
 ### Why `get_page_computed_styles` is the preferred tool for CSS rules
@@ -149,27 +150,51 @@ are lossy for the rules that most need CSS insight.
 
 `get_page_computed_styles` reads a JSON file the oobee crawler writes
 when scanned with `OOBEE_SAVE_COMPUTED_STYLES=1` (see
-`pageCapture.ts` in the oobee repo — `feat/computed-styles-capture`
-branch). Each element is stored with:
+`pageCapture.ts` in the oobee repo). Each element is stored with:
 
 - a stable CSS selector (id-anchored when possible, `:nth-of-type` chain
   otherwise) so the tool can be queried by axe-style selectors,
 - its tag / id / classes for auxiliary matching,
-- a curated ~22-property `getComputedStyle` snapshot: `color`,
-  `background-color`, `background-image`, `opacity`, `font-*`,
-  `outline-*`, `border-*`, `visibility`, `display`, `pointer-events`,
-  `cursor`.
-- a `pseudoStyles` object (present only when meaningful) keyed by
-  pseudo-element: `::placeholder` for `<input>` / `<textarea>` with a
-  `placeholder` attribute; `::before` / `::after` when their `content`
-  is not `none` / `normal` / `""`; `::file-selector-button` for
-  `<input type="file">`; `::marker` on any `display: list-item`
-  element. Each pseudo record holds the same 22-property snapshot;
+- a curated `getComputedStyle` snapshot: `color`, `background-color`,
+  `background-image`, `opacity`, `font-*`, `outline-*`, `border-*`,
+  `visibility`, `display`, `pointer-events`, `cursor`, plus the box
+  model (`box-sizing`, `height`, `width`, `min-height`, `min-width`,
+  `padding-*`),
+- a `rect` of `{x, y, w, h}` from `getBoundingClientRect()`, offset by
+  scroll position so coordinates are document-relative. Always present,
+  so a `0 × 0` box from `display: none` stays distinguishable from a
+  missing capture.
+- a `pseudoStyles` object (present only when the host can actually render
+  the pseudo) keyed by pseudo-element, covering generated content, form
+  control internals, list markers, typographic pseudos, media cues and
+  custom scrollbars. Each record holds the pseudo's own computed values;
   `::before` / `::after` also include `content`. This is what
   disambiguates contrast findings that live on inner pseudo-boxes —
   the element's own `color` is unrelated to the pseudo's visible
   colour (e.g. an input's `color` is the text colour, not the
   placeholder's).
+
+Page-level keys accompany the element list: `viewportSize` (the viewport
+geometry was actually measured at), `capturedPseudoElements` /
+`authoredPseudoElements`, `documentPseudoStyles` for the page-wide
+highlight pseudos (`::selection` and friends), and
+`unreadableStylesheets` counting cross-origin sheets that could not be
+inspected.
+
+The tool derives a `geometryCaptured: { layoutProperties, rect,
+viewportSize }` flag from the payload, because the captured property set
+depends on the oobee version that produced the scan. Scans from older
+backends carry appearance properties only; for those the tool adds a
+`geometryNote` telling the model it has no geometry, to fall back to the
+measurement oobee embeds in the occurrence `message`, and specifically
+not to substitute `line-height` or `font-size` for a height. Without
+that flag the model silently reasons about tap-target size from
+typography and reports a confident wrong number.
+
+The `viewport` argument names a capture *slot*, not a width: oobee
+captures its `desktop` slot at whatever viewport the scan was configured
+for before re-capturing at a fixed 414 × 715, so on a Mobile scan both
+slots hold narrow geometry. `viewportSize` is the authoritative width.
 
 The tool takes a required `selector` argument (the same value axe
 reports under the finding's `xpath` field — despite the name, axe
