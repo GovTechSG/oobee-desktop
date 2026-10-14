@@ -154,8 +154,10 @@ contextBridge.exposeInMainWorld("services", {
     llmChatProviders: async () => ipcRenderer.invoke("llmChat:providers"),
     llmFindingDetail: async ({ sessionId, category, ruleId }) =>
       ipcRenderer.invoke("llmChat:findingDetail", { sessionId, category, ruleId }),
-    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }) =>
-      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }),
+    llmChatStart: async ({ sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat, anthropicModel }) =>
+      ipcRenderer.invoke("llmChat:start", { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat, anthropicModel }),
+    llmChatAnthropicListModels: async () =>
+      ipcRenderer.invoke("llmChat:anthropicListModels"),
     llmChatSend: (payload) => ipcRenderer.send("llmChat:send", payload),
     llmChatAbort: (sessionId) => ipcRenderer.send("llmChat:abort", sessionId),
     llmChatDispose: (sessionId) => ipcRenderer.send("llmChat:dispose", sessionId),

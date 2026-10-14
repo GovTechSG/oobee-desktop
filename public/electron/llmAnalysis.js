@@ -1682,7 +1682,49 @@ function init({ mainWindow, getResultsFolderPath }) {
     }
   })
 
-  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat }) => {
+  ipcMain.handle('llmChat:anthropicListModels', async () => {
+    let cfg
+    try {
+      cfg = loadLLMConfig()
+    } catch (e) {
+      return { ok: false, error: e.message, defaultModel: '' }
+    }
+    if (cfg.provider !== 'anthropic') {
+      return { ok: false, error: `Configured provider is ${cfg.provider}, not anthropic.`, defaultModel: '' }
+    }
+    try {
+      const resp = await axios.get(`${cfg.baseURL}/models`, {
+        params: { limit: 1000 },
+        headers: {
+          'x-api-key': cfg.apiKey,
+          authorization: `Bearer ${cfg.apiKey}`,
+          'anthropic-version': ANTHROPIC_VERSION,
+          ...cfg.headers,
+        },
+        timeout: 10000,
+        validateStatus: () => true,
+      })
+      if (resp.status >= 400) {
+        return { ok: false, error: `Server returned HTTP ${resp.status}.`, defaultModel: cfg.model }
+      }
+      const raw = Array.isArray(resp.data?.data) ? resp.data.data : []
+      const all = raw
+        .map((m) => ({ id: m?.id, label: m?.display_name || m?.id }))
+        .filter((m) => typeof m.id === 'string' && m.id.length > 0)
+      // Gateways (e.g. LiteLLM) list every backend model; /messages is
+      // Claude-specific, so keep only Claude ids when any are present.
+      const claude = all.filter((m) => /claude/i.test(m.id))
+      const models = claude.length > 0 ? claude : all
+      if (models.length === 0) {
+        return { ok: false, error: 'Server returned no models.', defaultModel: cfg.model }
+      }
+      return { ok: true, models, defaultModel: cfg.model }
+    } catch (e) {
+      return { ok: false, error: e.message, defaultModel: cfg.model }
+    }
+  })
+
+  ipcMain.handle('llmChat:start', async (_event, { sessionId, scanId, provider, modelId, cpuOnly, thinking, newChat, anthropicModel }) => {
     try {
       if (!sessionId) throw new Error('Missing sessionId')
       if (!newChat && !scanId) throw new Error('Missing scanId')
@@ -1803,6 +1845,8 @@ function init({ mainWindow, getResultsFolderPath }) {
           stored = next
         }
         customConfig = { model: stored }
+      } else if (chosenProvider === 'anthropic' && typeof anthropicModel === 'string' && anthropicModel.trim()) {
+        customConfig = { model: anthropicModel.trim() }
       }
       sessions.set(sessionId, {
         scanId: newChat ? null : scanId,
@@ -1912,6 +1956,7 @@ function init({ mainWindow, getResultsFolderPath }) {
               'Tool use is only supported for Anthropic providers in this version. Set ANTHROPIC_API_KEY or configure ~/.claude/settings.json.'
             )
           }
+          if (session.customConfig?.model) session.cfg.model = session.customConfig.model
           log(`session ${sessionId} using model ${session.cfg.model} at ${session.cfg.baseURL}`)
         }
         // Anthropic accepts a content array on user messages. Prepend image
