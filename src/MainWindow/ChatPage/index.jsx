@@ -238,6 +238,17 @@ const readStoredThinking = () => {
   }
 }
 
+// Empty string = use the default model from the user's Anthropic config
+// (ANTHROPIC_MODEL / ~/.claude/settings.json), see llm-config.js.
+const ANTHROPIC_MODEL_STORAGE_KEY = 'llmAnthropicModel'
+const readStoredAnthropicModel = () => {
+  try {
+    return window.localStorage.getItem(ANTHROPIC_MODEL_STORAGE_KEY) || ''
+  } catch (_) {
+    return ''
+  }
+}
+
 const formatBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -324,6 +335,7 @@ const ChatPage = () => {
   // mechanism — see THINKING_STORAGE_KEY doc comment above); hidden for the
   // OpenAI Compatible Provider.
   const [thinking, setThinking] = useState(readStoredThinking)
+  const [anthropicModel, setAnthropicModel] = useState(readStoredAnthropicModel)
   const [providerAvailability, setProviderAvailability] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
   const providerInitialisedRef = useRef(false)
@@ -375,6 +387,10 @@ const ChatPage = () => {
   const [gemmaModelIdDraft, setGemmaModelIdDraft] = useState('gemma-e4b')
   const [cpuOnlyDraft, setCpuOnlyDraft] = useState(false)
   const [thinkingDraft, setThinkingDraft] = useState(false)
+  const [anthropicModelDraft, setAnthropicModelDraft] = useState('')
+  const [anthropicModelsList, setAnthropicModelsList] = useState(null)
+  const [anthropicDefaultModel, setAnthropicDefaultModel] = useState('')
+  const [anthropicModelsError, setAnthropicModelsError] = useState(null)
   const wasModelOptionsModalOpenRef = useRef(false)
   // A new sessionId is minted on every provider/model switch — the backend
   // disposes the previous state and treats it as a fresh session.
@@ -722,17 +738,20 @@ const ChatPage = () => {
       const cpuOnlyChanged = cpuOnlyDraft !== cpuOnly
       const thinkingChanged = thinkingDraft !== thinking
       const gemmaModelChanged = gemmaModelIdDraft !== gemmaModelId
-      if (cpuOnlyChanged || thinkingChanged || gemmaModelChanged) {
+      const anthropicModelChanged = anthropicModelDraft !== anthropicModel
+      if (cpuOnlyChanged || thinkingChanged || gemmaModelChanged || anthropicModelChanged) {
         try {
           if (cpuOnlyChanged) window.localStorage.setItem(CPU_ONLY_STORAGE_KEY, cpuOnlyDraft ? '1' : '0')
           if (thinkingChanged) window.localStorage.setItem(THINKING_STORAGE_KEY, thinkingDraft ? '1' : '0')
           if (gemmaModelChanged) window.localStorage.setItem(GEMMA_MODEL_STORAGE_KEY, gemmaModelIdDraft)
+          if (anthropicModelChanged) window.localStorage.setItem(ANTHROPIC_MODEL_STORAGE_KEY, anthropicModelDraft)
         } catch (_) {
           // localStorage disabled — ignore
         }
         if (cpuOnlyChanged) setCpuOnly(cpuOnlyDraft)
         if (thinkingChanged) setThinking(thinkingDraft)
         if (gemmaModelChanged) setGemmaModelId(gemmaModelIdDraft)
+        if (anthropicModelChanged) setAnthropicModel(anthropicModelDraft)
         // Keep prior messages visible as a transcript. The new backend
         // session (from sessionEpoch bump below) will start with empty
         // context, mirroring changeOption()'s behaviour so any restart
@@ -786,6 +805,7 @@ const ChatPage = () => {
           modelId: chosenModelId,
           cpuOnly,
           thinking,
+          anthropicModel: provider === 'anthropic' ? anthropicModel : '',
         })
         if (cancelled) return
         if (res && res.ok) {
@@ -803,7 +823,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [sessionId, scanId, isNewChat, provider, chosenModelId, cpuOnly, thinking, modelReady])
+  }, [sessionId, scanId, isNewChat, provider, chosenModelId, cpuOnly, thinking, anthropicModel, modelReady])
 
   useEffect(() => {
     window.services.onLlmChatChunk(({ sessionId: sid, text }) => {
@@ -1699,6 +1719,19 @@ h1,h2,h3{margin-top:16px}hr{margin:16px 0}</style></head>
                 setGemmaModelIdDraft(gemmaModelId)
                 setCpuOnlyDraft(cpuOnly)
                 setThinkingDraft(thinking)
+                setAnthropicModelDraft(anthropicModel)
+                if (provider === 'anthropic') {
+                  setAnthropicModelsList(null)
+                  setAnthropicModelsError(null)
+                  window.services
+                    .llmChatAnthropicListModels()
+                    .then((res) => {
+                      setAnthropicDefaultModel(res?.defaultModel || '')
+                      if (res?.ok) setAnthropicModelsList(res.models)
+                      else setAnthropicModelsError(res?.error || 'Failed to fetch models.')
+                    })
+                    .catch((e) => setAnthropicModelsError(e.message))
+                }
                 setShowModelOptionsModal(true)
               }}
             >
@@ -2178,6 +2211,46 @@ h1,h2,h3{margin-top:16px}hr{margin:16px 0}</style></head>
                       : 'Runs the model on CPU instead of GPU. Community benchmarks show this can be faster than the Adreno GPU backend on some Snapdragon X hardware.'}
                   </p>
                 </label>
+              )}
+              {provider === 'anthropic' && (
+                <div className="chat-model-select-group">
+                  <label htmlFor="chat-anthropic-model-select">
+                    <strong>Claude model</strong>
+                  </label>
+                  <p className="chat-toggle-hint">
+                    Choose which Claude model to chat with. Default uses the model from your
+                    Anthropic configuration.
+                  </p>
+                  <select
+                    id="chat-anthropic-model-select"
+                    value={anthropicModelDraft}
+                    onChange={(e) => setAnthropicModelDraft(e.target.value)}
+                    disabled={isStreaming}
+                  >
+                    <option value="">
+                      {anthropicDefaultModel ? `Default (${anthropicDefaultModel})` : 'Default'}
+                    </option>
+                    {anthropicModelDraft &&
+                      !(anthropicModelsList || []).some((m) => m.id === anthropicModelDraft) && (
+                        <option value={anthropicModelDraft}>
+                          {anthropicModelsList ? `${anthropicModelDraft} (not listed by server)` : anthropicModelDraft}
+                        </option>
+                      )}
+                    {(anthropicModelsList || []).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id}
+                      </option>
+                    ))}
+                  </select>
+                  {!anthropicModelsList && !anthropicModelsError && (
+                    <p className="chat-toggle-hint chat-model-select-description">Loading models…</p>
+                  )}
+                  {anthropicModelsError && (
+                    <p className="chat-toggle-hint chat-model-select-description" role="alert">
+                      Couldn't load the model list: {anthropicModelsError}
+                    </p>
+                  )}
+                </div>
               )}
               {provider === 'anthropic' && (
                 <label className="chat-toggle-control chat-toggle-control-modal">
