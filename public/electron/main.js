@@ -1,3 +1,6 @@
+// Must run before any module opens a TLS connection.
+require('./systemCa').trustSystemCertificates()
+
 const {
   app: electronApp,
   BrowserWindow,
