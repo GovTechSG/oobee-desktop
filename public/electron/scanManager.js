@@ -558,7 +558,7 @@ const startScan = async (scanDetails, scanEvent) => {
     
     const scan = spawn(
       'node',
-      [`--max-old-space-size=${getMaxOldSpaceSize()}`, `${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
+      ['--use-system-ca', `--max-old-space-size=${getMaxOldSpaceSize()}`, `${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
       {
         cwd: resultsPath,
         env: {
