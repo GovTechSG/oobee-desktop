@@ -22,7 +22,7 @@ Oobee is available as a download for Windows and MacOS. Refer to [Installation G
 ### Development, Build and Testing
 
 #### NodeJS Requirement
-- Node LTS (22.19.0) is recommended.  The `npm` and `node` command is assumed to be available in `PATH`.
+- Node LTS (24.22.1) is recommended.  The `npm` and `node` command is assumed to be available in `PATH`.
 - Direct internet connection is required or some node modules downloads might fail due to certificate issue in corporate IT environments.
 
 #### Set Engine Version
