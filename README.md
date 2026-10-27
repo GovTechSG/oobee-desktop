@@ -1,5 +1,7 @@
 # Oobee
 
+**English** | [日本語](./README.ja.md)
+
 Oobee (formerly known as Purple A11y) is an accessibility site scanner - a customisable, automated web accessibility testing tool that allows software development teams to find and fix accessibility problems to improve persons with disabilities (PWDs) access to digital services. The official application can only be downloaded at [https://go.gov.sg/oobee](https://go.gov.sg/oobee). We recommend that you download the software only from the official link, as other sources and/or third party links may pose risks and/or compromise your system.
 
 For software engineers who wish to run Oobee as a command line, please refer to [Oobee (CLI)](https://github.com/GovTechSG/oobee) instead.
@@ -307,3 +309,17 @@ For Oobee's backed repository and to run Oobee as a command line, please refer t
 Oobee uses third-party open-source tools that may be downloaded over the Internet during the installation process of Oobee. Users should be aware of the libraries used by examining `package.json`.
 
 Oobee may send information to the website or URL where the user chooses to initiate a Oobee scan. Limited user information such as e-mail address, name, and basic analytics is collected for the purpose of knowing our usage patterns better.
+
+### Opting out of telemetry (outside Singapore)
+
+If your operating system Region is set to a country other than Singapore (macOS: **System Settings → General → Language & Region → Region**; Windows: **Settings → Time & Language → Language & region → Country or region**), the onboarding screen and **Edit your profile** dialog show an **Opt out of accessibility scan telemetry** option. When selected:
+
+- Your name and e-mail address are cleared and not collected.
+- Scans run with `OOBEE_DISABLE_TELEMETRY=true`, so the Oobee engine sends no scan telemetry.
+- Oobee Desktop stops sending app usage events and crash reports (Sentry is not started).
+
+You can turn telemetry back on from **Edit your profile**; it resumes after restarting Oobee.
+
+## Language
+
+Oobee Desktop is available in English and Japanese. The interface is shown in Japanese when your preferred system language or regional format is Japanese (macOS: **Language & Region**; Windows: **Windows display language** or **Regional format**). Otherwise it is shown in English.

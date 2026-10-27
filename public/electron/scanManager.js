@@ -25,6 +25,7 @@ const {
   uploadFolderName,
 } = require('./constants')
 const { readUserDataFromFile, createExportDir, getProxySettings, getIncludeProxy } = require('./userDataManager')
+const { getScanIdentityArgs, applyScanTelemetryEnv } = require('./telemetry')
 const scanHistory = {}
 
 let currentChildProcess
@@ -244,14 +245,14 @@ const getScanOptions = (details) => {
     metadata,
     customChecks,
     wcagAaa,
+    telemetryOptOut,
   } = details
   const options = [
     '-c',
     scanType,
     '-u',
     url,
-    '-k',
-    `${name}:${email}`,
+    ...getScanIdentityArgs({ name, email, telemetryOptOut }),
     '-i',
     fileTypes,
   ]
@@ -340,6 +341,9 @@ const startScan = async (scanDetails, scanEvent) => {
     scanDetails.email = userData.email
     scanDetails.name = userData.name
     scanDetails.exportDir = userData.exportDir
+    // Always taken from the main-process copy of userData, never from the
+    // renderer-supplied scanDetails.
+    scanDetails.telemetryOptOut = userData.telemetryOptOut === true
     const success = createExportDir(userData.exportDir)
     if (!success) return { failedToCreateExportDir: true }
   }
@@ -561,7 +565,7 @@ const startScan = async (scanDetails, scanEvent) => {
       ['--use-system-ca', `--max-old-space-size=${getMaxOldSpaceSize()}`, `${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
       {
         cwd: resultsPath,
-        env: {
+        env: applyScanTelemetryEnv({
           ...process.env,
           OOBEE_VERBOSE: '1',
           OOBEE_FAST_CRAWLER: '1',
@@ -572,7 +576,7 @@ const startScan = async (scanDetails, scanEvent) => {
           PATH: getPathVariable(),
           ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
           ...(getIncludeProxy() && { INCLUDE_PROXY: getIncludeProxy() }),
-        },
+        }, scanDetails.telemetryOptOut),
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       }
     )

@@ -10,7 +10,10 @@ const {
   dialog,
   powerMonitor,
 } = require('electron')
-const Sentry = require('@sentry/electron/main')
+// All Sentry usage goes through ./telemetry so the user's telemetry opt-out
+// is enforced in one place. Do not require @sentry/electron here directly.
+const telemetry = require('./telemetry')
+const localeManager = require('./localeManager')
 const os = require('os')
 const axios = require('axios')
 const https = require('https')
@@ -49,8 +52,9 @@ function captureCmd(bin, args) {
 
 const app = electronApp
 
-// Initialize Sentry
-Sentry.init({
+// Initialize Sentry unless the user has opted out of telemetry. Must stay at
+// top level (before 'ready') so the Electron SDK can hook crash reporting.
+telemetry.initSentry({
   dsn: "https://a70a82e8152c23392841b1118c4ede73@o4509047624761344.ingest.us.sentry.io/4509286545948673",
   // Enable performance monitoring
   tracesSampleRate: 1.0,
@@ -144,11 +148,11 @@ function createMainWindow() {
 app.on('ready', async () => {
   const userData = await userDataManager.readUserDataFromFile();
 
-  Sentry.setUser({
+  telemetry.setUser({
     id: userData.userId,
   });
 
-  Sentry.captureMessage('App Launched', {
+  telemetry.captureMessage('App Launched', {
     level: 'info',
     tags: {
       os: os.platform(),
@@ -263,6 +267,13 @@ app.on('ready', async () => {
 
   // create settings file if it does not exist
   await userDataManager.init()
+
+  // UI language + whether the telemetry opt-out is offered. Registered before
+  // the launch window loads because the renderer resolves its language first.
+  ipcMain.handle('getLocaleInfo', () => {
+    const { telemetryOptOut } = userDataManager.readUserDataFromFile()
+    return localeManager.getLocaleInfo({ savedOptOut: telemetryOptOut === true })
+  })
 
   const launchWindowReady = new Promise((resolve) => {
     ipcMain.once('guiReady', () => {
@@ -411,7 +422,7 @@ app.on('ready', async () => {
     mainWindow.webContents.send('scanningUrl', url)
   })
   scanEvent.on('scanningCompleted', () => {
-    Sentry.captureMessage('Accessibility Scan Completed', {
+    telemetry.captureMessage('Accessibility Scan Completed', {
       level: 'info',
       tags: {
         os: os.platform(),
@@ -617,7 +628,7 @@ app.on('quit', () => {
   // }
   const userData = userDataManager.readUserDataFromFile();
 
-  Sentry.captureMessage('App Quit', {
+  telemetry.captureMessage('App Quit', {
     level: 'info',
     tags: {
       os: os.platform(),

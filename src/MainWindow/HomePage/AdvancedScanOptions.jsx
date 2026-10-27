@@ -7,9 +7,15 @@ import { ReactComponent as ChevronDownIcon } from '../../assets/chevron-down-whi
 import questionMarkIcon from '../../assets/question-mark-light-grey.svg'
 import ButtonSvgIcon from '../../common/components/ButtonSvgIcon'
 import ToolTip from '../../common/components/ToolTip'
-import { getDefaultAdvancedOptions } from '../../common/constants'
+import {
+  getDefaultAdvancedOptions,
+  scanTypeLabelKey,
+  viewportLabelKey,
+  fileTypeLabelKey,
+} from '../../common/constants'
 import purpleEditIcon from '../../assets/edit-pencil-purple.svg'
 import greyEditIcon from '../../assets/edit-pencil-grey.svg'
+import { useTranslation } from '../../i18n'
 
 const AdvancedScanOptions = ({
   scanTypeOptions,
@@ -21,6 +27,7 @@ const AdvancedScanOptions = ({
   scanButtonIsClicked,
   isFileOptionChecked,
 }) => {
+  const { t } = useTranslation()
   const [openAdvancedOptionsMenu, setOpenAdvancedOptionsMenu] = useState(false)
   const [advancedOptionsDirty, setAdvancedOptionsDirty] = useState(false)
   const [isMaxConcurrencyMouseEvent, setIsMaxConcurrencyMouseEvent] =
@@ -136,7 +143,7 @@ const AdvancedScanOptions = ({
           className={'purple-text' + (advancedOptionsDirty ? ' bold-text' : '')}
           onClick={handleToggleMenu}
         >
-          Advanced scan options{' '}
+          {t('advanced.toggle')}{' '}
           {openAdvancedOptionsMenu ? (
             <ButtonSvgIcon
               className={`chevron-up-icon`}
@@ -154,23 +161,25 @@ const AdvancedScanOptions = ({
         <div id="advanced-options-menu" ref={menu}>
           <SelectField
             id="scan-type-dropdown"
-            label="Scan Type:"
+            label={t('advanced.scanType')}
             initialValue={advancedOptions.scanType}
             options={scanTypeOptions}
+            getOptionLabelKey={scanTypeLabelKey}
             onChange={handleSetAdvancedOption('scanType')}
           />
           <SelectField
             id="viewport-type-dropdown"
-            label="Viewport:"
+            label={t('advanced.viewport')}
             initialValue={advancedOptions.viewport}
             options={Object.values(viewportOptions)}
+            getOptionLabelKey={viewportLabelKey}
             onChange={handleSetAdvancedOption('viewport')}
           />
           {advancedOptions.viewport === viewportOptions.specific &&
             (
               <SelectField
                 id="specific-device-dropdown"
-                label="Device:"
+                label={t('advanced.device')}
                 initialValue={advancedOptions.device}
                 options={deviceOptions}
                 onChange={handleSetAdvancedOption('device')}
@@ -179,7 +188,7 @@ const AdvancedScanOptions = ({
           {advancedOptions.viewport === viewportOptions.custom && (
             <div className="user-input-group">
               <label htmlFor="viewport-width-input" className="bold-text">
-                Width (px)
+                {t('advanced.width')}
               </label>
               <input
                 type="number"
@@ -208,9 +217,10 @@ const AdvancedScanOptions = ({
           {advancedOptions.scanType !== 'Custom flow' && (
             <SelectField
               id="file-type-dropdown"
-              label="File Type:"
+              label={t('advanced.fileType')}
               initialValue={advancedOptions.fileTypes}
               options={fileTypesOptions}
+              getOptionLabelKey={fileTypeLabelKey}
               onChange={handleSetAdvancedOption('fileTypes')}
             />
           )}
@@ -230,7 +240,7 @@ const AdvancedScanOptions = ({
                 (e) => e.target.checked
               )}
             />
-            <label htmlFor="screenshots-toggle">Include screenshots</label>
+            <label htmlFor="screenshots-toggle">{t('advanced.includeScreenshots')}</label>
           </div>
 
           {!isFileOptionChecked &&
@@ -251,7 +261,7 @@ const AdvancedScanOptions = ({
                   )}
                 />
                 <label htmlFor="subdomain-toggle">
-                  Allow subdomains for scans
+                  {t('advanced.allowSubdomains')}
                 </label>
               </div>
             )}
@@ -275,7 +285,7 @@ const AdvancedScanOptions = ({
                   )}
                 />
                 <label htmlFor="follow-robots-toggle">
-                  Adhere to robots.txt
+                  {t('advanced.followRobots')}
                 </label>
               </div>
             )}
@@ -300,13 +310,10 @@ const AdvancedScanOptions = ({
                 (e) => e.target.checked
               )}
             />
-            <label htmlFor="custom-checks-toggle">Enable custom checks</label>
+            <label htmlFor="custom-checks-toggle">{t('advanced.customChecks')}</label>
             <div className="custom-tooltip-container">
               <ToolTip
-                // TODO Confirm whats supposed to be in custom checks
-                description={
-                  'Include custom checks that assess for vague alternative text, clickable elements, and text readability.'
-                }
+                description={t('advanced.customChecksTooltip')}
                 id="custom-checks-tooltip"
                 showToolTip={showCustomChecksTooltip}
               />
@@ -319,7 +326,7 @@ const AdvancedScanOptions = ({
                 onBlur={() => setShowCustomChecksTooltip(false)}
                 onMouseEnter={() => setShowCustomChecksTooltip(true)}
                 onMouseLeave={() => setShowCustomChecksTooltip(false)}
-                alt="tooltip icon for safe scan mode"
+                alt={t('advanced.customChecksTooltipAlt')}
               />
             </div>
           </div>
@@ -341,12 +348,10 @@ const AdvancedScanOptions = ({
                 (e) => e.target.checked
               )}
             />
-            <label htmlFor="wcag-aaa-toggle">Enable WCAG AAA checks</label>
+            <label htmlFor="wcag-aaa-toggle">{t('advanced.wcagAaa')}</label>
             <div className="custom-tooltip-container">
               <ToolTip
-                description={
-                  'Include checks that meet the highest level of WCAG conformance.'
-                }
+                description={t('advanced.wcagAaaTooltip')}
                 id="wcag-aaa-tooltip"
                 showToolTip={showWcagAaaTooltip}
               />
@@ -359,7 +364,7 @@ const AdvancedScanOptions = ({
                 onBlur={() => setShowWcagAaaTooltip(false)}
                 onMouseEnter={() => setShowWcagAaaTooltip(true)}
                 onMouseLeave={() => setShowWcagAaaTooltip(false)}
-                alt="tooltip icon for safe scan mode"
+                alt={t('advanced.wcagAaaTooltipAlt')}
               />
             </div>
           </div>
@@ -387,12 +392,10 @@ const AdvancedScanOptions = ({
                     (e) => e.target.checked
                   )}
                 />
-                <label htmlFor="max-concurrency-toggle">Slow Scan Mode</label>
+                <label htmlFor="max-concurrency-toggle">{t('advanced.slowScan')}</label>
                 <div className="custom-tooltip-container">
                   <ToolTip
-                    description={
-                      'Scan 1 page at a time instead of multiple pages concurrently.'
-                    }
+                    description={t('advanced.slowScanTooltip')}
                     id="max-concurrency-tooltip"
                     showToolTip={showMaxConcurrencyTooltip}
                   />
@@ -405,7 +408,7 @@ const AdvancedScanOptions = ({
                     onBlur={() => setShowMaxConcurrencyTooltip(false)}
                     onMouseEnter={() => setShowMaxConcurrencyTooltip(true)}
                     onMouseLeave={() => setShowMaxConcurrencyTooltip(false)}
-                    alt="tooltip icon for slow scan mode"
+                    alt={t('advanced.slowScanTooltipAlt')}
                   />
                 </div>
               </div>
@@ -415,7 +418,7 @@ const AdvancedScanOptions = ({
           <hr />
           <div className="user-input-group">
             <label id="download-folder-label" className="bold-text">
-              Download:
+              {t('advanced.download')}
             </label>
             <DownloadFolderDropdown></DownloadFolderDropdown>
           </div>

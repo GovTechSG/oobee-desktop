@@ -1,6 +1,8 @@
 import React from "react";
+import { useTranslation } from "../../i18n";
 
 export const BasicAuthForm = ({ handleBasicAuthSubmit }) => {
+  const { t } = useTranslation();
   return (
     <div className="user-form">
       <form
@@ -9,7 +11,7 @@ export const BasicAuthForm = ({ handleBasicAuthSubmit }) => {
       >
         <div className="user-form-field">
           <label className="user-form-label" htmlFor="username">
-            Username
+            {t("basicAuth.username")}
           </label>
           <input
             className="user-form-input"
@@ -20,7 +22,7 @@ export const BasicAuthForm = ({ handleBasicAuthSubmit }) => {
         </div>
         <div className="user-form-field">
           <label className="user-form-label" htmlFor="password">
-            Password
+            {t("basicAuth.password")}
           </label>
           <input
             className="user-form-input"
@@ -35,6 +37,7 @@ export const BasicAuthForm = ({ handleBasicAuthSubmit }) => {
 };
 
 export const BasicAuthFormFooter = ({ setShowBasicAuthModal }) => {
+  const { t } = useTranslation();
   return (
     <>
       <button
@@ -42,14 +45,14 @@ export const BasicAuthFormFooter = ({ setShowBasicAuthModal }) => {
         aria-controls="basic-auth-modal"
         onClick={() => setShowBasicAuthModal(false)}
       >
-        Close
+        {t("common.close")}
       </button>
       <button
         form="home-page-basic-auth-form"
         className="modal-button btn-primary"
         type="submit"
       >
-        Scan
+        {t("common.scan")}
       </button>
     </>
   );

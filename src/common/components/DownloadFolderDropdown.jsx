@@ -2,10 +2,12 @@ import folder from "../../assets/folder-grey.svg";
 import { useEffect, useState } from "react";
 import services from "../../services";
 import editIcon from "../../assets/edit-pencil-purple.svg";
+import { useTranslation } from "../../i18n";
 
 const DownloadFolderDropdown = ({
   isOnboarding
 }) => {
+    const { t } = useTranslation();
     const dropdownClassName = isOnboarding ? "download-dropdown fade-in-left" : "download-dropdown";
     const [exportDir, setExportDir] = useState();
     
@@ -34,7 +36,7 @@ const DownloadFolderDropdown = ({
               <span id="dir-info">{exportDir}</span>
             </div>
             <div className="change-download-btn">
-              <img src={editIcon} aria-label="Change download directory"></img>
+              <img src={editIcon} aria-label={t("download.change")}></img>
             </div>
         </button>
       </div>

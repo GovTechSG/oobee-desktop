@@ -13,6 +13,7 @@ import { ReactComponent as ChevronUpIcon } from '../../assets/chevron-up-purple.
 import { ReactComponent as ChevronDownIcon } from '../../assets/chevron-down-white.svg'
 import LoadingSpinner from '../../common/components/LoadingSpinner'
 import ToolTip from '../../common/components/ToolTip'
+import { useTranslation } from '../../i18n'
 
 const SCAN_TYPE = {
   INTELLIGENT: 'Intelligent crawler',
@@ -21,6 +22,10 @@ const SCAN_TYPE = {
   CUSTOM_FLOW: 'Custom flow',
   LOCAL_FILE: 'Local file',
 }
+
+// Internal placeholder stored in scanUrl until a file is chosen. Never shown
+// as-is: the file button translates it (see AGENTS.md: internal keys English).
+const CHOOSE_FILE_PLACEHOLDER = 'Choose file...'
 
 const getAllowedFileTypes = (scanType) => {
   if (
@@ -51,8 +56,8 @@ const InitScanForm = ({
   setScanButtonIsClicked,
   isAbortingScan,
 }) => {
+  const { t } = useTranslation()
   const [openPageLimitAdjuster, setOpenPageLimitAdjuster] = useState(false)
-  const [pageWord, setPageWord] = useState('pages')
   const pageLimitAdjuster = useRef()
   const scanTypeOptions = Object.keys(scanTypes)
   const fileTypesOptions = Object.keys(fileTypes)
@@ -108,7 +113,7 @@ const InitScanForm = ({
       setIsFileOptionChecked(true)
       const newScanUrl = cachedScanUrl
         ? JSON.parse(cachedScanUrl)
-        : 'Choose file...'
+        : CHOOSE_FILE_PLACEHOLDER
       setScanUrl(newScanUrl)
       setStaticFilePath(newScanUrl)
       setStaticHttpUrl('https://')
@@ -118,7 +123,7 @@ const InitScanForm = ({
       const newScanUrl = cachedScanUrl ? JSON.parse(cachedScanUrl) : 'https://'
       setScanUrl(newScanUrl)
       setStaticHttpUrl(newScanUrl)
-      setStaticFilePath('Choose file...')
+      setStaticFilePath(CHOOSE_FILE_PLACEHOLDER)
       setCachedNonFileScanType(cachedScanType || SCAN_TYPE.INTELLIGENT)
       setDisplayScanType(cachedScanType || SCAN_TYPE.INTELLIGENT)
     }
@@ -163,12 +168,10 @@ const InitScanForm = ({
   }, [scanButtonIsClicked, prevUrlErrorMessage])
 
   useEffect(() => {
-    setPageWord(pageLimit === '1' ? 'page' : 'pages')
-  }, [pageLimit])
-
-  useEffect(() => {
     setAllowedFileTypes(getAllowedFileTypes(displayScanType))
   }, [displayScanType])
+
+  const pageWord = t('scanForm.pages', { count: Number(pageLimit) })
 
   const togglePageLimitAdjuster = (e) => {
     if (!e.currentTarget.disabled) {
@@ -186,9 +189,9 @@ const InitScanForm = ({
       const fileExtension = '.' + scanUrl.split('.').pop().toLowerCase()
       if (!allowedFileTypes.includes(fileExtension)) {
         alert(
-          `Invalid file format. Please choose a file with one of these extensions: ${allowedFileTypes.join(
-            ', '
-          )}`
+          t('scanForm.invalidFileFormat', {
+            extensions: allowedFileTypes.join(', '),
+          })
         )
         return
       }
@@ -224,7 +227,7 @@ const InitScanForm = ({
         properties: ['openFile'],
         filters: [
           {
-            name: 'Allowed Files',
+            name: t('scanForm.allowedFiles'),
             extensions: allowedFileTypes.map((ext) => ext.slice(1)),
           },
         ],
@@ -245,9 +248,9 @@ const InitScanForm = ({
           })
         } else {
           alert(
-            `Invalid file format. Please choose a file with one of these extensions: ${allowedFileTypes.join(
-              ', '
-            )}`
+            t('scanForm.invalidFileFormat', {
+              extensions: allowedFileTypes.join(', '),
+            })
           )
         }
       }
@@ -291,9 +294,9 @@ const InitScanForm = ({
   return (
     <div id="init-scan-form">
       <label htmlFor="url-input" id="url-bar-label">
-        {isFileOptionChecked ? 'Select ' : 'Enter '}
-        your <strong>{isFileOptionChecked ? 'local file' : 'URL'} </strong>
-        to get started
+        {isFileOptionChecked
+          ? t('scanForm.selectFileLabel', { strong: (text) => <strong>{text}</strong> })
+          : t('scanForm.enterUrlLabel', { strong: (text) => <strong>{text}</strong> })}
       </label>
       <div id="url-bar-group">
         <div id="url-bar">
@@ -312,12 +315,14 @@ const InitScanForm = ({
                 aria-describedby="toggle-url-file-tooltip"
                 ref={toggleUrlFileRef}
               >
-                {isFileOptionChecked ? 'FILE' : 'URL'}
+                {isFileOptionChecked ? t('scanForm.fileToggle') : t('scanForm.urlToggle')}
               </button>
               <ToolTip
-                description={`Toggle to ${
-                  isFileOptionChecked ? 'URL' : 'file'
-                } input`}
+                description={
+                  isFileOptionChecked
+                    ? t('scanForm.toggleToUrl')
+                    : t('scanForm.toggleToFile')
+                }
                 id="toggle-url-file-tooltip"
                 showToolTip={showToggleUrlFileTooltip}
               />
@@ -342,7 +347,9 @@ const InitScanForm = ({
                 aria-describedby="url-bar-label"
                 className="file-select-button"
               >
-                {scanUrl ? scanUrl : 'Choose file'}
+                {scanUrl && scanUrl !== CHOOSE_FILE_PLACEHOLDER
+                  ? scanUrl
+                  : t('scanForm.chooseFile')}
               </button>
             </div>
           )}
@@ -355,7 +362,7 @@ const InitScanForm = ({
                   id="page-limit-toggle-button"
                   onClick={(e) => togglePageLimitAdjuster(e)}
                 >
-                  capped at{' '}
+                  {t('scanForm.cappedAt')}{' '}
                   <span className="purple-text">
                     {pageLimit} {pageWord}{' '}
                     {openPageLimitAdjuster ? (
@@ -402,7 +409,7 @@ const InitScanForm = ({
             {scanButtonIsClicked || isAbortingScan ? (
               <LoadingSpinner></LoadingSpinner>
             ) : (
-              'Scan'
+              t('common.scan')
             )}
           </Button>
         </div>

@@ -1,7 +1,9 @@
 import { handleClickLink,installChromeUrl } from "../../common/constants";
 import Modal from "../../common/components/Modal";
+import { useTranslation } from "../../i18n";
 
 const NoChromeErrorModal = ({showModal, setShowModal}) => {
+    const { t } = useTranslation();
     const onClickInstallChrome = (e) => {
         handleClickLink(e, installChromeUrl);
         setShowModal(false);
@@ -12,10 +14,10 @@ const NoChromeErrorModal = ({showModal, setShowModal}) => {
             id='no-chrome-browser-modal'
             showModal={showModal}
             showHeader={true}
-            modalTitle={'Please install Google Chrome'}
-            modalBody={'To run a scan using Oobee, please install Google Chrome.'}
+            modalTitle={t('noChrome.title')}
+            modalBody={t('noChrome.body')}
             modalFooter={
-                <button className='btn-primary modal-button modal-full-button' onClick={(e) => onClickInstallChrome(e)}>Download Google Chrome</button>
+                <button className='btn-primary modal-button modal-full-button' onClick={(e) => onClickInstallChrome(e)}>{t('noChrome.download')}</button>
             }
             setShowModal={setShowModal}
         />

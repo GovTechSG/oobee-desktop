@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { policyUrlElem } from "../../common/constants";
+import { PolicyLink } from "../../common/constants";
 import Modal from "../../common/components/Modal";
 import UserDetailsForm from "../../common/components/UserDetailsForm";
+import { useTranslation } from "../../i18n";
 
 const EditUserDetailsModal = ({
   id,
@@ -9,34 +10,53 @@ const EditUserDetailsModal = ({
   showModal,
   initialName,
   initialEmail,
+  initialTelemetryOptOut = false,
   setShowEditDataModal,
   setUserData,
 }) => {
+  const { t, localeInfo, refreshLocaleInfo } = useTranslation();
+  const showTelemetryOptOut = localeInfo.telemetryOptOutAvailable;
   const [editedName, setEditedName] = useState(initialName);
   const [editedEmail, setEditedEmail] = useState(initialEmail);
+  const [editedTelemetryOptOut, setEditedTelemetryOptOut] = useState(initialTelemetryOptOut);
   const [nameInputErrorMessage, setNameInputErrorMessage] = useState(null);
   const [emailInputErrorMessage, setEmailInputErrorMessage] = useState(null);
 
+  const isOptedOut = showTelemetryOptOut && editedTelemetryOptOut;
+  const isUnchanged =
+    editedName === initialName &&
+    editedEmail === initialEmail &&
+    editedTelemetryOptOut === initialTelemetryOptOut;
+
   const isSubmitDisabled =
-    editedName.trim() === "" ||
-    editedEmail.trim() === "" ||
-    (editedName === initialName && editedEmail === initialEmail) ||
-    nameInputErrorMessage ||
-    emailInputErrorMessage;
+    isUnchanged ||
+    (!isOptedOut &&
+      (editedName.trim() === "" ||
+        editedEmail.trim() === "" ||
+        nameInputErrorMessage ||
+        emailInputErrorMessage));
 
   const handleEditUserData = () => {
-    window.services.editUserData({ name: editedName, email: editedEmail });
+    const name = isOptedOut ? "" : editedName;
+    const email = isOptedOut ? "" : editedEmail;
+    const update = { name, email };
+    if (showTelemetryOptOut) update.telemetryOptOut = isOptedOut;
+    window.services.editUserData(update);
     setShowEditDataModal(false);
-    setUserData((userData) => ({ ...userData, name: editedName, email: editedEmail }))
+    setUserData((userData) => ({ ...userData, ...update }));
+    refreshLocaleInfo();
   };
 
   const setShowModal = (show) => {
     setEditedEmail(initialEmail);
     setEditedName(initialName);
+    setEditedTelemetryOptOut(initialTelemetryOptOut);
     setEmailInputErrorMessage(null);
     setNameInputErrorMessage(null);
     setShowEditDataModal(show);
   };
+
+  const policy = (text) => <PolicyLink>{text}</PolicyLink>;
 
   if (showModal) {
     return (
@@ -44,7 +64,7 @@ const EditUserDetailsModal = ({
         id={id}
         showModal={showModal}
         showHeader={true}
-        modalTitle={"Edit your profile"}
+        modalTitle={t("editProfile.title")}
         modalSizeClass="modal-dialog-centered"
         modalBody={
           <>
@@ -59,11 +79,20 @@ const EditUserDetailsModal = ({
               emailInputErrorMessage={emailInputErrorMessage}
               setNameInputErrorMessage={setNameInputErrorMessage}
               setEmailInputErrorMessage={setEmailInputErrorMessage}
+              showTelemetryOptOut={showTelemetryOptOut}
+              telemetryOptOut={editedTelemetryOptOut}
+              setTelemetryOptOut={setEditedTelemetryOptOut}
             />
             <p>
-              We are collecting your name, email address and app usage data.
-              Your information fully complies with {policyUrlElem}.
+              {isOptedOut
+                ? t("telemetry.optedOutDesc")
+                : t("editProfile.consentDesc", { policy })}
             </p>
+            {initialTelemetryOptOut && !editedTelemetryOptOut && (
+              <p className="telemetry-opt-out-hint">
+                {t("telemetry.optInRestartNote")}
+              </p>
+            )}
           </>
         }
         modalFooter={
@@ -73,7 +102,7 @@ const EditUserDetailsModal = ({
             className={`btn-primary modal-button`}
             disabled={isSubmitDisabled}
           >
-            Update
+            {t("common.update")}
           </button>
         }
         setShowModal={setShowModal}

@@ -7,8 +7,6 @@ import {
   viewportTypes,
   devices,
   fileTypes,
-  forbiddenCharactersInDirPath,
-  reserveFileNameKeywords,
 } from './common/constants'
 
 // for use in openUserDataForm
@@ -122,39 +120,6 @@ const isValidEmail = (email) => {
   return emailRegex.test(email)
 }
 
-const isValidCustomFlowLabel = (customFlowLabel) => {
-  const containsReserveWithDot = reserveFileNameKeywords.some((char) =>
-    customFlowLabel.toLowerCase().includes(char.toLowerCase() + '.')
-  )
-  const containsForbiddenCharacters = forbiddenCharactersInDirPath.some(
-    (character) => customFlowLabel.includes(character)
-  )
-  const isEmpty = customFlowLabel.length <= 0
-  const exceedsMaxLength = customFlowLabel.length > 80
-
-  if (isEmpty) return { isValid: false, errorMessage: 'Cannot be empty.' }
-  if (exceedsMaxLength)
-    return { isValid: false, errorMessage: 'Cannot exceed 80 characters.' }
-  if (containsForbiddenCharacters)
-    return {
-      isValid: false,
-      errorMessage:
-        `Cannot contain ${forbiddenCharactersInDirPath.toString()}`.replaceAll(
-          ',',
-          ' , '
-        ),
-    }
-  if (containsReserveWithDot)
-    return {
-      isValid: false,
-      errorMessage: `Cannot have '.' appended to ${reserveFileNameKeywords
-        .toString()
-        .replaceAll(',', ' , ')} as they are reserved keywords.`,
-    }
-
-  return { isValid: true }
-}
-
 const isValidName = (name) => {
   // Allow only printable characters from any language
   const regex = /^[\p{L}\p{N}\s'".,()\[\]{}!?:؛،؟…]+$/u
@@ -190,7 +155,6 @@ const services = {
   getFeedbackFormUrl,
   isValidEmail,
   isValidName,
-  isValidCustomFlowLabel,
   getErrorLog,
 }
 

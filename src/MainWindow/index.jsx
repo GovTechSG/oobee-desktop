@@ -7,7 +7,6 @@ import ResultPage from "./ResultPage";
 import OnboardingComponent from "./Onboarding/OnboardingComponent";
 import ConnectionNotification from "./ConnectionNotification";
 import "./MainWindow.css";
-import CustomFlowPage from "./CustomFlow";
 
 const MainWindow = ({ appVersionInfo }) => {
   const [completedScanId, setCompletedScanId] = useState(null);
@@ -42,7 +41,6 @@ const MainWindow = ({ appVersionInfo }) => {
                 />
               }
             />
-            <Route path="/custom_flow" element={<CustomFlowPage completedScanId={completedScanId} setCompletedScanId={setCompletedScanId}/>}></Route>
             <Route path="/scanning" element={<ScanningPage />} />
             <Route
               path="/result"

@@ -2,6 +2,7 @@ import Modal from "../../common/components/Modal";
 import boxRightArrow from "../../assets/box-arrow-up-right-purple.svg";
 import { createElement } from "react";
 import { handleClickLink } from "../../common/constants";
+import { useTranslation } from "../../i18n";
 
 // Attribute names that need renaming when converting HTML → React props.
 // Only the ones we're likely to encounter in release-notes / announcement
@@ -100,6 +101,7 @@ const WhatsNewModal = ({
   // require a client rebuild. If missing, the link is hidden entirely.
   baseUrl,
 }) => {
+  const { t } = useTranslation();
   // Event-delegated click handler for the whole modal body. Catches any
   // <a href> click and routes it through shell.openExternal so the URL opens
   // in the user's default OS browser instead of hijacking the Electron window.
@@ -181,7 +183,7 @@ const WhatsNewModal = ({
     const releasesUrl = baseUrl.replace(/\/$/, "") + "/releases/";
     return (
       <a href={releasesUrl}>
-        See previous versions{" "}
+        {t("whatsNew.previousVersions")}{" "}
         <img className="external-link" src={boxRightArrow}></img>
       </a>
     );
@@ -200,7 +202,7 @@ const WhatsNewModal = ({
       showHeader={true}
       modalBody={modalBody}
       modalSizeClass="modal-lg modal-dialog-centered"
-      modalTitle={title || ("What's new in v" + version)}
+      modalTitle={title || t("whatsNew.title", { version })}
       setShowModal={setShowModal}
     />
   );

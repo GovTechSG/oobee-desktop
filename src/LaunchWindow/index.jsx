@@ -3,6 +3,7 @@ import Button from '../common/components/Button'
 import { useEffect, useState } from 'react'
 import './LaunchWindow.scss'
 import newUpdateImg from '../../src/assets/box-seam.svg'
+import { useTranslation } from '../i18n'
 
 const Prompt = ({
   header,
@@ -13,12 +14,14 @@ const Prompt = ({
   proceedHandler,
   dismissHandler,
   hideProceed,
+  showUpdateIcon,
 }) => {
+  const { t } = useTranslation()
   return (
     <div id='launch-window'>
-      {header === 'New update available' ? (
+      {showUpdateIcon ? (
         <div className='my-5'>
-          <img src={newUpdateImg} alt='new update icon' />
+          <img src={newUpdateImg} alt={t('launch.newUpdateIconAlt')} />
         </div>
       ) : (
         <div></div>
@@ -54,6 +57,7 @@ const Prompt = ({
 }
 
 const LaunchWindow = () => {
+  const { t } = useTranslation()
   const [launchStatus, setLaunchStatus] = useState(null)
   const [promptUpdate, setPromptUpdate] = useState(false)
   const [versionInfo, setVersionInfo] = useState(null)
@@ -113,21 +117,21 @@ const LaunchWindow = () => {
 
   const messages = {
     settingUp: {
-      main: 'Setting up',
-      sub: 'This may take a few minutes. Please do not close the application.',
+      main: t('launch.settingUp'),
+      sub: t('launch.mayTakeFewMinutes'),
     },
-    checkingUpdates: { main: 'Checking for Updates' },
+    checkingUpdates: { main: t('launch.checkingUpdates') },
     updatingBackend: {
-      main: 'Updating application',
-      sub: 'This may take a few minutes. Please do not close the application.',
+      main: t('launch.updatingApplication'),
+      sub: t('launch.mayTakeFewMinutes'),
     },
     updatingFrontend: {
-      main: 'Downloading',
-      sub: 'This may take a few minutes. Please do not close the application.',
+      main: t('launch.downloading'),
+      sub: t('launch.mayTakeFewMinutes'),
     },
     offline: {
-      main: 'No internet connection',
-      sub: 'Waiting for reconnection.',
+      main: t('launch.noInternet'),
+      sub: t('launch.waitingReconnect'),
     },
   }
 
@@ -152,19 +156,23 @@ const LaunchWindow = () => {
 
   if (promptUpdate) {
     const versionDesc = versionInfo
-      ? `Current installed: ${versionInfo.currentVersion}, new version ${versionInfo.newVersion} available. Would you like to update now? It may take a few minutes.`
-      : 'Would you like to update now? It may take a few minutes.'
+      ? t('launch.updateVersionDesc', {
+          currentVersion: versionInfo.currentVersion,
+          newVersion: versionInfo.newVersion,
+        })
+      : t('launch.updateDesc')
     const extraNote = versionInfo && versionInfo.adminByRequestPresent
-      ? 'Note: Admin user rights for this device is required for this update to be successful.'
+      ? t('launch.adminRequiredNote')
       : null
     return (
       <Prompt
-        header='New update available'
+        header={t('launch.newUpdateAvailable')}
+        showUpdateIcon={true}
         desc={versionDesc}
         extraNote={extraNote}
-        proceedLabel='Update'
+        proceedLabel={t('common.update')}
         proceedHandler={handlePromptUpdateResponse(true)}
-        dismissLabel='Later'
+        dismissLabel={t('common.later')}
         dismissHandler={handlePromptUpdateResponse(false)}
         hideProceed={!!extraNote}
       />
@@ -174,11 +182,11 @@ const LaunchWindow = () => {
   if (launchStatus === 'frontendDownloadComplete') {
     return (
       <Prompt
-        header='New installer has been downloaded'
-        desc='Would you like to run the installer now?'
-        proceedLabel='Run'
+        header={t('launch.installerDownloaded')}
+        desc={t('launch.runInstallerPrompt')}
+        proceedLabel={t('common.run')}
         proceedHandler={handlePromptLaunchInstallerResponse(true)}
-        dismissLabel='Later'
+        dismissLabel={t('common.later')}
         dismissHandler={handlePromptLaunchInstallerResponse(false)}
       />
     )
@@ -187,11 +195,11 @@ const LaunchWindow = () => {
   if (launchStatus === 'frontendDownloadCompleteMacOS') {
     return (
       <Prompt
-        header='New App has been downloaded'
-        desc='Would you like to restart the application?'
-        proceedLabel='Run'
+        header={t('launch.appDownloaded')}
+        desc={t('launch.restartAppPrompt')}
+        proceedLabel={t('common.run')}
         proceedHandler={handlePromptRestartAppResponse(true)}
-        dismissLabel='Later'
+        dismissLabel={t('common.later')}
         dismissHandler={handlePromptRestartAppResponse(false)}
       />
     )

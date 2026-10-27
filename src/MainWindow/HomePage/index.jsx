@@ -15,7 +15,8 @@ import {
   errorStates,
   versionComparator,
   urlWithoutAuth,
-  urlCheckStatuses
+  urlCheckStatuses,
+  urlCheckMessageKey,
 } from '../../common/constants'
 import Modal from '../../common/components/Modal'
 import { BasicAuthForm, BasicAuthFormFooter } from './BasicAuthForm'
@@ -24,15 +25,24 @@ import NoChromeErrorModal from './NoChromeErrorModal'
 import Button from '../../common/components/Button'
 import WhatsNewModal from './WhatsNewModal'
 import AboutModal from './AboutModal'
+import { useTranslation } from '../../i18n'
+
+// Sentinel error identifiers. The displayed text is translated, so effects
+// that need to react to a specific error must compare these, never the text.
+const URL_ERROR_LOGIN_REQUIRED = 'loginRequired'
+const URL_ERROR_NO_CHROME = 'noChrome'
 
 const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [prevUrlErrorMessage, setPrevUrlErrorMessage] = useState('')
-  const [{ name, email, browser, isLabMode }, setUserData] = useState({
+  const [prevUrlErrorType, setPrevUrlErrorType] = useState(null)
+  const [{ name, email, browser, isLabMode, telemetryOptOut }, setUserData] = useState({
     name: '',
     email: '',
     browser: null,
     isLabMode: false,
+    telemetryOptOut: false,
   })
   const [showBasicAuthModal, setShowBasicAuthModal] = useState(false)
   const [showEditDataModal, setShowEditDataModal] = useState(false)
@@ -109,13 +119,13 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         appVersionInfo
 
       try {
-        if (latestVer === version) return 'latest stable build'
-        if (latestVerForLab === version) return 'latest pre-release'
+        if (latestVer === version) return t('version.latestStable')
+        if (latestVerForLab === version) return t('version.latestPrerelease')
 
         if (allReleaseTags.includes(version)) {
-          return 'stable build'
+          return t('version.stable')
         } else if (allPreReleaseTags.includes(version)) {
-          return 'pre-release'
+          return t('version.prerelease')
         }
       } catch (error) {
         console.log('Unable to show version label')
@@ -123,7 +133,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
       return undefined // if cannot be determined, this should not happen
     },
-    [appVersionInfo]
+    [appVersionInfo, t]
   )
 
   const isLatest = () => {
@@ -152,25 +162,19 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
   useEffect(() => {
     if (scanButtonIsClicked && prevUrlErrorMessage) {
-      setPrevUrlErrorMessage('')
+      setUrlError('')
     }
   }, [scanButtonIsClicked])
 
   useEffect(() => {
-    if (
-      prevUrlErrorMessage !== null &&
-      prevUrlErrorMessage.includes('Login required')
-    ) {
+    if (prevUrlErrorType === URL_ERROR_LOGIN_REQUIRED) {
       setShowBasicAuthModal(true)
     }
 
-    if (
-      prevUrlErrorMessage !== null &&
-      prevUrlErrorMessage.includes('No chrome browser')
-    ) {
+    if (prevUrlErrorType === URL_ERROR_NO_CHROME) {
       setShowNoChromeErrorModal(true)
     }
-  }, [prevUrlErrorMessage])
+  }, [prevUrlErrorMessage, prevUrlErrorType])
 
   useEffect(() => {
     const getUserData = async () => {
@@ -208,6 +212,11 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
     window.services.editUserData(info)
   }
 
+  const setUrlError = (message, type = null) => {
+    setPrevUrlErrorType(type)
+    setPrevUrlErrorMessage(message)
+  }
+
   useEffect(() => {
     const checkChromeExists = async () => {
       const chromeExists = await window.services.checkChromeExistsOnMac()
@@ -235,7 +244,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
     if (scanDetails.scanUrl.length === 0) {
       setScanButtonIsClicked(false)
-      setPrevUrlErrorMessage('URL cannot be empty.')
+      setUrlError(t('scanError.urlEmpty'))
       return
     }
 
@@ -245,13 +254,13 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         !isValidFilepath(scanDetails.scanUrl)
       ) {
         setScanButtonIsClicked(false)
-        setPrevUrlErrorMessage('Invalid sitemap.')
+        setUrlError(t('scanError.invalidSitemap'))
         return
       }
     } else if (scanDetails.scanType === 'Local file') {
       if (!isValidFilepath(scanDetails.scanUrl)) {
         setScanButtonIsClicked(false)
-        setPrevUrlErrorMessage('File is not a local html or sitemap file.')
+        setUrlError(t('scanError.notLocalFile'))
         return
       }
     } else if (scanDetails.scanType === 'Custom flow') {
@@ -260,18 +269,18 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         !isValidFilepath(scanDetails.scanUrl)
       ) {
         setScanButtonIsClicked(false)
-        setPrevUrlErrorMessage('Invalid URL.')
+        setUrlError(t('scanError.invalidUrl'))
         return
       }
     } else if (!isValidHttpUrl(scanDetails.scanUrl)) {
       setScanButtonIsClicked(false)
-      setPrevUrlErrorMessage('Invalid URL.')
+      setUrlError(t('scanError.invalidUrl'))
       return
     }
 
     if (!navigator.onLine) {
       setScanButtonIsClicked(false)
-      setPrevUrlErrorMessage('No internet connection.')
+      setUrlError(t('scanError.noInternet'))
       return
     }
 
@@ -294,17 +303,15 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
 
     if (scanResponse.failedToCreateExportDir) {
       setScanButtonIsClicked(false)
-      setPrevUrlErrorMessage('Unable to create download directory')
+      setUrlError(t('scanError.cannotCreateDownloadDir'))
       return
     }
 
     if (scanResponse.success) {
       setCompletedScanId(scanResponse.scanId)
-      if (scanDetails.scanType === 'Custom flow') {
-        navigate('/custom_flow', { state: { scanDetails } })
-      } else {
-        navigate('/result')
-      }
+      // All scan types, including Custom flow, go straight to the result
+      // page. The custom flow report label is collected in the scan browser.
+      navigate('/result')
       return
     }
 
@@ -317,15 +324,18 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       }
 
       setScanButtonIsClicked(false)
-      const match = Object.values(urlCheckStatuses).find(
-        (s) => s.code === scanResponse.statusCode
-      )
-      let msg = match && 'message' in match ? match.message : 'Something went wrong. Please try again later.'
+      const messageKey = urlCheckMessageKey(scanResponse.statusCode)
+      let msg = messageKey ? t(messageKey) : t('scanError.generic')
       if (scanResponse.httpResponseCode) {
         msg += ` (HTTP ${scanResponse.httpResponseCode})`
       }
       console.log(msg)
-      setPrevUrlErrorMessage(msg)
+      setUrlError(
+        msg,
+        scanResponse.statusCode === urlCheckStatuses.unauthorised.code
+          ? URL_ERROR_LOGIN_REQUIRED
+          : null
+      )
       return
     }
 
@@ -335,11 +345,11 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
       })
     } else {
       setScanButtonIsClicked(false)
-      setPrevUrlErrorMessage('Something went wrong. Please try again later.')
+      setUrlError(t('scanError.generic'))
     }
   }
 
-  const areUserDetailsSet = name !== '' && email !== ''
+  const areUserDetailsSet = (name !== '' && email !== '') || telemetryOptOut === true
 
   const handleBasicAuthSubmit = (e) => {
     e.preventDefault()
@@ -362,17 +372,20 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             id="edit-user-details"
             onClick={() => setShowEditDataModal(true)}
           >
-            Welcome <b>{name}</b> &nbsp;
-            <img src={editIcon} aria-label="Edit profile"></img>
+            {telemetryOptOut
+              ? t('home.welcomeOptedOut')
+              : t('home.welcome', { name, b: (text) => <b>{text}</b> })}{' '}
+            &nbsp;
+            <img src={editIcon} aria-label={t('home.editProfile')}></img>
           </button>
         </div>
         <div id="home-page-main">
           <img
             id="a11y-logo"
             src={a11yLogo}
-            alt="Logo of the GovTech Accessibility Enabling Team"
+            alt={t('home.logoAlt')}
           />
-          <h1 id="app-title">Accessibility Site Scanner</h1>
+          <h1 id="app-title">{t('home.appTitle')}</h1>
           <InitScanForm
             startScan={startScan}
             prevUrlErrorMessage={prevUrlErrorMessage}
@@ -387,14 +400,11 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             showHeader={true}
             showModal={showBasicAuthModal}
             setShowModal={setShowBasicAuthModal}
-            modalTitle={'Your website requires basic authentication'}
+            modalTitle={t('home.basicAuthTitle')}
             modalBody={
               <>
                 <BasicAuthForm handleBasicAuthSubmit={handleBasicAuthSubmit} />
-                <p className="mb-0">
-                  Oobee will solely capture your credentials for this scan and
-                  promptly remove them thereafter.
-                </p>
+                <p className="mb-0">{t('home.basicAuthDesc')}</p>
               </>
             }
             modalFooter={
@@ -413,6 +423,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
               setShowEditDataModal={setShowEditDataModal}
               initialName={name}
               initialEmail={email}
+              initialTelemetryOptOut={telemetryOptOut === true}
               setUserData={setUserData}
             />
           </>
@@ -435,7 +446,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
         {showAnnouncementModal && appVersionInfo.alwaysShowAnnouncement && (
           <WhatsNewModal
             modalId="announcement-modal"
-            title="Announcement"
+            title={t('home.announcement')}
             showModal={showAnnouncementModal}
             setShowModal={setShowAnnouncementModal}
             version={appVersionInfo.appVersion}
@@ -459,7 +470,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
             showHeader={true}
             showModal={showProxyModal}
             setShowModal={setShowProxyModal}
-            modalTitle={'Configure Proxy Settings'}
+            modalTitle={t('home.proxyTitle')}
             modalSizeClass="modal-dialog-centered"
             modalBody={
               <>
@@ -467,7 +478,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                   <form id="proxy-form" onSubmit={handleProxySubmit}>
                     <div className="user-form-field">
                       <label className="user-form-label" htmlFor="proxy-input">
-                        ALL_PROXY Value
+                        {t('home.proxyAllLabel')}
                       </label>
                       <input
                         type="text"
@@ -481,7 +492,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                     </div>
                     <div className="user-form-field">
                       <label className="user-form-label" htmlFor="include-proxy-input">
-                        INCLUDE_PROXY Value (optional)
+                        {t('home.proxyIncludeLabel')}
                       </label>
                       <input
                         type="text"
@@ -493,9 +504,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                     </div>
                   </form>
                 </div>
-                <p>
-                  Leave empty to clear proxy settings. This will be used for all scans.
-                </p>
+                <p>{t('home.proxyDesc')}</p>
               </>
             }
             modalFooter={
@@ -504,7 +513,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                 form="proxy-form"
                 className="btn-primary modal-button"
               >
-                Save
+                {t('common.save')}
               </button>
             }
           />
@@ -513,7 +522,7 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
           <img
             id="app-illustration"
             src={appIllustration}
-            alt="Illustration showing people with sight, hearing, motor and cognitive disabilities"
+            alt={t('home.illustrationAlt')}
           />
           <span id="footer-text">
             {
@@ -528,11 +537,11 @@ const HomePage = ({ appVersionInfo, setCompletedScanId }) => {
                     src={isLabMode ? labModeOn : labModeOff}
                     alt=""
                   />
-                  Version {appVersionInfo.appVersion}{' '}
+                  {t('home.version', { version: appVersionInfo.appVersion })}{' '}
                   {getVersionLabel(appVersionInfo.appVersion) &&
                     `(${getVersionLabel(appVersionInfo.appVersion)})`}
                 </Button>{' '}
-                | Powered by GovTech's A11y
+                | {t('home.poweredBy')}
               </>
             }
           </span>

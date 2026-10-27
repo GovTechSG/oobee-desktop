@@ -1,4 +1,7 @@
+import { useTranslation } from "../../i18n";
+
 const Alert = ({ alertClassName, children, icon, onClose }) => {
+  const { t } = useTranslation();
   return (
     <div
       className={`alert d-flex flex-row ${alertClassName ? alertClassName : ""}`}
@@ -20,7 +23,7 @@ const Alert = ({ alertClassName, children, icon, onClose }) => {
           <button
             type="button"
             className="btn-close"
-            aria-label="Close alert"
+            aria-label={t("common.closeAlert")}
             onClick={onClose}
           />
         )

@@ -5,7 +5,8 @@ const {
 } = require("./constants"); 
 const { ipcMain, dialog, shell } = require("electron");
 const path = require('path');
-const Sentry = require('@sentry/electron/main');
+const telemetry = require('./telemetry');
+const localeManager = require('./localeManager');
 const { v4: uuidv4 } = require('uuid');
 
 const sanitizeIncomingPath = (rawPath) => {
@@ -63,7 +64,40 @@ const RENDERER_WRITABLE_FIELDS = new Set([
     // disable the app's update prompt on the next launch.
     'isLabMode',
     'firstLaunchOnUpdate',
+    // Validated further in applyTelemetryOptOutPolicy() below.
+    'telemetryOptOut',
 ]);
+
+// Main-process enforcement of the telemetry opt-out, independent of the UI:
+// - only a strict boolean is accepted;
+// - a *new* opt-out is only accepted outside Singapore (the UI hides the option
+//   in Singapore; this stops a compromised renderer from bypassing that);
+// - opting back in is always allowed, and an existing opt-out is always kept;
+// - while opted out, name and email are always blanked so no PII is stored.
+const applyTelemetryOptOutPolicy = (current, patch, isOutsideSingapore) => {
+    const next = { ...patch };
+    if ('telemetryOptOut' in next) {
+        const requested = next.telemetryOptOut;
+        if (typeof requested !== 'boolean') {
+            delete next.telemetryOptOut;
+        } else if (requested && current.telemetryOptOut !== true && !isOutsideSingapore()) {
+            delete next.telemetryOptOut;
+        }
+    }
+    const effectiveOptOut = 'telemetryOptOut' in next
+        ? next.telemetryOptOut
+        : current.telemetryOptOut === true;
+    if (effectiveOptOut) {
+        next.name = '';
+        next.email = '';
+    }
+    return next;
+}
+
+// A profile is complete when the user has given name + email, or has opted
+// out of telemetry (in which case name + email are intentionally blank).
+const isUserProfileComplete = (data) =>
+    !!data && (data.telemetryOptOut === true || (data.name !== '' && data.email !== ''));
 
 // Trusted writer, for main-process callers that pass their own literal keys.
 // Deliberately unfiltered: an allowlist here silently drops any field a caller
@@ -74,7 +108,7 @@ const writeUserDetailsToFile = (data) => {
     const updatedData = { ...userData, ...patch };
     fs.writeFileSync(userDataFilePath, JSON.stringify(updatedData));
 
-    Sentry.setUser({
+    telemetry.setUser({
         id: userData.userId,
     });
 }
@@ -88,7 +122,14 @@ const writeRendererSuppliedUserDetails = (data) => {
             }
         }
     }
-    writeUserDetailsToFile(clean);
+    const current = readUserDataFromFile();
+    const patch = applyTelemetryOptOutPolicy(current, clean, localeManager.isOutsideSingapore);
+    // Apply the opt-out before writing so setUser() inside the writer is
+    // already a no-op, and the running Sentry client is shut down.
+    if ('telemetryOptOut' in patch) {
+        telemetry.setTelemetryOptOut(patch.telemetryOptOut);
+    }
+    writeUserDetailsToFile(patch);
 }
 
 const createExportDir = (path) => {
@@ -186,7 +227,7 @@ const init = async () => {
 const setData = async (userDataEvent) => {
     const data = readUserDataFromFile();
 
-    if (data.name === "" || data.email === "") {
+    if (!isUserProfileComplete(data)) {
         const userData = new Promise((resolve) => {
            userDataEvent.emit("userDataDoesNotExist", resolve);
         })
@@ -208,4 +249,6 @@ module.exports = {
     setProxySettings,
     getIncludeProxy,
     setIncludeProxy,
+    applyTelemetryOptOutPolicy,
+    isUserProfileComplete,
 }

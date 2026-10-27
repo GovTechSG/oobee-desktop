@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "../i18n";
 
 const ConnectionNotification = () => {
+  const { t } = useTranslation();
   const [noConnection, setNoConnection] = useState(false);
   const [reconnected, setReconnected] = useState(false);
   const ref = useRef();
@@ -40,7 +42,7 @@ const ConnectionNotification = () => {
 
   return (
     <div id="connection-notification" ref={ref}>
-      {reconnected ? "Connection restored" : "No internet connection"}
+      {reconnected ? t("connection.restored") : t("connection.none")}
     </div>
   );
 };

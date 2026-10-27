@@ -6,8 +6,10 @@ import { ReactComponent as ExclamationCircleIcon } from "../../assets/exclamatio
 import { useState, useEffect } from "react";
 import { errorStates } from "../../common/constants";
 import services from "../../services"
+import { useTranslation } from "../../i18n";
 
 const ErrorPage = () => {
+  const { t } = useTranslation();
   const { state } = useLocation();
   const navigate = useNavigate();
   const [ errorState, setErrorState ] = useState('');
@@ -34,14 +36,14 @@ const ErrorPage = () => {
       case errorStates.browserError:
         return (
           <>
-            <h1>Unable to use browser to scan</h1>
-            <p>Please close either Google Chrome or Microsoft Edge browser.</p>
+            <h1>{t("errorPage.browserTitle")}</h1>
+            <p>{t("errorPage.browserDesc")}</p>
           </>
         )
       case errorStates.noPagesScannedError:
-        return (<><h1>No pages were scanned.</h1></>)
+        return (<><h1>{t("errorPage.noPagesScanned")}</h1></>)
       default:
-        return (<><h1>Something went wrong! Please try again.</h1></>)
+        return (<><h1>{t("errorPage.somethingWrong")}</h1></>)
     }
 
   }
@@ -50,7 +52,7 @@ const ErrorPage = () => {
     await navigator.clipboard.writeText(errorLog);
     const result = await window.services.openErrorLog();
     if (!result?.success) {
-      alert("Error log copied to clipboard.");
+      alert(t("errorPage.logCopied"));
     }
   }
 
@@ -63,9 +65,9 @@ const ErrorPage = () => {
       {errorMessageToDisplay()}
       <div class='btn-container'>
         <Button role="link" type="btn-primary" onClick={handleBackToHome}>
-          Try Again
+          {t("errorPage.tryAgain")}
         </Button>
-        {errorLog && <Button type="btn-secondary" onClick={copyErrorLog}>Copy Error Log</Button>}
+        {errorLog && <Button type="btn-secondary" onClick={copyErrorLog}>{t("errorPage.copyLog")}</Button>}
 
       </div>
     </div>

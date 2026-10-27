@@ -1,3 +1,63 @@
+# Internationalisation (i18n)
+
+The UI is available in English (`en`) and Japanese (`ja`).
+
+## How the language is chosen
+
+- `public/electron/localeManager.js` (main process) resolves the language: **Japanese** when the first entry of `app.getPreferredSystemLanguages()` **or** `app.getSystemLocale()` (regional format) is `ja*`; otherwise **English**. Japanese as only a secondary preferred language does not switch the UI.
+- The renderer gets it via the `getLocaleInfo` IPC (`window.services.getLocaleInfo()`), registered in `main.js` before any window loads.
+- `src/i18n/index.jsx` (`I18nProvider`, `useTranslation`) wraps `<App />` in `src/index.js`. It renders nothing until the language is known (no English flash). This works because the main process only sends `appStatus` / `userDataExists` after `guiReady`, which `App` sends once mounted. Do not move the provider below `App`'s status switch.
+- It sets `<html lang>`, which drives the Japanese font fallback in `App.css` (`:lang(ja)` → Hiragino / Yu Gothic UI / Meiryo; PT Sans and Open Sans have no Japanese glyphs).
+- Dev/QA overrides: `OOBEE_DESKTOP_LANGUAGE=ja|en`, `OOBEE_DESKTOP_REGION=<ISO 3166 alpha-2>`.
+
+## Rules
+
+- Every user-visible string — including `aria-label`, `alt`, tooltips, `alert()` text, screen-reader `role="status"` text and validation errors — goes through `t('key', vars)`.
+- Add every new key to **both** `src/i18n/locales/en.json` and `ja.json`. `tests/unit/locales.test.mjs` fails on missing keys, mismatched `{placeholders}` / `<tags>`, keys used in `src` but missing from `en.json`, and untranslated Japanese values.
+- Message syntax (`src/i18n/format.js`): `{var}` substitution; `<tag>text</tag>` calls `vars.tag(text)` to wrap rich text (links, `<b>`, `<strong>`); plurals use `key_one` / `key_other` with `{ count }`. Never split a sentence into several keys and concatenate — word order differs in Japanese.
+- **Internal identifiers stay English.** Scan type labels (`'Custom flow'`, `'Local file'`, …), viewport and file type values, and sentinels such as `CHOOSE_FILE_PLACEHOLDER` are compared in code and persisted in `sessionStorage`. Translate only at display time (`SelectField` `getOptionLabelKey`, `scanTypeLabelKey` / `viewportLabelKey` / `fileTypeLabelKey` in `constants.js`). The "Home Page Scan-Type UI Logic" rules above still apply unchanged.
+- Never branch on translated text. `HomePage` uses `URL_ERROR_LOGIN_REQUIRED` / `URL_ERROR_NO_CHROME` error types instead of matching error-message substrings.
+- `urlCheckStatuses[*].message` is the English fallback only; display uses `t(urlCheckMessageKey(code))`.
+- Release notes / announcements from the remote catalog are not translated.
+
+---
+
+# Telemetry Opt-out
+
+## Behaviour
+
+- The option "Opt out of accessibility scan telemetry" appears in onboarding step 5 and in **Edit your profile** when `localeInfo.telemetryOptOutAvailable` is true: the OS region (`app.getLocaleCountryCode()`, falling back to the region subtag of `getSystemLocale()`) is known and is not `SG`, **or** the user has already opted out (so they can review or undo it). An unknown region keeps the existing behaviour (no option).
+- Ticking it blanks and disables name and e-mail. Onboarding then submits `{ name: '', email: '', telemetryOptOut: true }` via the "Continue" button.
+- `userDataManager.isUserProfileComplete()` treats an opted-out profile as complete, so onboarding is not shown again.
+
+## Main-process enforcement (`userDataManager.applyTelemetryOptOutPolicy`)
+
+- `telemetryOptOut` is in `RENDERER_WRITABLE_FIELDS`, but only a strict boolean is accepted.
+- A **new** opt-out is accepted only outside Singapore (`localeManager.isOutsideSingapore()`), so a compromised renderer cannot bypass the UI gate. An existing opt-out is always kept; opting back in is always allowed.
+- While opted out, `name` and `email` are always written as `''`.
+
+## What opting out disables
+
+- **Scans** (`scanManager.js`): `-k name:email` is omitted, `OOBEE_SENTRY_DSN` is removed and `OOBEE_DISABLE_TELEMETRY=true` is set (via `telemetry.getScanIdentityArgs` / `applyScanTelemetryEnv`). `scanDetails.telemetryOptOut` is always taken from the main-process `userData`, never from the renderer. Requires engine ≥ 0.11.18, where `-k` is optional once `OOBEE_DISABLE_TELEMETRY` is set.
+- **Oobee Desktop Sentry** (`public/electron/telemetry.js`): at startup `initSentry()` reads `userData.txt` and does not call `Sentry.init()` at all when opted out (no sessions, traces, breadcrumbs or crash uploads). `captureMessage` / `setUser` are no-ops. Opting out mid-session sets `enabled = false` on the client, calls `Sentry.close(0)`, and `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb` drop anything still queued. Opting back in takes effect on the next launch (the UI says so).
+
+## Guardrails
+
+- **Never `require('@sentry/electron')` outside `telemetry.js`.** `tests/unit/telemetry.test.js` fails if any other `public/electron/*.js` file imports it.
+- Any new telemetry (Sentry events, form submissions, analytics) must check `telemetry.isTelemetryOptedOut()` or go through `telemetry.js`.
+- Any new code path that spawns the engine must use `getScanIdentityArgs` and `applyScanTelemetryEnv`.
+
+## Tests
+
+```shell
+node --test tests/unit/*.test.*                                    # main-process + locale files (no Electron)
+CI=true DISABLE_ESLINT_PLUGIN=true npx react-scripts test --watchAll=false src/i18n   # render tests
+```
+
+`DISABLE_ESLINT_PLUGIN=true` is needed because the repo's `eslint-config-react-app` setup currently fails with `Environment key "jest/globals" is unknown` (pre-existing; also on `main`).
+
+---
+
 # Home Page Scan-Type UI Logic
 
 This document defines the expected UI behavior for scan type handling in:
@@ -74,6 +134,7 @@ From `src/common/constants.js`:
 
 ## Submission & Validation Rules
 
+- On a successful scan, every scan type (including `Custom flow`) navigates straight to `/result`. There is no separate custom flow screen after the scan: the custom flow report label is requested in the scan browser during the scan, not in the desktop app.
 - In file mode, **do not force** `scanType` to `Local file` during submit.
 - Submit the currently selected file-mode scan type (`Local file` / `Sitemap crawler` / `Custom flow`).
 - Persist the actual selected `scanType`; use `isFileOptionChecked` to determine URL vs FILE mode.

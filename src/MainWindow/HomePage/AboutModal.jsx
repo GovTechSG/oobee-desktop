@@ -8,8 +8,10 @@ import phLogo from '../../assets/logo-oobee-emblem-full-colour.svg'
 import { handleClickLink, versionComparator } from '../../common/constants'
 import { useEffect, useState } from 'react'
 import Button from '../../common/components/Button'
+import { useTranslation } from '../../i18n'
 
 const UpdateAlert = ({ latestVer, isPrerelease }) => {
+  const { t } = useTranslation()
   const handleRestartApp = (e) => {
     window.services.restartApp()
   }
@@ -18,25 +20,30 @@ const UpdateAlert = ({ latestVer, isPrerelease }) => {
     <Alert alertClassName='alert-primary mb-5 gap-5'>
       <div className='flex-grow-1'>
         <h4>
-          Update available ({latestVer} - latest{' '}
-          {isPrerelease ? 'pre-release' : 'stable build'})
+          {t('about.updateAvailable', {
+            version: latestVer,
+            label: isPrerelease
+              ? t('version.latestPrerelease')
+              : t('version.latestStable'),
+          })}
         </h4>
-        <p className='mb-0'>To update, restart Oobee.</p>
+        <p className='mb-0'>{t('about.restartToUpdate')}</p>
       </div>
       <Button
         type='btn-primary'
         className='align-self-center'
         onClick={handleRestartApp}
-        aria-label='Restart Oobee'
+        aria-label={t('about.restartAriaLabel')}
       >
         <img src={arrowRepeat} alt='' />
-        Restart
+        {t('common.restart')}
       </Button>
     </Alert>
   )
 }
 
 const LabModeDescription = ({ isLabMode, setIsLabMode }) => {
+  const { t } = useTranslation()
   const handleToggleLabMode = (e) => {
     const checked = e.target.checked
     setIsLabMode(checked)
@@ -52,7 +59,7 @@ const LabModeDescription = ({ isLabMode, setIsLabMode }) => {
               src={isLabMode ? labModeOn : labModeOff}
               alt=''
             />
-            Lab mode
+            {t('about.labMode')}
           </p>
           {/* custom toggle switch */}
           <div class='form-switch form-check mb-2'>
@@ -67,10 +74,7 @@ const LabModeDescription = ({ isLabMode, setIsLabMode }) => {
           </div>
         </div>
         <p className='card-text'>
-          Lab mode grants early access to our pre-releases with existing feature
-          improvements and experimental features. These features are not ready
-          for public use and may <strong>change, break or disappear</strong> at
-          any moment.
+          {t('about.labModeDesc', { strong: (text) => <strong>{text}</strong> })}
         </p>
       </div>
     </div>
@@ -93,6 +97,7 @@ const ExternalLink = ({ url, children, linkClass }) => {
 }
 
 const AppDescription = ({ version, versionLabel }) => {
+  const { t } = useTranslation()
   const releaseNotesUrl = `https://github.com/GovTechSG/oobee-desktop/releases/tag/${version}`;
   const a11yWebsiteUrl = 'https://go.gov.sg/a11y';
   const privacyStatementUrl = 'https://go.gov.sg/oobee-privacy-statement';
@@ -105,32 +110,28 @@ const AppDescription = ({ version, versionLabel }) => {
   return (
     <div className='mb-5'>
       <div className='d-flex gap-3'>
-        <img src={phLogo} alt='Oobee logo' />
+        <img src={phLogo} alt={t('about.logoAlt')} />
         <div>
-          <p className='m-0 bold-text'>Oobee Desktop</p>
+          <p className='m-0 bold-text'>{t('about.appName')}</p>
           <p className='m-0 d-inline-block me-3'>
-            Version {version} {versionLabel && `(${versionLabel})`}
+            {t('about.version', { version })} {versionLabel && `(${versionLabel})`}
           </p>
-          <ExternalLink url={releaseNotesUrl}>See release notes</ExternalLink>
+          <ExternalLink url={releaseNotesUrl}>{t('about.releaseNotes')}</ExternalLink>
         </div>
       </div>
-      <p className='mt-3 mb-2'>
-        Built by GovTech Accessibility Enabling (A11y) Team.
-      </p>
+      <p className='mt-3 mb-2'>{t('about.builtBy')}</p>
       <div className='d-flex gap-3'>
-        <ExternalLink url={a11yWebsiteUrl}>A11Y Website</ExternalLink>
-        <ExternalLink url={privacyStatementUrl}>Privacy Statement</ExternalLink>
-        <ExternalLink url={termsOfUseUrl}>Terms Of Use</ExternalLink>
-        <ExternalLink url={reportVulnerabilityUrl}>Report Vulnerability</ExternalLink>
+        <ExternalLink url={a11yWebsiteUrl}>{t('about.a11yWebsite')}</ExternalLink>
+        <ExternalLink url={privacyStatementUrl}>{t('about.privacyStatement')}</ExternalLink>
+        <ExternalLink url={termsOfUseUrl}>{t('about.termsOfUse')}</ExternalLink>
+        <ExternalLink url={reportVulnerabilityUrl}>{t('about.reportVulnerability')}</ExternalLink>
       </div>
 
-      <p className='mt-3 mb-2'>
-        Third-party Licenses:
-      </p>
+      <p className='mt-3 mb-2'>{t('about.thirdPartyLicenses')}</p>
       <div className='d-flex gap-3'>
-          <ExternalLink url={thirdPartyDesktop}>Oobee Desktop</ExternalLink>
-          <ExternalLink url={thirdPartyCLI}>CLI</ExternalLink>
-          <ExternalLink url={thirdPartyReport}>Report</ExternalLink>
+          <ExternalLink url={thirdPartyDesktop}>{t('about.licenseDesktop')}</ExternalLink>
+          <ExternalLink url={thirdPartyCLI}>{t('about.licenseCli')}</ExternalLink>
+          <ExternalLink url={thirdPartyReport}>{t('about.licenseReport')}</ExternalLink>
       </div>
 
     </div>
@@ -145,6 +146,7 @@ const AboutModal = ({
   isLabMode,
   setIsLabMode,
 }) => {
+  const { t } = useTranslation()
   const { appVersion, latestVer, latestVerForLab } = appVersionInfo
   const [toUpdateVer, setToUpdateVer] = useState(undefined)
 
@@ -186,7 +188,7 @@ const AboutModal = ({
         </>
       }
       modalSizeClass='modal-lg modal-dialog-centered'
-      modalTitle='About Oobee Desktop'
+      modalTitle={t('about.title')}
       setShowModal={setShowModal}
     />
   )

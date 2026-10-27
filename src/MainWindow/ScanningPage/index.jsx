@@ -7,8 +7,10 @@ import Button from "../../common/components/Button";
 import ToolTip from "../../common/components/ToolTip";
 import Modal from "../../common/components/Modal";
 import startingUrlIcon from "../../assets/starting-url.svg";
+import { useTranslation } from "../../i18n";
 
 const ScanningPage = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { state } = useLocation();
   const [url, setUrl] = useState(null);
@@ -41,14 +43,14 @@ const ScanningPage = () => {
               </div>
               <div className="abort-scan-tooltip-container">
                 <ToolTip
-                  description="Abort scan"
+                  description={t("scanning.abort")}
                   id="abort-scan-tooltip"
                   showToolTip={showAbortScanTooltip}
                 />
                 <button
                   type="button"
                   className="btn-close"
-                  aria-label="Abort scan"
+                  aria-label={t("scanning.abort")}
                   onMouseEnter={() => setShowAbortScanTooltip(true)}
                   onMouseLeave={() => setShowAbortScanTooltip(false)}
                   onClick={() => setShowAbortScanModal(true)}
@@ -58,7 +60,7 @@ const ScanningPage = () => {
             </div>
           </div>
           <ScanningComponent
-            scanningMessage={"Preparing Scan..."}
+            scanningMessage={t("scanning.preparing")}
           ></ScanningComponent>
           <Modal
             id="abortScanModal"
@@ -66,15 +68,12 @@ const ScanningPage = () => {
             showModal={showAbortScanModal}
             setShowModal={setShowAbortScanModal}
             showHeader={true}
-            modalTitle={"Are you sure?"}
+            modalTitle={t("scanning.confirmTitle")}
             modalSizeClass="modal-dialog-centered"
             hideCloseButton={true}
             modalBody={
               <>
-                <p className="mb-0">
-                  Aborting the scan will lose any progress and return back to
-                  the home screen.
-                </p>
+                <p className="mb-0">{t("scanning.confirmBody")}</p>
               </>
             }
             modalFooter={
@@ -84,14 +83,14 @@ const ScanningPage = () => {
                   className="abort-modal-left-button"
                   onClick={handleAbortScan}
                 >
-                  Yes
+                  {t("common.yes")}
                 </Button>
                 <Button
                   type="btn-primary"
                   className="abort-modal-right-button"
                   onClick={handleAbortScanModalNo}
                 >
-                  No
+                  {t("common.no")}
                 </Button>
               </>
             }

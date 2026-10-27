@@ -3,7 +3,8 @@ import Button from '../../common/components/Button'
 import DownloadFolderDropdown from '../../common/components/DownloadFolderDropdown'
 import UserDetailsForm from '../../common/components/UserDetailsForm'
 import PageIndicator from './components/PageIndicator'
-import { policyUrlElem } from '../../common/constants'
+import { PolicyLink } from '../../common/constants'
+import { useTranslation } from '../../i18n'
 import firstTimer1 from '../../assets/first-timer-1.svg'
 import firstTimer2 from '../../assets/first-timer-2.svg'
 import firstTimer3 from '../../assets/first-timer-3.svg'
@@ -11,12 +12,19 @@ import firstTimer4 from '../../assets/first-timer-4.svg'
 import arrowRight from '../../assets/arrow-right-white.svg'
 import { useEffect, useState } from 'react'
 
+const TOTAL_STEPS = 5
+
 const OnboardingComponent = ({ setDataExistStatus }) => {
+  const { t, localeInfo } = useTranslation()
+  const showTelemetryOptOut = localeInfo.telemetryOptOutAvailable
   const [step, setStep] = useState(1)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
+  const [telemetryOptOut, setTelemetryOptOut] = useState(false)
   const [nameInputErrorMessage, setNameInputErrorMessage] = useState(null)
   const [emailInputErrorMessage, setEmailInputErrorMessage] = useState(null)
+
+  const isOptedOut = showTelemetryOptOut && telemetryOptOut
 
   useEffect(() => {
     setFocus()
@@ -32,7 +40,11 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
   }
 
   const handleSetUserData = () => {
-    window.services.setUserData({ name, email })
+    const userData = isOptedOut
+      ? { name: '', email: '', telemetryOptOut: true }
+      : { name, email }
+    if (showTelemetryOptOut && !isOptedOut) userData.telemetryOptOut = false
+    window.services.setUserData(userData)
     setDataExistStatus('exists')
   }
 
@@ -41,6 +53,7 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
     setEmailInputErrorMessage(null)
     setName('')
     setEmail('')
+    setTelemetryOptOut(false)
   }
 
   const setFocus = () => {
@@ -48,13 +61,21 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
     modalBody.focus()
   }
 
+  const stepStatus = (current) => (
+    <div className="visually-hidden" aria-live="polite" role="status">
+      {t('onboarding.itemOf', { current, total: TOTAL_STEPS })}
+    </div>
+  )
+
+  const policy = (text) => <PolicyLink>{text}</PolicyLink>
+
   const backButton = (
     <Button
       type="btn-secondary"
       className="secondary modal-button modal-half-button modal-left-button"
       onClick={handleOnBackClick}
     >
-      Back
+      {t('common.back')}
     </Button>
   )
   const nextButton = (
@@ -63,26 +84,25 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
       className="modal-button modal-half-button modal-right-button"
       onClick={handleOnNextClick}
     >
-      Next
+      {t('common.next')}
     </Button>
   )
 
   const formID = 'first-timer-form'
 
-  const isSubmitDisabled =
-    name.trim() === '' ||
-    email.trim() === '' ||
-    nameInputErrorMessage ||
-    emailInputErrorMessage
+  const isSubmitDisabled = isOptedOut
+    ? false
+    : name.trim() === '' ||
+      email.trim() === '' ||
+      nameInputErrorMessage ||
+      emailInputErrorMessage
 
   const renderOnboardingBody = () => {
     switch (step) {
       case 1: {
         return (
           <>
-            <div className="visually-hidden" aria-live="polite" role="status">
-              Item 1 of 5
-            </div>
+            {stepStatus(1)}
             <div
               className="modal-img-container fade-in-left"
               aria-hidden="true"
@@ -90,14 +110,11 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
               <img
                 className="modal-img"
                 src={firstTimer1}
-                alt="person saying hello"
+                alt={t('onboarding.step1Alt')}
               ></img>
             </div>
-            <h3 className="modal-title fade-in-left">Hi there!</h3>
-            <p className="modal-desc fade-in-left">
-              Making your website accessible is within reach. Let’s get started
-              by taking a quick look at how Oobee Desktop works.
-            </p>
+            <h3 className="modal-title fade-in-left">{t('onboarding.step1Title')}</h3>
+            <p className="modal-desc fade-in-left">{t('onboarding.step1Desc')}</p>
             <PageIndicator page={1}></PageIndicator>
           </>
         )
@@ -105,9 +122,7 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
       case 2: {
         return (
           <>
-            <div className="visually-hidden" aria-live="polite" role="status">
-              Item 2 of 4
-            </div>
+            {stepStatus(2)}
             <div
               className="modal-img-container fade-in-left"
               aria-hidden="true"
@@ -117,11 +132,8 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
                 <img className="modal-img" src={firstTimer2}></img>
               </div>
             </div>
-            <h3 className="modal-title fade-in-left">Get started</h3>
-            <p className="modal-desc fade-in-left">
-              Enter your website or sitemap URL and Oobee Desktop will crawl
-              through them to analyse and identify accessibility issues.
-            </p>
+            <h3 className="modal-title fade-in-left">{t('onboarding.step2Title')}</h3>
+            <p className="modal-desc fade-in-left">{t('onboarding.step2Desc')}</p>
             <PageIndicator page={2}></PageIndicator>
           </>
         )
@@ -129,9 +141,7 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
       case 3: {
         return (
           <>
-            <div className="visually-hidden" aria-live="polite" role="status">
-              Item 3 of 4
-            </div>
+            {stepStatus(3)}
             <div
               className="modal-img-container fade-in-left"
               aria-hidden="true"
@@ -139,15 +149,11 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
               <img
                 className="modal-img"
                 src={firstTimer3}
-                alt="custom flow step-by-step animation illustration"
+                alt={t('onboarding.step3Alt')}
               ></img>
             </div>
-            <h3 className="modal-title fade-in-left">Custom flow scan</h3>
-            <p className="modal-desc fade-in-left">
-              This scan type allows you to specify a user journey by enabling
-              you to click the scan button on each desired webpage on a browser
-              to initiate scan.
-            </p>
+            <h3 className="modal-title fade-in-left">{t('onboarding.step3Title')}</h3>
+            <p className="modal-desc fade-in-left">{t('onboarding.step3Desc')}</p>
             <PageIndicator page={3}></PageIndicator>
           </>
         )
@@ -155,25 +161,18 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
       case 4: {
         return (
           <>
-            <div className="visually-hidden" aria-live="polite" role="status">
-              Item 4 of 5
-            </div>
+            {stepStatus(4)}
             <div
               className="modal-img-container fade-in-left"
               aria-hidden="true"
             >
               <img className="modal-img" src={firstTimer4}></img>
             </div>
-            <h3 className="modal-title fade-in-left">
-              Download report location
-            </h3>
+            <h3 className="modal-title fade-in-left">{t('onboarding.step4Title')}</h3>
             <DownloadFolderDropdown
               isOnboarding={true}
             ></DownloadFolderDropdown>
-            <p className="modal-desc fade-in-left">
-              All reports generated from Oobee Desktop will be auto-downloaded
-              into this folder.
-            </p>
+            <p className="modal-desc fade-in-left">{t('onboarding.step4Desc')}</p>
             <PageIndicator page={4}></PageIndicator>
           </>
         )
@@ -181,10 +180,8 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
       case 5: {
         return (
           <>
-            <div className="visually-hidden" aria-live="polite" role="status">
-              Item 5 of 5
-            </div>
-            <h3 className="modal-title fade-in-left">Get to know you</h3>
+            {stepStatus(5)}
+            <h3 className="modal-title fade-in-left">{t('onboarding.step5Title')}</h3>
             <UserDetailsForm
               formID={formID}
               name={name}
@@ -197,11 +194,14 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
               setEmailInputErrorMessage={setEmailInputErrorMessage}
               handleOnSubmit={handleSetUserData}
               isOnboarding={true}
+              showTelemetryOptOut={showTelemetryOptOut}
+              telemetryOptOut={telemetryOptOut}
+              setTelemetryOptOut={setTelemetryOptOut}
             />
             <p className="modal-desc fade-in-left">
-              To personalise your experience, we will be collecting your name,
-              email address and app usage data. The collection and usage of your
-              data will fully comply with {policyUrlElem}
+              {isOptedOut
+                ? t('telemetry.optedOutDesc')
+                : t('onboarding.consentDesc', { policy })}
             </p>
             <PageIndicator page={5}></PageIndicator>
           </>
@@ -221,7 +221,7 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
             className="modal-button modal-full-button"
             onClick={handleOnNextClick}
           >
-            Let's go &nbsp;
+            {t('onboarding.letsGo')} &nbsp;
             <img src={arrowRight} alt=""></img>
           </Button>
         )
@@ -246,7 +246,7 @@ const OnboardingComponent = ({ setDataExistStatus }) => {
               className={`btn-primary modal-button modal-half-button modal-right-button`}
               disabled={isSubmitDisabled}
             >
-              I consent
+              {isOptedOut ? t('onboarding.continue') : t('onboarding.consent')}
             </button>
           </>
         )

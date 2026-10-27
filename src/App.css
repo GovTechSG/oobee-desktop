@@ -42,6 +42,49 @@
   --a11y-headings: 'PT Sans Bold';
 }
 
+/* PT Sans / Open Sans have no Japanese glyphs. Fall back to the OS Japanese
+   UI fonts (macOS: Hiragino, Windows: Yu Gothic UI / Meiryo). */
+:root:lang(ja) {
+  --a11y-regular-paragraph: 'PT Sans', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', sans-serif;
+  --a11y-headings: 'PT Sans Bold', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', sans-serif;
+}
+
+:lang(ja) body,
+:lang(ja) button,
+:lang(ja) input,
+:lang(ja) select {
+  font-family: var(--a11y-regular-paragraph);
+}
+
+/* Telemetry opt-out (onboarding + edit profile, outside Singapore only) */
+.telemetry-opt-out {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+.telemetry-opt-out input[type='checkbox'] {
+  margin-top: 0.3rem;
+  accent-color: var(--a11y-purple-100-light);
+}
+
+.telemetry-opt-out label {
+  font-weight: 700;
+}
+
+.telemetry-opt-out-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--a11y-black-80);
+}
+
+.user-form-input:disabled {
+  background: var(--a11y-black-5);
+  color: var(--a11y-black-50);
+}
+
 #root {
   min-height: 100vh;
   width: 100vw;

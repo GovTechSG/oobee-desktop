@@ -8,8 +8,10 @@ import houseIcon from "../../assets/house-purple.svg";
 import thumbsUpIcon from "../../assets/hand-thumbs-up-purple.svg";
 import checkCircleIcon from "../../assets/check-circle.svg";
 import boxArrowUpRightIcon from "../../assets/box-arrow-up-right-white.svg";
+import { useTranslation } from "../../i18n";
 
 const ResultPage = ({ completedScanId: scanId }) => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [resultsPath, setResultsPath] = useState(null);
   const [feedbackFormUrl, setFeedbackFormUrl] = useState(null);
@@ -37,8 +39,9 @@ const ResultPage = ({ completedScanId: scanId }) => {
   };
 
   const handleScanAgain = () => {
-    window.sessionStorage.removeItem("latestCustomFlowScanDetails");
-    window.sessionStorage.removeItem("latestCustomFlowEncryptionParams");
+    // Legacy cleanup: the removed /custom_flow page stored the last custom
+    // flow scan details (including the scan URL) here and never cleared it.
+    window.localStorage.removeItem("latestCustomFlowScanDetails");
     navigate("/");
     return;
   };
@@ -54,23 +57,26 @@ const ResultPage = ({ completedScanId: scanId }) => {
       <div id="main-container">
         <div id="main-contents">
           <img alt="" src={checkCircleIcon}></img>
-          <h1>Scan completed</h1>
+          <h1>{t("result.title")}</h1>
           <p id="download-content">
-            You can find the downloaded report at{" "}
-            <a href="#" onClick={handleOpenResultsFolder}>
-              {resultsPath}
-            </a>
-            .
+            {t("result.downloadLocation", {
+              path: resultsPath,
+              link: (text) => (
+                <a href="#" onClick={handleOpenResultsFolder}>
+                  {text}
+                </a>
+              ),
+            })}
           </p>
           <div id="btn-container">
             <Button id="view-button" type="btn-primary" onClick={handleViewReport}>
               <img alt="" src={boxArrowUpRightIcon}></img>
-              View report
+              {t("result.viewReport")}
             </Button>
           </div>
           <hr class="my-5" />
           <div id="other-actions">
-            <h2>Other actions</h2>
+            <h2>{t("result.otherActions")}</h2>
             <ul class="actions-list">
               <li>
                 <a
@@ -80,14 +86,14 @@ const ResultPage = ({ completedScanId: scanId }) => {
                   }}
                 >
                   <img alt="" src={thumbsUpIcon}></img>
-                  Help us improve
+                  {t("result.helpImprove")}
                 </a>
               </li>
               <li>
                 <hr />
                 <Link to="/" onClick={handleScanAgain}>
                   <img alt="" src={houseIcon}></img>
-                  Back To Home
+                  {t("result.backToHome")}
                 </Link>
               </li>
             </ul>

@@ -4,14 +4,15 @@ import checkIcon from "../../assets/check-circle.svg";
 import slashCircleIcon from "../../assets/slash-circle.svg";
 import crossCircleIcon from "../../assets/cross-circle.svg";
 import LoadingScanningStatus from "./LoadingScanningStatus";
+import { useTranslation } from "../../i18n";
 
 const ScanningComponent = ({ scanningMessage }) => {
+  const { t } = useTranslation();
   const [urlItems, setUrlItems] = useState([]);
   const [urlItemComponents, setUrlItemComponents] = useState([]);
   const [pagesScanned, setPagesScanned] = useState(0);
   const [displayPageNum, setDisplayPageNum] = useState(0);
   const [scanCompleted, setScanCompleted] = useState(false);
-  const [displayPageWord, setDisplayPageWord] = useState("page");
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   useEffect(() => {
@@ -69,10 +70,6 @@ const ScanningComponent = ({ scanningMessage }) => {
     };
   }, []);
 
-  useEffect(() => {
-    setDisplayPageWord(displayPageNum === 1 ? "page" : "pages");
-  }, [displayPageNum]);
-
   const UrlItemComponent = ({ index, urlItem, scanCompleted }) => {
     const isMostRecent = index === 0;
     const urlItemClassName = !isMostRecent
@@ -109,11 +106,11 @@ const ScanningComponent = ({ scanningMessage }) => {
   return (
     <div className="scanning-component">
       {isGeneratingReport ? (
-        <LoadingScanningStatus scanningMessage="Finalising your report, please give it some time." />
+        <LoadingScanningStatus scanningMessage={t("scanning.finalising")} />
       ) : urlItems.length > 0 ? (
         <>
           <h1 className="scanning-url-title">
-            Scanned: {displayPageNum} {displayPageWord}
+            {t("scanning.scannedCount", { count: displayPageNum })}
           </h1>
           <div className="scanning-url-list-container">
             <ul className="scanning-url-list">{urlItemComponents}</ul>

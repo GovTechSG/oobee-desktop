@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("services", {
     const phEngineVersion = await ipcRenderer.invoke("getEngineVersion");
     return phEngineVersion;
   },
+  getLocaleInfo: async () => ipcRenderer.invoke("getLocaleInfo"),
   getResultsFolderPath: async (scanId) => {
     const reportPath = await ipcRenderer.invoke("getResultsFolderPath", scanId);
     return reportPath;

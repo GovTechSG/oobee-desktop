@@ -77,6 +77,7 @@ export const cliErrorTypes = {
   blockedByClient: 24,
 }
 
+// `message` is the English fallback; the UI shows t(`urlCheck.${key}`).
 export const urlCheckStatuses = {
   success: { code: 0 },
   invalidUrl: { code: 11, message: 'Invalid URL. Please check and try again.' },
@@ -112,7 +113,8 @@ export const errorStates = {
   noPagesScannedError: 'noPagesScannedError',
 }
 
-export const policyUrlElem = (
+// Link to GovTech's privacy policy. `children` is the (translated) link text.
+export const PolicyLink = ({ children }) => (
   <a
     role="link"
     className="link"
@@ -121,10 +123,30 @@ export const policyUrlElem = (
       handleClickLink(e, 'https://www.tech.gov.sg/privacy/')
     }}
   >
-    GovTech's Privacy Policy
-    <img className="external-link" src={boxRightArrow}></img>
+    {children}
+    <img className="external-link" src={boxRightArrow} alt=""></img>
   </a>
 )
+
+// Display-label translation keys for values whose English label is also the
+// internal identifier (see AGENTS.md: keep internal keys English).
+export const scanTypeLabelKey = (scanTypeLabel) =>
+  scanTypes[scanTypeLabel] ? `scanTypes.${scanTypes[scanTypeLabel]}` : null
+
+export const viewportLabelKey = (viewportLabel) => {
+  const entry = Object.entries(viewportTypes).find(([, label]) => label === viewportLabel)
+  return entry ? `viewportTypes.${entry[0]}` : null
+}
+
+export const fileTypeLabelKey = (fileTypeLabel) =>
+  fileTypes[fileTypeLabel] ? `fileTypes.${fileTypes[fileTypeLabel]}` : null
+
+export const urlCheckMessageKey = (statusCode) => {
+  const entry = Object.entries(urlCheckStatuses).find(
+    ([, status]) => status.code === statusCode && 'message' in status
+  )
+  return entry ? `urlCheck.${entry[0]}` : null
+}
 
 export const installChromeUrl = `https://www.google.com/chrome/?brand=CHBD&brand=CHBD&gclid=CjwKCAjwivemBhBhEiwAJxNWNw4XXX3fa_mPCTmN68msYCUU6zovJt0g4ZCSB5sdYm1icRv-qs2v9RoCmPsQAvD_BwE&gclsrc=aw.ds`
 
@@ -144,42 +166,6 @@ export const handleClickLink = (e, url) => {
   if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return
   window.services.openLink(parsed.toString())
 }
-
-export const forbiddenCharactersInDirPath = [
-  '<',
-  '>',
-  ':',
-  '"',
-  '/',
-  '\\',
-  '|',
-  '?',
-  '*',
-]
-export const reserveFileNameKeywords = [
-  'CON',
-  'PRN',
-  'AUX',
-  'NUL',
-  'COM1',
-  'COM2',
-  'COM3',
-  'COM4',
-  'COM5',
-  'COM6',
-  'COM7',
-  'COM8',
-  'COM9',
-  'LPT1',
-  'LPT2',
-  'LPT3',
-  'LPT4',
-  'LPT5',
-  'LPT6',
-  'LPT7',
-  'LPT8',
-  'LPT9',
-]
 
 export const versionComparator = (ver1, ver2) => {
   // return 1 if ver1 >= ver2, else return -1

@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useTranslation } from "../../i18n";
 
 const Modal = ({
   id,
@@ -13,6 +14,7 @@ const Modal = ({
   modalSizeClass = "",
   hideCloseButton,
 }) => {
+  const { t } = useTranslation();
   const modalClassName = getModalClassName(showModal, isOnboarding);
   const modalHeaderClassName = showHeader
     ? "modal-header show"
@@ -100,7 +102,7 @@ const Modal = ({
                 type="button"
                 className="btn-close"
                 onClick={() => setShowModal(false)}
-                aria-label="Close"
+                aria-label={t("common.close")}
                 aria-controls={id}
               />
             )}
