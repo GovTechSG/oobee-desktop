@@ -26,6 +26,7 @@ const {
 } = require('./constants')
 const { readUserDataFromFile, createExportDir, getProxySettings, getIncludeProxy } = require('./userDataManager')
 const { getScanIdentityArgs, applyScanTelemetryEnv } = require('./telemetry')
+const { getLocaleInfo } = require('./localeManager')
 const scanHistory = {}
 
 let currentChildProcess
@@ -255,6 +256,8 @@ const getScanOptions = (details) => {
     ...getScanIdentityArgs({ name, email, telemetryOptOut }),
     '-i',
     fileTypes,
+    '--lang',
+    getLocaleInfo().language,
   ]
 
   // Add default exclusions.txt containing blacklisted URL patterns

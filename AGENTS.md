@@ -9,6 +9,7 @@ The UI is available in English (`en`) and Japanese (`ja`).
 - `src/i18n/index.jsx` (`I18nProvider`, `useTranslation`) wraps `<App />` in `src/index.js`. It renders nothing until the language is known (no English flash). This works because the main process only sends `appStatus` / `userDataExists` after `guiReady`, which `App` sends once mounted. Do not move the provider below `App`'s status switch.
 - It sets `<html lang>`, which drives the Japanese font fallback in `App.css` (`:lang(ja)` → Hiragino / Yu Gothic UI / Meiryo; PT Sans and Open Sans have no Japanese glyphs).
 - Dev/QA overrides: `OOBEE_DESKTOP_LANGUAGE=ja|en`, `OOBEE_DESKTOP_REGION=<ISO 3166 alpha-2>`.
+- `scanManager.getScanOptions()` passes `--lang` from the main-process `localeManager.getLocaleInfo()` to the engine, so new reports follow the Desktop language. Replacing the backend alone does not select a report language; the engine defaults to English without an explicit language setting.
 
 ## Rules
 

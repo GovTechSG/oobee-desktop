@@ -4,6 +4,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('path')
 const Module = require('module')
+const fs = require('node:fs')
+const vm = require('node:vm')
 
 const root = path.resolve(__dirname, '..', '..')
 
@@ -51,6 +53,38 @@ test('resolveLanguage: override wins and is validated', () => {
   assert.equal(locale.resolveLanguage({ override: 'ja', preferredLanguages: ['en-US'] }), 'ja')
   assert.equal(locale.resolveLanguage({ override: 'en', preferredLanguages: ['ja-JP'] }), 'en')
   assert.equal(locale.resolveLanguage({ override: 'fr', preferredLanguages: ['ja-JP'] }), 'ja')
+})
+
+test('scan reports follow the Desktop language for every scan type', () => {
+  const filename = path.join(root, 'public/electron/scanManager.js')
+  const source = fs.readFileSync(filename, 'utf8')
+  const localRequire = Module.createRequire(filename)
+  let language
+  const getScanOptions = vm.runInNewContext(`${source}\ngetScanOptions`, {
+    module: { exports: {} },
+    require: (request) => {
+      if (request === 'electron' || request === './userDataManager') return {}
+      if (request === './constants') return { enginePath: root }
+      if (request === './localeManager') return { getLocaleInfo: () => ({ language }) }
+      return localRequire(request)
+    },
+  }, { filename })
+  const cases = [
+    [{ preferredLanguages: ['ja-JP'] }, 'ja'],
+    [{ preferredLanguages: ['en-US'], systemLocale: 'ja-JP' }, 'ja'],
+    [{ override: 'ja', preferredLanguages: ['en-US'] }, 'ja'],
+    [{ override: 'en', preferredLanguages: ['ja-JP'] }, 'en'],
+    [{ preferredLanguages: ['en-US', 'ja-JP'] }, 'en'],
+    [{}, 'en'],
+  ]
+  for (const [settings, expected] of cases) {
+    language = locale.resolveLanguage(settings)
+    for (const scanType of ['intelligent', 'sitemap', 'website', 'custom', 'local-file']) {
+      const options = getScanOptions({ scanType, language: expected === 'ja' ? 'en' : 'ja' })
+      assert.equal(options.filter((option) => option === '--lang').length, 1)
+      assert.equal(options[options.indexOf('--lang') + 1], expected)
+    }
+  }
 })
 
 test('resolveRegion: country code first, then locale region subtag', () => {
