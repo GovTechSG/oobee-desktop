@@ -1,7 +1,7 @@
 // Render tests: edit-profile telemetry opt-out.
 //   CI=true DISABLE_ESLINT_PLUGIN=true npx react-scripts test --watchAll=false src/i18n
 import '@testing-library/jest-dom'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import EditUserDetailsModal from '../MainWindow/HomePage/EditUserDetailsModal'
 import { setupServices, renderWithI18n } from './testUtils/helpers'
 
@@ -26,30 +26,32 @@ test('is hidden in Singapore', async () => {
   expect(screen.queryByLabelText(/Opt out of accessibility scan telemetry/)).not.toBeInTheDocument()
 })
 
-test('outside Singapore (Japanese UI): opting out sends blank name/email', async () => {
+test('outside Singapore (Japanese UI): opt-out is hidden and profile editing still works', async () => {
   setupServices({ language: 'ja', region: 'US', telemetryOptOutAvailable: true })
   renderModal()
-  fireEvent.click(await screen.findByLabelText('アクセシビリティスキャンのテレメトリーを無効にする'))
-  expect(screen.getByLabelText('氏名')).toHaveValue('')
-  expect(screen.getByText(/GovTech に送信されません/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '更新' }))
-  expect(window.services.editUserData).toHaveBeenCalledWith({ name: '', email: '', telemetryOptOut: true })
+  await screen.findByLabelText('氏名')
+  expect(screen.queryByLabelText('アクセシビリティスキャンのテレメトリーを無効にする')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('氏名'), { target: { value: 'Updated Name' } })
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '更新' }))
+  })
+  expect(window.services.editUserData).toHaveBeenCalledWith({ name: 'Updated Name', email: 'taro@example.jp' })
 })
 
-test('opted-out user can opt back in and sees the restart note', async () => {
-  setupServices({ language: 'en', region: 'SG', telemetryOptOutAvailable: true })
+test.each(['SG', 'JP', ''])('saved opt-out stays hidden in region %s without being overwritten', async (region) => {
+  setupServices({ language: 'en', region, telemetryOptOutAvailable: true })
   renderModal({ initialName: '', initialEmail: '', initialTelemetryOptOut: true })
-  const checkbox = await screen.findByLabelText(/Opt out of accessibility scan telemetry/)
-  expect(checkbox).toBeChecked()
-  fireEvent.click(checkbox)
-  expect(screen.getByText(/Telemetry will resume after you restart Oobee/)).toBeInTheDocument()
+  await screen.findByText('Edit your profile')
+  expect(screen.queryByLabelText(/Opt out of accessibility scan telemetry/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Telemetry will resume after you restart Oobee/)).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Update' })).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Taro Yamada' } })
   fireEvent.change(screen.getByLabelText('Work Email'), { target: { value: 'taro@example.jp' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+  })
   expect(window.services.editUserData).toHaveBeenCalledWith({
     name: 'Taro Yamada',
     email: 'taro@example.jp',
-    telemetryOptOut: false,
   })
 })

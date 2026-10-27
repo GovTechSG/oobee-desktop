@@ -15,6 +15,7 @@ import ja from './locales/ja.json'
 
 export const MESSAGES = { en, ja }
 export const DEFAULT_LANGUAGE = 'en'
+export const TELEMETRY_OPT_OUT_ENABLED = false
 
 const DEFAULT_LOCALE_INFO = {
   language: DEFAULT_LANGUAGE,
@@ -32,7 +33,7 @@ const toNode = (result) =>
 const normaliseLocaleInfo = (info) => {
   const merged = { ...DEFAULT_LOCALE_INFO, ...(info || {}) }
   if (!MESSAGES[merged.language]) merged.language = DEFAULT_LANGUAGE
-  merged.telemetryOptOutAvailable = merged.telemetryOptOutAvailable === true
+  merged.telemetryOptOutAvailable = TELEMETRY_OPT_OUT_ENABLED && merged.telemetryOptOutAvailable === true
   return merged
 }
 

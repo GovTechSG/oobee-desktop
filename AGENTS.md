@@ -27,6 +27,7 @@ The UI is available in English (`en`) and Japanese (`ja`).
 
 ## Behaviour
 
+- The frontend feature flag `TELEMETRY_OPT_OUT_ENABLED` in `src/i18n/index.jsx` is currently `false`, hiding the option in onboarding and profile editing regardless of region or saved opt-out. Main-process policy and previously saved opt-outs remain unchanged. The availability rules below apply when the flag is enabled.
 - The option "Opt out of accessibility scan telemetry" appears in onboarding step 5 and in **Edit your profile** when `localeInfo.telemetryOptOutAvailable` is true: the OS region (`app.getLocaleCountryCode()`, falling back to the region subtag of `getSystemLocale()`) is known and is not `SG`, **or** the user has already opted out (so they can review or undo it). An unknown region keeps the existing behaviour (no option).
   - On **Windows** `getLocaleCountryCode()` returns the country of the **Regional format** (`GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SISO3166CTRYNAME)`), not the separate **Country or region** (GeoID) setting. A Windows user in Singapore usually has "English (Singapore)", so changing only "Country or region" will not show the option. Regional formats without a country (e.g. "English (World)") resolve to an unknown region, so the option stays hidden.
   - On **macOS** it is the **Region** setting.

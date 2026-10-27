@@ -64,27 +64,16 @@ describe('onboarding telemetry opt-out', () => {
     expect(screen.getByRole('button', { name: 'I consent' })).toBeDisabled()
   })
 
-  test('outside Singapore: opting out blanks name/email and submits without them', async () => {
-    setupServices({ language: 'en', region: 'JP', telemetryOptOutAvailable: true })
-    const setDataExistStatus = jest.fn()
-    renderWithI18n(<OnboardingComponent setDataExistStatus={setDataExistStatus} />)
+  test.each(['JP', 'US', ''])('opt-out is hidden even when available in region %s', async (region) => {
+    setupServices({ language: 'en', region, telemetryOptOutAvailable: true })
+    renderWithI18n(<OnboardingComponent setDataExistStatus={() => {}} />)
     await goToLastOnboardingStep()
-
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Taro Yamada' } })
-    fireEvent.change(screen.getByLabelText('Work Email'), { target: { value: 'taro@example.jp' } })
-    fireEvent.click(screen.getByLabelText(/Opt out of accessibility scan telemetry/))
-
+    expect(screen.queryByLabelText(/Opt out of accessibility scan telemetry/)).not.toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toHaveValue('')
-    expect(screen.getByLabelText('Name')).toBeDisabled()
+    expect(screen.getByLabelText('Name')).toBeEnabled()
     expect(screen.getByLabelText('Work Email')).toHaveValue('')
-    expect(screen.getByLabelText('Work Email')).toBeDisabled()
-
-    const submit = screen.getByRole('button', { name: 'Continue' })
-    expect(submit).toBeEnabled()
-    fireEvent.click(submit)
-
-    expect(window.services.setUserData).toHaveBeenCalledWith({ name: '', email: '', telemetryOptOut: true })
-    expect(setDataExistStatus).toHaveBeenCalledWith('exists')
+    expect(screen.getByLabelText('Work Email')).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'I consent' })).toBeDisabled()
   })
 
   test('outside Singapore without opting out still requires name/email', async () => {
@@ -98,7 +87,6 @@ describe('onboarding telemetry opt-out', () => {
     expect(window.services.setUserData).toHaveBeenCalledWith({
       name: 'Taro Yamada',
       email: 'taro@example.jp',
-      telemetryOptOut: false,
     })
   })
 })
