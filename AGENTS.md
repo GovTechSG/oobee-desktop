@@ -27,6 +27,9 @@ The UI is available in English (`en`) and Japanese (`ja`).
 ## Behaviour
 
 - The option "Opt out of accessibility scan telemetry" appears in onboarding step 5 and in **Edit your profile** when `localeInfo.telemetryOptOutAvailable` is true: the OS region (`app.getLocaleCountryCode()`, falling back to the region subtag of `getSystemLocale()`) is known and is not `SG`, **or** the user has already opted out (so they can review or undo it). An unknown region keeps the existing behaviour (no option).
+  - On **Windows** `getLocaleCountryCode()` returns the country of the **Regional format** (`GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SISO3166CTRYNAME)`), not the separate **Country or region** (GeoID) setting. A Windows user in Singapore usually has "English (Singapore)", so changing only "Country or region" will not show the option. Regional formats without a country (e.g. "English (World)") resolve to an unknown region, so the option stays hidden.
+  - On **macOS** it is the **Region** setting.
+  - Both language and region are read once per launch (and on profile save); restart the app after changing OS settings.
 - Ticking it blanks and disables name and e-mail. Onboarding then submits `{ name: '', email: '', telemetryOptOut: true }` via the "Continue" button.
 - `userDataManager.isUserProfileComplete()` treats an opted-out profile as complete, so onboarding is not shown again.
 

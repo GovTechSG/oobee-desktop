@@ -312,7 +312,12 @@ Oobee may send information to the website or URL where the user chooses to initi
 
 ### Opting out of telemetry (outside Singapore)
 
-If your operating system Region is set to a country other than Singapore (macOS: **System Settings → General → Language & Region → Region**; Windows: **Settings → Time & Language → Language & region → Country or region**), the onboarding screen and **Edit your profile** dialog show an **Opt out of accessibility scan telemetry** option. When selected:
+If your operating system region is outside Singapore, the onboarding screen and **Edit your profile** dialog show an **Opt out of accessibility scan telemetry** option.
+
+- macOS: **System Settings → General → Language & Region → Region**.
+- Windows: the country of **Settings → Time & language → Language & region → Regional format** (for example "English (United States)" or "日本語 (日本)"). The separate **Country or region** setting is not used.
+
+When selected:
 
 - Your name and e-mail address are cleared and not collected.
 - Scans run with `OOBEE_DISABLE_TELEMETRY=true`, so the Oobee engine sends no scan telemetry.
@@ -322,4 +327,4 @@ You can turn telemetry back on from **Edit your profile**; it resumes after rest
 
 ## Language
 
-Oobee Desktop is available in English and Japanese. The interface is shown in Japanese when your preferred system language or regional format is Japanese (macOS: **Language & Region**; Windows: **Windows display language** or **Regional format**). Otherwise it is shown in English.
+Oobee Desktop is available in English and Japanese. The interface is shown in Japanese when your first preferred system language or your regional format is Japanese (macOS: **Language & Region**; Windows: **Settings → Time & language → Language & region**, either **Preferred languages** with 日本語 at the top or **Regional format** set to 日本語 (日本)). Otherwise it is shown in English. Restart Oobee after changing these settings.

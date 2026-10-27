@@ -4,11 +4,15 @@
 //   their regional format, is Japanese. Everything else falls back to English.
 //     macOS:   System Settings → General → Language & Region
 //              (Preferred Languages + Region / format)
-//     Windows: Settings → Time & Language → Language & region
-//              (Windows display language + Regional format)
-// - Region: the OS "Region" (macOS) / "Country or region" (Windows) setting,
-//   via app.getLocaleCountryCode(). Used to decide whether the telemetry
+//     Windows: Settings → Time & language → Language & region
+//              (Preferred languages list + Regional format)
+// - Region: app.getLocaleCountryCode(). Used to decide whether the telemetry
 //   opt-out is offered (only outside Singapore).
+//     macOS:   the "Region" setting (CFLocale kCFLocaleCountryCode).
+//     Windows: the country of the *Regional format* (GetLocaleInfoEx
+//              LOCALE_NAME_USER_DEFAULT / LOCALE_SISO3166CTRYNAME), e.g.
+//              "English (Singapore)" → SG, "日本語 (日本)" → JP. It does NOT
+//              read Windows' separate "Country or region" (GeoID) setting.
 //
 // The resolve* helpers are pure so they can be unit tested with plain
 // `node --test`; anything that touches Electron is loaded lazily.
