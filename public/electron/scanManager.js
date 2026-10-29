@@ -445,14 +445,18 @@ const startScan = async (scanDetails, scanEvent) => {
     }
 
     const parseAndEmitCrawlingLines = (line) => {
-      const crawlRegex = /crawling::(\d+)::([^:]+)::(.+)/g
+      // Engine >= 0.11.24 emits crawling::num::status::statusCode::message::url;
+      // older engines emit crawling::num::status::url.
+      const crawlRegex = /crawling::(\d+)::([^:]+)::(?:(\d+)::([^:]*)::)?(.+?)(?=\s*crawling::\d+::|\s*$)/g
       let crawlMatch
       while ((crawlMatch = crawlRegex.exec(line)) !== null) {
         const urlScannedNum = parseInt(crawlMatch[1].trim())
         const status = crawlMatch[2].trim()
-        const url = crawlMatch[3].trim()
+        const statusCode = crawlMatch[3] === undefined ? undefined : parseInt(crawlMatch[3])
+        const message = crawlMatch[4] === undefined ? undefined : crawlMatch[4].replace(/%3A/g, ':')
+        const url = crawlMatch[5].trim()
         console.log(urlScannedNum, ': ', status, ': ', '*'.repeat(url.length))
-        scanEvent.emit('scanningUrl', { status, url, urlScannedNum })
+        scanEvent.emit('scanningUrl', { status, statusCode, message, url, urlScannedNum })
       }
     }
 
