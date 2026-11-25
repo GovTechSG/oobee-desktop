@@ -41,7 +41,7 @@ Each time a scan completes, the app records a *Scan Completed* event with your o
 | Data | Notes |
 | ---- | ----- |
 | Name, email and anonymous user ID | As described above. |
-| Website scanned | The URL you entered and, if it redirected, the URL it ended up at. Usage analytics (Sentry) receives **only the host name** (for example, `www.example.gov.sg`), with no path, query string or credentials. Local file scans are reported as `file://redacted`. |
+| Website scanned | The **host name** of the URL you entered (for example, `www.example.gov.sg`), with no path, query string or credentials. Local file scans are reported as `file://redacted`. |
 | Scan settings | Scan type, browser and Oobee version. |
 | Page counts | The number of pages scanned, pages skipped and redirects followed. |
 | Issue counts | The number of distinct issues and total occurrences in each of *Must Fix*, *Good to Fix* and *Manual Review Required*, plus the number of occurrences of each WCAG success criterion and each failed rule. |
@@ -56,18 +56,17 @@ If the app crashes or hits an unexpected error, a crash report is sent to Sentry
 ### What is *not* collected
 
 - Page content, page text, screenshots or your generated reports.
-- Full page URLs, URL paths or query strings (usage analytics only sees the host name; see above).
+- Full page URLs, URL paths or query strings (only the host name is sent; see above).
 - Cookies, passwords or anything you type into sites during a custom flow scan.
 - Files on your computer, apart from the crash details above.
 
 ## Where telemetry is sent
 
-| Destination | Purpose |
-| ----------- | ------- |
-| [Sentry](https://sentry.io) (`*.ingest.us.sentry.io`) | App launch and close events, scan analytics, WCAG breakdowns and crash reports. |
-| Google Forms (`docs.google.com`) | Scan summary records: name, email, scanned URL, scan type, page counts and the issue summary described above. |
+All of the data above, including app launch and close events, scan summaries and crash reports, is sent to [Sentry](https://sentry.io) (`*.ingest.us.sentry.io`), which we use for usage analytics and error tracking.
 
-If these services can't be reached (for example, behind a corporate firewall), the app and your scans still work and your reports are unaffected.
+Versions of Oobee Desktop bundling an Oobee engine older than 0.11.27 also sent scan summaries (including name, email and the full scanned URL) to Google Forms, and the HTML report sent "Useful" / "Not useful" ratings of AI suggestions to Google Forms. Oobee no longer sends any data to Google Forms.
+
+If Sentry can't be reached (for example, behind a corporate firewall), the app and your scans still work and your reports are unaffected.
 
 ## Turning telemetry off
 
