@@ -64,8 +64,6 @@ If the app crashes or hits an unexpected error, a crash report is sent to Sentry
 
 All of the data above, including app launch and close events, scan summaries and crash reports, is sent to [Sentry](https://sentry.io) (`*.ingest.us.sentry.io`), which we use for usage analytics and error tracking.
 
-Versions of Oobee Desktop bundling an Oobee engine older than 0.11.27 also sent scan summaries (including name, email and the full scanned URL) to Google Forms, and the HTML report sent "Useful" / "Not useful" ratings of AI suggestions to Google Forms. Oobee no longer sends any data to Google Forms.
-
 If Sentry can't be reached (for example, behind a corporate firewall), the app and your scans still work and your reports are unaffected.
 
 ## Turning telemetry off
