@@ -465,7 +465,9 @@ app.on('ready', async () => {
 
   ipcMain.handle('checkChromeExistsOnMac', () => {
     if (os.platform() === 'darwin') {
-      return constants.getDefaultChromeDataDir()
+      // Chrome that was installed but never opened has no profile dir yet;
+      // the engine can still use it, so also accept the app bundle.
+      return !!constants.getDefaultChromeDataDir() || constants.isChromeAppInstalledOnMac()
     } else {
       return true
     }

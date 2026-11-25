@@ -100,6 +100,12 @@ const defaultExportDir = path.join(os.homedir(), "Documents", "Oobee");
 
 const indexPath = path.join(__dirname, "..", "..", "build", "index.html");
 
+// Same location the engine's oobee_shell.sh / oobee_shell_ps.ps1 use. The
+// portable backend doesn't ship Playwright browsers (scans use system Chrome
+// or Edge), but this must still be a real absolute path: if it's left
+// undefined it reaches the engine as the literal string "undefined".
+const playwrightBrowsersPath = path.join(backendPath, "ms-playwright");
+
 const getPathVariable = () => {
   if (os.platform() === "win32") {
     const directories = [
@@ -174,6 +180,14 @@ const getDefaultChromeDataDir = () => {
     console.error(`Error in getDefaultChromeDataDir(): ${error}`);
   }
 };
+
+const macChromeAppPaths = [
+  "/Applications/Google Chrome.app",
+  path.join(os.homedir(), "Applications", "Google Chrome.app"),
+];
+
+const isChromeAppInstalledOnMac = () =>
+  os.platform() === "darwin" && macChromeAppPaths.some((p) => fs.existsSync(p));
 
 const getDefaultEdgeDataDir = () => {
   try {
@@ -253,6 +267,7 @@ module.exports = {
   appVersion,
   preloadPath,
   indexPath,
+  playwrightBrowsersPath,
   getPathVariable,
   scanResultsPath,
   updateBackupsFolder,
@@ -270,5 +285,6 @@ module.exports = {
   macOSPrepackageBackend,
   hashPath,
   getDefaultChromeDataDir,
+  isChromeAppInstalledOnMac,
   getDefaultEdgeDataDir
 };

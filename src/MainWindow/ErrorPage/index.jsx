@@ -35,7 +35,10 @@ const ErrorPage = () => {
         return (
           <>
             <h1>Unable to use browser to scan</h1>
-            <p>Please close either Google Chrome or Microsoft Edge browser.</p>
+            <p>
+              Please make sure Google Chrome or Microsoft Edge is installed. If
+              it is already open, close it and try again.
+            </p>
           </>
         )
       case errorStates.noPagesScannedError:
