@@ -59,5 +59,5 @@ To install the **user-friendly desktop application** for Oobee, you may continue
 
 * Double-click Oobee then click "Open" in the pop-up menu.
 * Oobee will start setting up. This process may take up to 5 minutes.
-
+* If you see 'Privacy & Security - "Oobee.app" was prevented from from modifying your apps on your Mac' notification, you may safely ignore it as Google Chrome browser was in the midst of being set-up.
 </details>
