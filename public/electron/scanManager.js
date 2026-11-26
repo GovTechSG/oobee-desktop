@@ -216,6 +216,47 @@ const cleanUpBrowserProfiles = async (randomToken) => {
   }
 }
 
+// macOS app-data protection can deny Oobee writes to Chrome's profile dir, which
+// makes the engine crash while cloning it. Hand it an Oobee-owned dir instead.
+const getChromeDataDirOverride = () => {
+  if (os.platform() !== 'darwin') return null
+  const chromeDataDir = getDefaultChromeDataDir()
+  if (!chromeDataDir) return null
+
+  let probeDir
+  try {
+    // mkdtemp creates a fresh uniquely-named dir, so we never touch an existing one.
+    probeDir = fs.mkdtempSync(path.join(chromeDataDir, 'oobee-access-check-'))
+  } catch (error) {
+    if (error.code !== 'EPERM' && error.code !== 'EACCES') return null
+    const fallbackDir = path.join(appPath, 'Chrome Profiles')
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true })
+      // The engine clones "Local State" from this dir; without it the clone is reported as failed.
+      // 'wx' creates exclusively, so an existing file or planted symlink is never written through.
+      try {
+        fs.writeFileSync(
+          path.join(fallbackDir, 'Local State'),
+          JSON.stringify({ profile: { info_cache: {} } }),
+          { flag: 'wx' }
+        )
+      } catch (writeError) {
+        if (writeError.code !== 'EEXIST') throw writeError
+      }
+    } catch (mkdirError) {
+      console.error(`[scanManager] Unable to create ${fallbackDir}: ${mkdirError.message}`)
+      return null
+    }
+    console.warn(`[scanManager] Cannot write to ${chromeDataDir} (${error.code}); using ${fallbackDir}`)
+    return fallbackDir
+  }
+
+  try {
+    fs.rmdirSync(probeDir)
+  } catch {}
+  return null
+}
+
 const getMaxOldSpaceSize = () => {
   const totalMemMb = Math.floor(os.totalmem() / (1024 * 1024))
   if (totalMemMb < 4096) {
@@ -559,7 +600,9 @@ const startScan = async (scanDetails, scanEvent) => {
     }
 
     console.log("Starting Scan Process...")
-    
+
+    const chromeDataDirOverride = getChromeDataDirOverride()
+
     const scan = spawn(
       'node',
       ['--use-system-ca', `--max-old-space-size=${getMaxOldSpaceSize()}`, `${enginePath}/dist/cli.js`, ...getScanOptions(scanDetails)],
@@ -574,6 +617,7 @@ const startScan = async (scanDetails, scanEvent) => {
           CRAWLEE_SYSTEM_INFO_V2: '1',
           PLAYWRIGHT_BROWSERS_PATH: `${playwrightBrowsersPath}`,
           PATH: getPathVariable(),
+          ...(chromeDataDirOverride && { OOBEE_CHROME_DATA_DIR: chromeDataDirOverride }),
           ...(getProxySettings() && { ALL_PROXY: getProxySettings() }),
           ...(getIncludeProxy() && { INCLUDE_PROXY: getIncludeProxy() }),
         },
